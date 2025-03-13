@@ -1,56 +1,36 @@
 const express = require('express');
 const { check } = require('express-validator');
-const { 
-  createCompany, 
-  getCompany, 
-  updateCompany, 
-  deleteCompany, 
-  uploadLogo 
-} = require('../controllers/companyController');
-const { protect, authorize } = require('../middleware/auth');
+const { updateCompany, getCompany, uploadLogo } = require('../controllers/companyController');
+const { protect } = require('../middleware/auth');
 const { uploadSingle } = require('../middleware/tempUpload');
 
 const router = express.Router();
 
-// All routes require authentication
+// Protect all routes
 router.use(protect);
 
-// @route   POST /api/companies
-// @desc    Create a new company
+// @route   GET /api/company
+// @desc    Get current user's company information
 // @access  Private
-router.post(
-  '/',
-  [
-    check('name', 'Company name is required').notEmpty(),
-  ],
-  createCompany
-);
+router.get('/', getCompany);
 
-// @route   GET /api/companies/:id
-// @desc    Get company by ID
-// @access  Private
-router.get('/:id', getCompany);
-
-// @route   PUT /api/companies/:id
-// @desc    Update company
+// @route   PUT /api/company
+// @desc    Update current user's company information
 // @access  Private
 router.put(
-  '/:id',
+  '/',
   [
     check('name', 'Company name is required').optional().notEmpty(),
     check('email', 'Please include a valid email').optional().isEmail(),
+    check('phone', 'Phone number is invalid').optional().isMobilePhone(),
+    check('website', 'Website URL is invalid').optional().isURL(),
   ],
   updateCompany
 );
 
-// @route   DELETE /api/companies/:id
-// @desc    Delete company
-// @access  Private (Admin only)
-router.delete('/:id', authorize('admin'), deleteCompany);
-
-// @route   POST /api/companies/:id/logo
-// @desc    Upload company logo
+// @route   POST /api/company/logo
+// @desc    Upload logo for current user's company
 // @access  Private
-router.post('/:id/logo', uploadSingle('logo'), uploadLogo);
+router.post('/logo', uploadSingle('logo'), uploadLogo);
 
 module.exports = router; 

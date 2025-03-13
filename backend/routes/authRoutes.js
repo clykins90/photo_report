@@ -15,6 +15,13 @@ router.post(
     check('password', 'Password must be at least 6 characters').isLength({ min: 6 }),
     check('firstName', 'First name is required').notEmpty(),
     check('lastName', 'Last name is required').notEmpty(),
+    // Company validation is optional
+    check('company.name', 'Company name is required if company is provided')
+      .if(check('company').exists())
+      .notEmpty(),
+    check('company.email', 'Company email must be valid if provided')
+      .if(check('company.email').exists())
+      .isEmail(),
   ],
   register
 );

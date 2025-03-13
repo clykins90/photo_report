@@ -1,5 +1,4 @@
 const { validationResult } = require('express-validator');
-const Company = require('../models/Company');
 const User = require('../models/User');
 const { ApiError } = require('../middleware/errorHandler');
 const logger = require('../utils/logger');
@@ -7,78 +6,8 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Create a new company
- * @route POST /api/companies
- * @access Private
- */
-const createCompany = async (req, res, next) => {
-  try {
-    // Check for validation errors
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    const { name, address, phone, email, website, licenseNumber, insuranceInfo, branding } = req.body;
-
-    // Create new company
-    const company = new Company({
-      name,
-      address,
-      phone,
-      email,
-      website,
-      licenseNumber,
-      insuranceInfo,
-      branding,
-    });
-
-    // Save company to database
-    await company.save();
-
-    // Update user with company ID
-    await User.findByIdAndUpdate(req.user.id, { companyId: company._id });
-
-    res.status(201).json({
-      success: true,
-      data: company,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Get company by ID
- * @route GET /api/companies/:id
- * @access Private
- */
-const getCompany = async (req, res, next) => {
-  try {
-    const company = await Company.findById(req.params.id);
-
-    if (!company) {
-      throw new ApiError(404, 'Company not found');
-    }
-
-    // Check if user belongs to this company or is admin
-    const user = await User.findById(req.user.id);
-    if (user.role !== 'admin' && user.companyId.toString() !== company._id.toString()) {
-      throw new ApiError(403, 'Not authorized to access this company');
-    }
-
-    res.status(200).json({
-      success: true,
-      data: company,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Update company
- * @route PUT /api/companies/:id
+ * Update user's company information
+ * @route PUT /api/company
  * @access Private
  */
 const updateCompany = async (req, res, next) => {
@@ -91,35 +20,34 @@ const updateCompany = async (req, res, next) => {
 
     const { name, address, phone, email, website, licenseNumber, insuranceInfo, branding } = req.body;
 
-    // Find company
-    let company = await Company.findById(req.params.id);
+    // Find user
+    const user = await User.findById(req.user.id);
 
-    if (!company) {
-      throw new ApiError(404, 'Company not found');
+    if (!user) {
+      throw new ApiError(404, 'User not found');
     }
 
-    // Check if user belongs to this company or is admin
-    const user = await User.findById(req.user.id);
-    if (user.role !== 'admin' && user.companyId.toString() !== company._id.toString()) {
-      throw new ApiError(403, 'Not authorized to update this company');
+    // Initialize company object if it doesn't exist
+    if (!user.company) {
+      user.company = {};
     }
 
     // Update company fields
-    company.name = name || company.name;
-    company.address = address || company.address;
-    company.phone = phone || company.phone;
-    company.email = email || company.email;
-    company.website = website || company.website;
-    company.licenseNumber = licenseNumber || company.licenseNumber;
-    company.insuranceInfo = insuranceInfo || company.insuranceInfo;
-    company.branding = branding || company.branding;
+    user.company.name = name || user.company.name;
+    user.company.address = address || user.company.address;
+    user.company.phone = phone || user.company.phone;
+    user.company.email = email || user.company.email;
+    user.company.website = website || user.company.website;
+    user.company.licenseNumber = licenseNumber || user.company.licenseNumber;
+    user.company.insuranceInfo = insuranceInfo || user.company.insuranceInfo;
+    user.company.branding = branding || user.company.branding;
 
-    // Save updated company
-    await company.save();
+    // Save updated user
+    await user.save();
 
     res.status(200).json({
       success: true,
-      data: company,
+      data: user.company,
     });
   } catch (error) {
     next(error);
@@ -127,32 +55,25 @@ const updateCompany = async (req, res, next) => {
 };
 
 /**
- * Delete company
- * @route DELETE /api/companies/:id
- * @access Private (Admin only)
+ * Get user's company information
+ * @route GET /api/company
+ * @access Private
  */
-const deleteCompany = async (req, res, next) => {
+const getCompany = async (req, res, next) => {
   try {
-    const company = await Company.findById(req.params.id);
+    const user = await User.findById(req.user.id);
 
-    if (!company) {
-      throw new ApiError(404, 'Company not found');
+    if (!user) {
+      throw new ApiError(404, 'User not found');
     }
 
-    // Only admin can delete companies
-    if (req.user.role !== 'admin') {
-      throw new ApiError(403, 'Not authorized to delete companies');
+    if (!user.company) {
+      throw new ApiError(404, 'Company information not found');
     }
-
-    // Delete company
-    await company.remove();
-
-    // Update users that belonged to this company
-    await User.updateMany({ companyId: req.params.id }, { companyId: null });
 
     res.status(200).json({
       success: true,
-      data: {},
+      data: user.company,
     });
   } catch (error) {
     next(error);
@@ -161,7 +82,7 @@ const deleteCompany = async (req, res, next) => {
 
 /**
  * Upload company logo
- * @route POST /api/companies/:id/logo
+ * @route POST /api/company/logo
  * @access Private
  */
 const uploadLogo = async (req, res, next) => {
@@ -171,16 +92,15 @@ const uploadLogo = async (req, res, next) => {
       throw new ApiError(400, 'Please upload a file');
     }
 
-    const company = await Company.findById(req.params.id);
+    const user = await User.findById(req.user.id);
 
-    if (!company) {
-      throw new ApiError(404, 'Company not found');
+    if (!user) {
+      throw new ApiError(404, 'User not found');
     }
 
-    // Check if user belongs to this company or is admin
-    const user = await User.findById(req.user.id);
-    if (user.role !== 'admin' && user.companyId.toString() !== company._id.toString()) {
-      throw new ApiError(403, 'Not authorized to update this company');
+    // Initialize company object if it doesn't exist
+    if (!user.company) {
+      user.company = {};
     }
 
     // Create public/logos directory if it doesn't exist
@@ -191,7 +111,7 @@ const uploadLogo = async (req, res, next) => {
     }
 
     // Move file from temp to logos directory
-    const logoFilename = `${company._id}_${req.file.filename}`;
+    const logoFilename = `${user._id}_${req.file.filename}`;
     const logoPath = path.join(logosDir, logoFilename);
     
     fs.copyFileSync(req.file.path, logoPath);
@@ -209,15 +129,15 @@ const uploadLogo = async (req, res, next) => {
     const relativePath = path.join('public', 'logos', logoFilename).replace(/\\/g, '/');
     
     // Update company with logo path
-    company.logo = `/logos/${logoFilename}`; // URL for frontend
-    company.logoPath = relativePath; // Path for PDF generation
-    await company.save();
+    user.company.logo = `/logos/${logoFilename}`; // URL for frontend
+    user.company.logoPath = relativePath; // Path for PDF generation
+    await user.save();
 
     res.status(200).json({
       success: true,
       data: {
-        logo: company.logo,
-        logoPath: company.logoPath
+        logo: user.company.logo,
+        logoPath: user.company.logoPath
       },
     });
   } catch (error) {
@@ -226,9 +146,7 @@ const uploadLogo = async (req, res, next) => {
 };
 
 module.exports = {
-  createCompany,
-  getCompany,
   updateCompany,
-  deleteCompany,
+  getCompany,
   uploadLogo,
 }; 

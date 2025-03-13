@@ -82,17 +82,17 @@ const SharedReportPage = () => {
       <div className="max-w-5xl mx-auto px-4">
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           {/* Company Header */}
-          {report.company && (
+          {report.user && report.user.company && (
             <div className="bg-gray-800 text-white p-6">
               <div className="flex justify-between items-center">
                 <div>
-                  <h1 className="text-2xl font-bold">{report.company.name}</h1>
-                  <p className="text-gray-300">{report.company.phone} | {report.company.email}</p>
+                  <h1 className="text-2xl font-bold">{report.user.company.name}</h1>
+                  <p className="text-gray-300">{report.user.company.phone} | {report.user.company.email}</p>
                 </div>
-                {report.company.logoUrl && (
+                {report.user.company.logo && (
                   <img 
-                    src={`${import.meta.env.VITE_API_URL}/${report.company.logoUrl}`} 
-                    alt={`${report.company.name} logo`}
+                    src={`${import.meta.env.VITE_API_URL}${report.user.company.logo}`} 
+                    alt={`${report.user.company.name} logo`}
                     className="h-16 w-auto"
                   />
                 )}

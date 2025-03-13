@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import api from '../../services/api';
 
-const LogoUploader = ({ companyId, currentLogo, onLogoUpdate, hidePreview = false }) => {
+const LogoUploader = ({ currentLogo, onLogoUpdate, hidePreview = false }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState(currentLogo ? `${api.defaults.baseURL}${currentLogo}` : null);
   const fileInputRef = useRef(null);
@@ -31,7 +31,7 @@ const LogoUploader = ({ companyId, currentLogo, onLogoUpdate, hidePreview = fals
       
       // Upload logo to backend
       const response = await api.post(
-        `/api/companies/${companyId}/logo`,
+        '/api/company/logo',
         formData,
         {
           headers: {

@@ -7,11 +7,6 @@ const reportSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
-    company: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Company',
-      required: true,
-    },
     title: {
       type: String,
       required: [true, 'Please add a title'],
@@ -167,7 +162,6 @@ const reportSchema = new mongoose.Schema(
 );
 
 // Index for faster queries
-reportSchema.index({ company: 1, createdAt: -1 });
 reportSchema.index({ user: 1 });
 
 const Report = mongoose.model('Report', reportSchema);

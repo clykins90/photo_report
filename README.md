@@ -81,6 +81,13 @@ This application allows contractors to:
 
 ## Recent Improvements
 
+### Data Model Changes
+- **User Profile with Company Information**: Company information is now embedded directly in the user profile
+  - Eliminated the need for separate User and Company collections
+  - Simplified registration process by allowing users to provide company information during signup
+  - Improved data access patterns by eliminating the need for joins/lookups
+  - Maintains all company branding, contact info, and settings directly with the user
+
 ### UI/UX Design Enhancements
 - **Modern Design System**: Implemented shadcn/ui components for a cohesive, professional look
 - **Improved Color Scheme**: Updated to a modern HSL-based color system with proper light/dark mode support

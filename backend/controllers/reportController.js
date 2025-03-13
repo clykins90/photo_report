@@ -3,7 +3,6 @@ const path = require('path');
 const fs = require('fs');
 const Report = require('../models/Report');
 const User = require('../models/User');
-const Company = require('../models/Company');
 const { ApiError } = require('../middleware/errorHandler');
 const logger = require('../utils/logger');
 const pdfGenerationService = require('../services/pdfGenerationService');
@@ -28,8 +27,8 @@ const createReport = async (req, res, next) => {
       throw new ApiError(404, 'User not found');
     }
     
-    if (!user.companyId) {
-      throw new ApiError(400, 'You must be associated with a company to create reports');
+    if (!user.company || !user.company.name) {
+      throw new ApiError(400, 'You must have company information in your profile to create reports');
     }
     
     // Format photos to match the schema requirements
@@ -67,11 +66,10 @@ const createReport = async (req, res, next) => {
       console.log('Formatted photos:', formattedPhotos);
     }
 
-    // Create report with user and company info
+    // Create report with user info (which now contains company details)
     const report = new Report({
       ...req.body,
       user: req.user.id,
-      company: user.companyId,
       recommendations: req.body.recommendations 
         ? (Array.isArray(req.body.recommendations) 
             ? req.body.recommendations.join('\n\n') 
@@ -99,11 +97,7 @@ const createReport = async (req, res, next) => {
   } catch (error) {
     console.error('Error in createReport:', {
       message: error.message,
-      stack: error.stack,
-      path: req.path,
-      method: req.method,
-      body: req.body,
-      headers: req.headers,
+      stack: error.stack
     });
     next(error);
   }
@@ -133,7 +127,7 @@ const getReports = async (req, res, next) => {
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .skip(skip)
-      .populate('company', 'name logo');
+      .populate('user', 'firstName lastName email company');
 
     // Get total count
     const total = await Report.countDocuments(query);
@@ -162,8 +156,7 @@ const getReports = async (req, res, next) => {
 const getReport = async (req, res, next) => {
   try {
     const report = await Report.findById(req.params.id)
-      .populate('company', 'name logo branding')
-      .populate('user', 'firstName lastName email');
+      .populate('user', 'firstName lastName email company');
 
     if (!report) {
       throw new ApiError(404, 'Report not found');
@@ -271,7 +264,6 @@ const updateReport = async (req, res, next) => {
       photos: updatedPhotos,
       // Always preserve these fields
       user: report.user,
-      company: report.company,
       createdAt: report.createdAt
     };
 
@@ -405,8 +397,7 @@ const generatePdf = async (req, res, next) => {
     
     // Find report by ID with photos included
     const report = await Report.findById(reportId)
-      .populate('user')
-      .populate('company');
+      .populate('user');
       
     if (!report) {
       logger.error(`Report not found for ID: ${reportId}`);
@@ -511,7 +502,7 @@ const getSharedReport = async (req, res, next) => {
     const report = await Report.findOne({
       shareToken: token,
       shareExpiry: { $gt: new Date() }, // Ensure token is not expired
-    }).populate('company', 'name logo branding');
+    }).populate('user', 'firstName lastName email company');
     
     if (!report) {
       return res.status(404).json({

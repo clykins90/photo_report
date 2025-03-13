@@ -4,7 +4,6 @@ const User = require('../models/User');
 const { ApiError } = require('../middleware/errorHandler');
 const config = require('../config/config');
 const logger = require('../utils/logger');
-const Company = require('../models/Company');
 
 /**
  * Generate JWT token for a user
@@ -38,7 +37,7 @@ const register = async (req, res, next) => {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { email, password, firstName, lastName } = req.body;
+    const { email, password, firstName, lastName, company } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -46,13 +45,20 @@ const register = async (req, res, next) => {
       throw new ApiError(400, 'User already exists with this email');
     }
 
-    // Create new user
-    const user = new User({
+    // Create new user with company info if provided
+    const userData = {
       email,
       password,
       firstName,
       lastName,
-    });
+    };
+    
+    // Add company data if provided
+    if (company) {
+      userData.company = company;
+    }
+
+    const user = new User(userData);
 
     // Save user to database
     await user.save();
@@ -132,29 +138,17 @@ const login = async (req, res, next) => {
  */
 const getProfile = async (req, res, next) => {
   try {
-    // Get user from database - don't try to populate a non-existent field
+    // Get user from database
     const user = await User.findById(req.user.id);
     
     if (!user) {
       throw new ApiError(404, 'User not found');
     }
 
-    // If user has a company, get the company information
-    let companyData = null;
-    if (user.companyId) {
-      const company = await Company.findById(user.companyId);
-      if (company) {
-        companyData = company;
-      }
-    }
-
-    // Send the response with user data and company if available
+    // Send the response with user data (which now includes company information)
     res.status(200).json({
       success: true,
-      data: {
-        ...user.toJSON(),
-        company: companyData
-      }
+      data: user.toJSON()
     });
   } catch (error) {
     next(error);

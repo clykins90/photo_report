@@ -2,7 +2,7 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
-const Company = require('../models/Company');
+const User = require('../models/User');
 
 /**
  * Generates a PDF report with embedded photos and company branding
@@ -48,37 +48,41 @@ const generatePdf = async (report) => {
       });
       
       // Define colors for consistent branding
-      const colors = {
-        primary: '#2563EB', // Royal blue
-        secondary: '#475569', // Slate gray
-        accent: '#F97316', // Orange
-        background: '#F8FAFC', // Light gray background
-        text: '#1E293B', // Dark slate for text
-        light: '#F1F5F9', // Very light gray
-        success: '#10B981', // Green
-        warning: '#F59E0B' // Amber
+      let colors = {
+        primary: '#3B82F6', // Default blue
+        secondary: '#1E3A8A',
+        text: '#111827',
+        lightText: '#6B7280',
+        accent: '#EF4444',
+        background: '#FFFFFF',
+        lightGray: '#F3F4F6'
       };
       
-      // Define fonts
-      doc.registerFont('Heading', 'Helvetica-Bold');
-      doc.registerFont('Body', 'Helvetica');
-      doc.registerFont('Italic', 'Helvetica-Oblique');
-      
-      // Fetch company info if available
+      // Try to get company info from the user
       let companyInfo = null;
       let companyLogo = null;
       
       try {
-        if (report.company) {
-          const company = await Company.findById(report.company);
-          if (company) {
-            companyInfo = company;
+        if (report.user) {
+          const user = await User.findById(report.user);
+          if (user && user.company) {
+            companyInfo = user.company;
             
             // Try to load company logo if available
-            if (company.logoPath) {
-              const logoPath = path.join(process.cwd(), company.logoPath);
+            if (user.company.logoPath) {
+              const logoPath = path.join(process.cwd(), user.company.logoPath);
               if (fs.existsSync(logoPath)) {
                 companyLogo = logoPath;
+              }
+            }
+            
+            // Use company branding colors if available
+            if (user.company.branding) {
+              if (user.company.branding.primaryColor) {
+                colors.primary = user.company.branding.primaryColor;
+              }
+              if (user.company.branding.secondaryColor) {
+                colors.secondary = user.company.branding.secondaryColor;
               }
             }
           }

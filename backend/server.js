@@ -121,7 +121,7 @@ connectDB();
 
 // Mount routes
 app.use('/api/auth', authRoutes);
-app.use('/api/companies', companyRoutes);
+app.use('/api/company', companyRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/photos', photoRoutes);
 

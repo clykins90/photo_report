@@ -32,59 +32,13 @@ const CompanyProfilePage = () => {
     const fetchCompanyData = async () => {
       try {
         setLoading(true);
-        // Get user profile first to get company ID
-        const userRes = await api.get('/api/auth/profile');
-        console.log('User profile response:', userRes.data);
-        
-        const companyData = userRes.data.data.company;
-        console.log('Company data from profile:', companyData);
-        
-        // Check if company data exists
-        if (!companyData) {
-          setError('No company associated with your account.');
-          setLoading(false);
-          return;
-        }
-        
-        // Extract company ID (handles both cases where company might be an object or a string ID)
-        const companyId = typeof companyData === 'object' ? companyData._id : companyData;
-        console.log('Extracted company ID:', companyId);
-        
-        if (!companyId) {
-          setError('Invalid company data format.');
-          setLoading(false);
-          return;
-        }
-        
-        // Now fetch company data
-        const companyRes = await api.get(`/api/companies/${companyId}`);
-        console.log('Company details response:', companyRes.data);
+        // For now, we don't need the ID since company info is part of the user profile
+        const companyRes = await api.get('/api/company');
         setCompany(companyRes.data.data);
-        
-        // Set form data from company data
-        const companyDataFromApi = companyRes.data.data;
-        setFormData({
-          name: companyDataFromApi.name || '',
-          email: companyDataFromApi.email || '',
-          phone: companyDataFromApi.phone || '',
-          website: companyDataFromApi.website || '',
-          address: {
-            street: companyDataFromApi.address?.street || '',
-            city: companyDataFromApi.address?.city || '',
-            state: companyDataFromApi.address?.state || '',
-            zipCode: companyDataFromApi.address?.zipCode || '',
-            country: companyDataFromApi.address?.country || ''
-          },
-          branding: {
-            primaryColor: companyDataFromApi.branding?.primaryColor || '#2563EB',
-            secondaryColor: companyDataFromApi.branding?.secondaryColor || '#475569'
-          }
-        });
-        
-        setLoading(false);
-      } catch (err) {
-        console.error('Error fetching company data:', err);
-        setError(err.response?.data?.message || 'Error fetching company data');
+      } catch (error) {
+        console.error('Error fetching company:', error);
+        setError(error.response?.data?.message || 'Failed to load company data');
+      } finally {
         setLoading(false);
       }
     };
@@ -130,14 +84,23 @@ const CompanyProfilePage = () => {
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!company?._id) {
-      toast.error('No company data available');
-      return;
-    }
-    
+    setSubmitting(true);
+    setError(null);
+
     try {
-      const response = await api.put(`/api/companies/${company._id}`, formData);
+      const formData = {
+        name: company.name,
+        address: company.address,
+        phone: company.phone,
+        email: company.email,
+        website: company.website,
+        licenseNumber: company.licenseNumber,
+        insuranceInfo: company.insuranceInfo,
+        branding: company.branding
+      };
+
+      // Update to new endpoint
+      const response = await api.put('/api/company', formData);
       
       setCompany(response.data.data);
       toast.success('Company profile updated successfully');
@@ -211,7 +174,6 @@ const CompanyProfilePage = () => {
               </div>
               
               <LogoUploader 
-                companyId={company?._id} 
                 currentLogo={company?.logo} 
                 onLogoUpdate={handleLogoUpdate} 
                 hidePreview={true} 
