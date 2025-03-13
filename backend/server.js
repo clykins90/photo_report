@@ -10,6 +10,9 @@ const { errorHandler } = require('./middleware/errorHandler');
 const logger = require('./utils/logger');
 const config = require('./config/config');
 
+// Run initialization (important for Vercel deployment)
+require('./vercel-init');
+
 // Import routes
 const authRoutes = require('./routes/authRoutes');
 const companyRoutes = require('./routes/companyRoutes');
@@ -69,6 +72,16 @@ app.use(express.urlencoded({
 }));
 
 app.use(morgan('dev')); // HTTP request logger
+
+// Handle Vercel API routes - strip the /api prefix if it exists
+app.use((req, res, next) => {
+  // Check if request URL starts with /api but doesn't have a double /api/api prefix
+  if (req.url.startsWith('/api/') && !req.url.startsWith('/api/api/')) {
+    logger.info(`Rewriting URL from ${req.url} to ${req.url.replace('/api', '')}`);
+    req.url = req.url.replace('/api', '');
+  }
+  next();
+});
 
 // Serve files from temp directory - allows direct browser access
 // Use 404 handler to avoid infinite loops on missing files
