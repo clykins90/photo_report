@@ -80,10 +80,10 @@ backend/uploads/
 .parcel-cache
 **/.parcel-cache 
 
-markdown
-backend_structure.markdown
-database_structure.markdown
-frontend_structure.markdown
+# markdown
+backend_structure.md
+database_structure.md
+frontend_structure.md
 ai_system_prompt.md
-guide.md
+GUIDE.md
 todo_list.md
