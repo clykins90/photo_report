@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>File Upload Test - Direct</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    h1 {
+      color: #333;
+    }
+    .upload-section {
+      margin-bottom: 30px;
+      padding: 20px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    button {
+      padding: 10px 15px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    .result {
+      margin-top: 20px;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      background-color: #f9f9f9;
+      white-space: pre-wrap;
+      display: none;
+    }
+    .error {
+      color: red;
+      margin-top: 10px;
+    }
+    .debug {
+      margin-top: 20px;
+      padding: 10px;
+      background-color: #f0f0f0;
+      border-radius: 5px;
+      font-family: monospace;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>File Upload Test - Direct</h1>
+  
+  <div class="upload-section">
+    <h2>Multiple File Upload with 'photos' field</h2>
+    <form id="photosUploadForm">
+      <div class="form-group">
+        <label for="photosFiles">Select multiple files:</label>
+        <input type="file" id="photosFiles" name="photos" accept="image/*" multiple>
+      </div>
+      <button type="submit">Upload</button>
+    </form>
+    <div id="photosUploadError" class="error"></div>
+    <div id="photosUploadResult" class="result"></div>
+    <div id="photosUploadDebug" class="debug"></div>
+  </div>
+
+  <script>
+    // Debug function to inspect FormData
+    function inspectFormData(formData) {
+      const entries = [];
+      for (const pair of formData.entries()) {
+        if (pair[1] instanceof File) {
+          entries.push(`${pair[0]}: File(${pair[1].name}, ${pair[1].type}, ${pair[1].size} bytes)`);
+        } else {
+          entries.push(`${pair[0]}: ${pair[1]}`);
+        }
+      }
+      return entries.join('\n');
+    }
+    
+    // Multiple file upload with 'photos' field
+    document.getElementById('photosUploadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const fileInput = document.getElementById('photosFiles');
+      const resultDiv = document.getElementById('photosUploadResult');
+      const errorDiv = document.getElementById('photosUploadError');
+      const debugDiv = document.getElementById('photosUploadDebug');
+      
+      resultDiv.style.display = 'none';
+      errorDiv.textContent = '';
+      
+      if (!fileInput.files.length) {
+        errorDiv.textContent = 'Please select at least one file';
+        return;
+      }
+      
+      const formData = new FormData();
+      
+      // Log what we're uploading
+      const fileInfo = [];
+      for (let i = 0; i < fileInput.files.length; i++) {
+        const file = fileInput.files[i];
+        fileInfo.push(`File ${i+1}: ${file.name} (${file.type}, ${file.size} bytes)`);
+        formData.append('photos', file);
+      }
+      
+      // Display debug info
+      debugDiv.textContent = `Uploading ${fileInput.files.length} files:\n${fileInfo.join('\n')}\n\nFormData contents:\n${inspectFormData(formData)}`;
+      
+      try {
+        const response = await fetch('http://localhost:5002/test/photos', {
+          method: 'POST',
+          body: formData,
+        });
+        
+        const data = await response.json();
+        resultDiv.textContent = JSON.stringify(data, null, 2);
+        resultDiv.style.display = 'block';
+      } catch (error) {
+        errorDiv.textContent = `Error: ${error.message}`;
+      }
+    });
+  </script>
+</body>
+</html> 

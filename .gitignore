@@ -1,0 +1,81 @@
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+**/node_modules/
+
+# Package lock files
+# Uncomment the line below if you decide to exclude package-lock.json files
+# **/package-lock.json
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+**/.env
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Temporary files
+backend/temp/
+temp/
+**/tmp/
+**/temp/
+**/uploads/
+
+# Build files
+/dist
+/build
+frontend/dist/
+frontend/build/
+**/dist/
+**/build/
+
+# Coverage directories
+/coverage
+**/.nyc_output
+**/coverage/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+**/.DS_Store
+.project
+.classpath
+.settings/
+.c9/
+*.sublime-workspace
+*.sublime-project
+
+# OS files
+.DS_Store
+Thumbs.db
+**/Thumbs.db
+desktop.ini
+.directory
+
+# Debug files
+.npm
+**/.npm
+**/.eslintcache
+**/.stylelintcache
+**/.node_repl_history
+
+# Misc
+.cache/
+**/.cache/
+backend/uploads/
+.parcel-cache
+**/.parcel-cache 
