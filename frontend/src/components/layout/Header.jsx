@@ -72,7 +72,7 @@ const Header = ({ isAuthenticated, onLogout, theme, setTheme }) => {
                 <Link to="/dashboard">Dashboard</Link>
               </Button>
               <Button variant="ghost" asChild>
-                <Link to="/company/profile">Company Profile</Link>
+                <Link to="/profile">Profile</Link>
               </Button>
               {hasBackup && (
                 <Button variant="ghost" asChild>
@@ -86,7 +86,7 @@ const Header = ({ isAuthenticated, onLogout, theme, setTheme }) => {
             </>
           ) : (
             <>
-              <Button variant="ghost" asChild>
+              <Button variant="outline" asChild>
                 <Link to="/login">Login</Link>
               </Button>
               <Button variant="secondary" asChild>
@@ -114,7 +114,7 @@ const Header = ({ isAuthenticated, onLogout, theme, setTheme }) => {
                 </li>
                 <li>
                   <Button variant="ghost" className="w-full justify-start" asChild>
-                    <Link to="/company/profile">Company Profile</Link>
+                    <Link to="/profile">Profile</Link>
                   </Button>
                 </li>
                 {hasBackup && (
@@ -136,7 +136,7 @@ const Header = ({ isAuthenticated, onLogout, theme, setTheme }) => {
             ) : (
               <>
                 <li>
-                  <Button variant="ghost" className="w-full justify-start" asChild>
+                  <Button variant="outline" className="w-full justify-start" asChild>
                     <Link to="/login">Login</Link>
                   </Button>
                 </li>

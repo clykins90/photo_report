@@ -27,8 +27,31 @@ const createReport = async (req, res, next) => {
       throw new ApiError(404, 'User not found');
     }
     
-    if (!user.company || !user.company.name) {
+    // Check if company info exists
+    // Allow placeholder values for company name so users can still create reports
+    if (!user.company && !req.body.company) {
       throw new ApiError(400, 'You must have company information in your profile to create reports');
+    }
+    
+    // Accept placeholder company information from the request body
+    let companyInfo = user.company;
+    if (!companyInfo || !companyInfo.name) {
+      if (req.body.company && (req.body.company.name || req.body.company === "[COMPANY NAME]")) {
+        console.log('Using placeholder company information from request');
+        companyInfo = req.body.company;
+      } else {
+        console.log('No valid company information found in user profile or request');
+        // Still allow report creation with placeholder company name
+        companyInfo = {
+          name: "[COMPANY NAME]",
+          address: {
+            street: "[STREET ADDRESS]",
+            city: "[CITY]",
+            state: "[STATE]",
+            zipCode: "[ZIP]"
+          }
+        };
+      }
     }
     
     // Format photos to match the schema requirements
@@ -70,6 +93,8 @@ const createReport = async (req, res, next) => {
     const report = new Report({
       ...req.body,
       user: req.user.id,
+      // Explicitly set company info from our prepared variable
+      company: companyInfo.name,
       recommendations: req.body.recommendations 
         ? (Array.isArray(req.body.recommendations) 
             ? req.body.recommendations.join('\n\n') 

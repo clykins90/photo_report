@@ -7,27 +7,10 @@ import DashboardPage from './pages/DashboardPage';
 import ReportDetailPage from './pages/ReportDetailPage';
 import CreateReportPage from './pages/CreateReportPage';
 import EditReportPage from './pages/EditReportPage';
-import CompanyProfilePage from './pages/CompanyProfilePage';
+import ProfilePage from './pages/ProfilePage';
 import AuthContext from './context/AuthContext';
 import SharedReportPage from './pages/SharedReportPage';
 import BackupRecoveryPage from './pages/BackupRecoveryPage';
-
-// Debug component to help identify rendering issues
-const DebugInfo = () => (
-  <div style={{ 
-    position: 'fixed', 
-    top: 0, 
-    left: 0, 
-    background: 'rgba(0,0,0,0.8)', 
-    color: 'lime', 
-    padding: '10px', 
-    zIndex: 9999,
-    fontFamily: 'monospace',
-    fontSize: '12px'
-  }}>
-    App is rendering! {new Date().toLocaleTimeString()}
-  </div>
-);
 
 // Protected route component
 const ProtectedRoute = ({ children }) => {
@@ -57,7 +40,6 @@ const NotFound = () => (
 function App() {
   return (
     <>
-      <DebugInfo />
       <MainLayout>
         <Routes>
           {/* Redirect root to login page */}
@@ -75,10 +57,10 @@ function App() {
             } 
           />
           <Route 
-            path="/company/profile" 
+            path="/profile" 
             element={
               <ProtectedRoute>
-                <CompanyProfilePage />
+                <ProfilePage />
               </ProtectedRoute>
             } 
           />

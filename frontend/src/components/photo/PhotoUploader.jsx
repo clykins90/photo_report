@@ -582,8 +582,12 @@ const PhotoUploader = ({
                   <div className="text-red-500 text-xs mt-1">{file.error}</div>
                 )}
                 
-                {file.analyzingInProgress && (
+                {file.status === 'analyzing' && (
                   <div className="text-xs text-blue-500 mt-1">Analyzing...</div>
+                )}
+                
+                {file.analysis && (
+                  <div className="text-xs text-green-500 mt-1">Analyzed</div>
                 )}
               </div>
             );

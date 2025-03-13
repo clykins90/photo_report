@@ -68,7 +68,7 @@ const DashboardPage = () => {
         
         <Link
           to="/reports/new"
-          className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+          className="bg-primary/90 hover:bg-primary/80 text-primary-foreground font-medium py-2 px-4 rounded focus:outline-none focus:shadow-outline border border-primary/20"
         >
           Create New Report
         </Link>
@@ -121,7 +121,7 @@ const DashboardPage = () => {
             <p className="mt-2 text-muted-foreground">No reports found</p>
             <Link
               to="/reports/new"
-              className="mt-4 inline-block bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+              className="mt-4 inline-block bg-primary/90 hover:bg-primary/80 text-primary-foreground font-medium py-2 px-4 rounded focus:outline-none focus:shadow-outline border border-primary/20"
             >
               Create Your First Report
             </Link>

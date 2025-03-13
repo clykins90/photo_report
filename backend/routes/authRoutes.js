@@ -1,6 +1,6 @@
 const express = require('express');
 const { check } = require('express-validator');
-const { register, login, getProfile } = require('../controllers/authController');
+const { register, login, getProfile, changePassword } = require('../controllers/authController');
 const { protect } = require('../middleware/auth');
 
 const router = express.Router();
@@ -42,5 +42,18 @@ router.post(
 // @desc    Get current user profile
 // @access  Private
 router.get('/profile', protect, getProfile);
+
+// @route   PUT /api/auth/password
+// @desc    Change user password
+// @access  Private
+router.put(
+  '/password',
+  [
+    check('currentPassword', 'Current password is required').exists(),
+    check('newPassword', 'New password must be at least 6 characters').isLength({ min: 6 }),
+  ],
+  protect,
+  changePassword
+);
 
 module.exports = router; 

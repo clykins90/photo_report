@@ -9,7 +9,7 @@ This application allows contractors to:
 - Automatically analyze photos using AI to identify damage types
 - Edit AI-generated descriptions for accuracy
 - Generate professional PDF reports with company branding and table of contents
-- Create visually appealing reports similar to CompanyCam with color-coded damage indicators
+- Create visually appealing reports with color-coded damage indicators
 - Organize photos with detailed analysis in an easy-to-read format
 - Share reports with clients and insurance adjusters via secure links
 
@@ -20,11 +20,11 @@ This application allows contractors to:
 - Express.js
 - MongoDB
 - Mongoose
-- Multer for temporary file handling
+- Multer for file handling
 - Sharp for image processing
 - JWT for authentication
 - PDFKit for PDF generation with enhanced styling
-- OpenAI API for photo analysis and report generation
+- OpenAI API for photo analysis
 
 ### Frontend
 - React.js
@@ -33,6 +33,7 @@ This application allows contractors to:
 - React Router
 - React Query
 - Axios
+- React Hook Form with Zod validation
 - React Dropzone
 - Context API for state management
 - LocalStorage for persistent authentication
@@ -40,10 +41,10 @@ This application allows contractors to:
 ## Features
 
 - **User Authentication**: Secure login and registration system with JWT
-- **Company Management**: Custom branding and profile management
-- **Streamlined Workflow**: Single-flow process from photo upload to PDF generation
+- **User Profile Management**: User and company information management
+- **Streamlined Workflow**: Multi-step process from photo upload to PDF generation
 - **AI Analysis**: Automated analysis of damage with editable descriptions
-  - Specialized roofing inspection system prompt for detailed damage assessment
+  - Uses OpenAI Vision API for detailed damage assessment
   - Identifies damage type, severity, and provides professional descriptions
   - Extracts key information like location, materials, and recommended actions
   - Uses roofing industry terminology for insurance adjuster-friendly reports
@@ -55,12 +56,15 @@ This application allows contractors to:
   - Identifies common materials across the inspection
   - Generates prioritized repair recommendations
   - Extracts relevant tags for the entire report
-- **Temporary Photo Handling**: Photos are processed immediately and not stored long-term
-- **Multiple Image Versions**: System creates three optimized versions of each uploaded image:
+- **Photo Handling**: Photos are stored securely with multiple optimized versions:
   - Original: Preserves all original data and quality for archiving and detailed viewing
   - Optimized: Resized (1200px width) and compressed version for web display and PDF reports
   - Thumbnail: Small square version (300x300px) for galleries, previews, and listings
-- **PDF Generation**: Beautiful, customizable PDF reports with embedded photos and table of contents
+- **PDF Generation**: 
+  - Creates professional, branded reports with company logo and colors
+  - Automatically organizes photos with analysis in a structured format
+  - Uses standard system fonts with a configurable font mapping system
+  - Supports customizable layouts for different report types
 - **Client Access**: Shareable links for clients to view reports without requiring an account
 - **Multi-step Report Creation**: Intuitive form with steps for basic info, photos, damages, and review
 - **Dashboard**: View and manage all your reports in one place
@@ -78,15 +82,36 @@ This application allows contractors to:
 - Persistent authentication that maintains user sessions across page refreshes
 - Direct landing on the login page for improved user flow
 - Automatic redirection to dashboard after successful login
+- Password hashing using bcrypt for secure storage of user credentials
+- User password change functionality integrated into the profile page
 
 ## Recent Improvements
 
 ### Data Model Changes
 - **User Profile with Company Information**: Company information is now embedded directly in the user profile
-  - Eliminated the need for separate User and Company collections
+  - Eliminated the need for separate Company collection
   - Simplified registration process by allowing users to provide company information during signup
   - Improved data access patterns by eliminating the need for joins/lookups
   - Maintains all company branding, contact info, and settings directly with the user
+
+### Bug Fixes and Performance Improvements
+- **Resolved Circular Reference Issues**: Fixed JSON circular reference errors during report submission and backup
+  - Added robust sanitization of photo data to remove circular references before storage
+  - Implemented targeted cleanup to retain only essential properties in photo objects
+  - Added type checking to ensure all values are properly serializable
+  - Enhanced error handling for data size issues during backup and submission
+- **Improved Company Information Handling**: Enhanced validation and processing of company data
+  - Added better company data validation during authentication and report submission
+  - Implemented automatic fetching of complete company information from API when only ID is available
+  - Added fallback mechanisms for missing company information
+  - Provided clear error messages for company-related validation issues
+  - Enhanced error logging to identify company data inconsistencies
+- **Improved User Experience for Company Information**: Made report creation more user-friendly
+  - Added support for creating reports without requiring complete company information
+  - Implemented placeholder values like "[COMPANY NAME]" when company data is missing
+  - Enhanced PDF generation to properly handle placeholder values
+  - Created visual indicators in reports to show where company information needs to be updated
+  - Maintained data integrity while providing a smoother onboarding experience
 
 ### UI/UX Design Enhancements
 - **Modern Design System**: Implemented shadcn/ui components for a cohesive, professional look
@@ -100,6 +125,18 @@ This application allows contractors to:
   - Reduced contrast for card and panel components in dark mode to prevent eye strain
   - Used HSL color variables for better readability and consistency across themes
   - Improved background/foreground color relationships for better accessibility
+- **Advanced Branding Color Picker**: Enhanced company profile with intelligent color selection tools
+  - Added predefined professional color palettes for quick selection
+  - Implemented color harmony suggestions based on color theory (complementary, analogous, triadic)
+  - Included enhanced visual preview of colors in context (headers, buttons, text)
+  - Built-in accessibility checker to ensure sufficient contrast for readability
+  - Real-time visual feedback on color selections
+  - Color utility functions for manipulating colors programmatically
+  - Ensures brand consistency across all report templates
+  - Automatic accessibility corrections with one-click contrast fixing
+  - Hover preview of accessible color alternatives
+  - WCAG 2.1 compliant color selection guidance
+  - All pre-defined color palettes ensure sufficient contrast ratios
 - **Micro-interactions**: Added subtle animations and transitions for a more polished feel
 - **Improved Footer**: Enhanced footer with better organization and visual hierarchy
 - **Grid View for Photos**: Added togglable grid/list view for photo display in the analysis step
@@ -109,6 +146,10 @@ This application allows contractors to:
   - Modal includes navigation controls to move between photos
   - Supports keyboard navigation for accessibility
   - Significantly improves user experience when working with 20+ photos
+- **Unified Profile Page**: Combined user and company profile management in a single interface
+  - Consolidated company profile settings
+  - Added password change functionality
+  - Improved user experience by centralizing profile management
 
 ### Enhanced Photo Handling
 - **Direct Photo Serving API**: Added a dedicated endpoint to serve photos directly from storage
@@ -156,6 +197,29 @@ This application allows contractors to:
   - Normalizes photo object structures before sending to API
   - Handles missing or inconsistent fields gracefully
   - Preserves critical analysis data while eliminating unnecessary fields
+
+### Unified Image Handling
+The application now uses a consistent approach for image URL handling across all steps of the report creation process:
+
+1. **Centralized Image URL Resolution**: 
+   - Implemented a `getBestImageUrl` function that intelligently determines the best available image URL based on a priority list
+   - This ensures thumbnails and images are displayed consistently throughout the application
+
+2. **Robust Fallback Mechanism**:
+   - The image display system now tries multiple possible sources in a specific order:
+     1. Direct thumbnail URL from server response
+     2. Thumbnail filename from server response
+     3. Thumbnail path extraction
+     4. Optimized image URL
+     5. Original image URL
+     6. Client-side preview blob
+     7. Default placeholder image
+
+3. **Simplified Error Handling**:
+   - Added simple and reliable error handlers that display a placeholder when image loading fails
+   - Removed complex cascading fallback logic in favor of a single, predictable approach
+
+This unified approach ensures that images display properly throughout the entire report creation workflow, regardless of which stage the user is viewing.
 
 ## Getting Started
 

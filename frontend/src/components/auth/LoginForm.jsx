@@ -41,30 +41,23 @@ const LoginForm = () => {
     }
   };
 
-  const fillTestCredentials = () => {
-    setFormData({
-      email: 'test@example.com',
-      password: 'password123'
-    });
-  };
-
   return (
-    <div className="max-w-md mx-auto bg-white p-8 rounded-lg shadow-md">
-      <h2 className="text-2xl font-bold mb-6 text-center">Login</h2>
+    <div className="max-w-md mx-auto bg-card p-8 rounded-lg shadow-md">
+      <h2 className="text-2xl font-bold mb-6 text-center text-card-foreground">Login</h2>
       
       {(formError || error) && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+        <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded mb-4">
           {formError || error}
         </div>
       )}
       
       <form onSubmit={handleSubmit}>
         <div className="mb-4">
-          <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="email">
+          <label className="block text-card-foreground text-sm font-bold mb-2" htmlFor="email">
             Email
           </label>
           <input
-            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            className="shadow appearance-none border rounded w-full py-2 px-3 text-foreground bg-background leading-tight focus:outline-none focus:shadow-outline"
             id="email"
             type="email"
             name="email"
@@ -76,11 +69,11 @@ const LoginForm = () => {
         </div>
         
         <div className="mb-6">
-          <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="password">
+          <label className="block text-card-foreground text-sm font-bold mb-2" htmlFor="password">
             Password
           </label>
           <input
-            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            className="shadow appearance-none border rounded w-full py-2 px-3 text-foreground bg-background leading-tight focus:outline-none focus:shadow-outline"
             id="password"
             type="password"
             name="password"
@@ -93,7 +86,7 @@ const LoginForm = () => {
         
         <div className="flex items-center justify-between">
           <button
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline w-full"
+            className="bg-primary/90 hover:bg-primary/80 text-primary-foreground font-medium py-2 px-4 rounded focus:outline-none focus:shadow-outline w-full border border-primary/20"
             type="submit"
             disabled={isSubmitting}
           >
@@ -101,19 +94,6 @@ const LoginForm = () => {
           </button>
         </div>
       </form>
-
-      {/* Test Credentials Box */}
-      <div className="mt-8 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
-        <h3 className="text-sm font-bold text-yellow-800 mb-2">Test Credentials</h3>
-        <p className="text-xs text-yellow-700 mb-1">Email: test@example.com</p>
-        <p className="text-xs text-yellow-700 mb-2">Password: password123</p>
-        <button 
-          onClick={fillTestCredentials}
-          className="text-xs bg-yellow-200 hover:bg-yellow-300 text-yellow-800 font-semibold py-1 px-2 rounded w-full transition-colors"
-        >
-          Fill Test Credentials
-        </button>
-      </div>
     </div>
   );
 };

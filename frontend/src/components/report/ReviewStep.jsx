@@ -31,6 +31,54 @@ const ReviewStep = ({
                         window.location.hostname === 'localhost' || 
                         window.location.hostname === '127.0.0.1';
   
+  // Get the best available image URL for a photo (same function as in AIAnalysisStep)
+  const getBestImageUrl = (photo) => {
+    const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+    
+    // If the photo has uploadedData with paths, use those first
+    if (photo.uploadedData) {
+      // First choice: direct thumbnail URL
+      if (photo.uploadedData.thumbnailUrl) {
+        return photo.uploadedData.thumbnailUrl;
+      }
+      
+      // Second choice: construct URL from thumbnailFilename
+      if (photo.uploadedData.thumbnailFilename) {
+        return `${baseApiUrl}/api/photos/${photo.uploadedData.thumbnailFilename}`;
+      }
+      
+      // Third choice: construct URL from thumbnailPath
+      if (photo.uploadedData.thumbnailPath) {
+        const thumbFilename = photo.uploadedData.thumbnailPath.split('/').pop();
+        return `${baseApiUrl}/api/photos/${thumbFilename}`;
+      }
+      
+      // Fourth choice: optimized URL
+      if (photo.uploadedData.optimizedUrl) {
+        return photo.uploadedData.optimizedUrl;
+      }
+      
+      // Fifth choice: construct URL from optimizedFilename
+      if (photo.uploadedData.optimizedFilename) {
+        return `${baseApiUrl}/api/photos/${photo.uploadedData.optimizedFilename}`;
+      }
+      
+      // Sixth choice: construct URL from optimizedPath
+      if (photo.uploadedData.optimizedPath) {
+        const optFilename = photo.uploadedData.optimizedPath.split('/').pop();
+        return `${baseApiUrl}/api/photos/${optFilename}`;
+      }
+      
+      // Last resort for uploaded files: original filename
+      if (photo.uploadedData.filename) {
+        return `${baseApiUrl}/api/photos/${photo.uploadedData.filename}`;
+      }
+    }
+    
+    // Fallback to preview or placeholder
+    return photo.preview || '/placeholder-image.png';
+  };
+  
   return (
     <div>
       <h3 className="text-xl font-semibold mb-4">Review & Submit Report</h3>
@@ -172,9 +220,10 @@ const ReviewStep = ({
             {uploadedPhotos.map((photo, index) => (
               <div key={index} className="relative">
                 <img 
-                  src={photo.preview} 
+                  src={getBestImageUrl(photo)} 
                   alt={`Photo ${index + 1}`}
                   className="w-full h-24 object-cover rounded-md"
+                  onError={(e) => e.target.src = '/placeholder-image.png'}
                 />
                 {photo.analysis && (
                   <div className="absolute bottom-0 right-0 bg-green-500 text-white text-xs px-1 rounded-tl-md">

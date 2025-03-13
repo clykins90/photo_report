@@ -3,12 +3,12 @@ import LoginForm from '../components/auth/LoginForm';
 
 const LoginPage = () => {
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-background flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <h1 className="text-center text-3xl font-extrabold text-gray-900">
-          Photo Report App
+        <h1 className="text-center text-3xl font-extrabold text-foreground">
+          HeroReport
         </h1>
-        <h2 className="mt-6 text-center text-2xl font-bold text-gray-900">
+        <h2 className="mt-6 text-center text-2xl font-bold text-foreground">
           Sign in to your account
         </h2>
       </div>
@@ -17,9 +17,9 @@ const LoginPage = () => {
         <LoginForm />
         
         <div className="mt-6 text-center">
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-muted-foreground">
             Don't have an account?{' '}
-            <Link to="/register" className="font-medium text-blue-600 hover:text-blue-500">
+            <Link to="/register" className="font-medium text-primary hover:text-primary/90">
               Register here
             </Link>
           </p>

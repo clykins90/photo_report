@@ -4,6 +4,7 @@ import { createReport, updateReport, generateAISummary, generateReportPdf } from
 import { validateReportForm, getFormErrorMessage } from '../../utils/formValidation';
 import { backupReportData, getBackupReportData, clearBackupReportData, hasBackupReportData } from '../../utils/reportBackup';
 import AuthContext from '../../context/AuthContext';
+import api from '../../services/api';
 
 // Import components
 import BasicInfoStep from './BasicInfoStep';
@@ -150,7 +151,32 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
   };
   
   const handlePhotoUploadComplete = (photos) => {
-    setUploadedPhotos(photos);
+    // Ensure all photos have the appropriate URL properties set
+    const processedPhotos = photos.map(photo => {
+      // Make sure we keep server-side URLs consistent
+      if (photo.uploadedData) {
+        // If uploaded but missing direct URLs, set them from uploadedData
+        if (!photo.thumbnailUrl && photo.uploadedData.thumbnailUrl) {
+          photo.thumbnailUrl = photo.uploadedData.thumbnailUrl;
+        }
+        if (!photo.optimizedUrl && photo.uploadedData.optimizedUrl) {
+          photo.optimizedUrl = photo.uploadedData.optimizedUrl;
+        }
+        if (!photo.originalUrl && photo.uploadedData.originalUrl) {
+          photo.originalUrl = photo.uploadedData.originalUrl;
+        }
+      }
+      return photo;
+    });
+    
+    console.log('Processed photos:', processedPhotos);
+    setUploadedPhotos(processedPhotos);
+    
+    // Save to local storage backup
+    if (processedPhotos.length > 0) {
+      backupReportData({ ...formData, photos: processedPhotos });
+      setHasBackup(true);
+    }
   };
 
   // Restore data from backup
@@ -400,12 +426,55 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       return;
     }
     
-    // Check if user has a company
+    // Create default company information if missing
+    let companyData = null;
+    
     if (!user.company) {
-      console.error('User has no company associated with their account');
-      setError('Your account is not associated with a company. Please contact your administrator.');
-      return;
+      console.warn('User has no company associated with their account. Using placeholder values.');
+      // Create a placeholder company object instead of blocking submission
+      companyData = {
+        name: "[COMPANY NAME]",
+        address: {
+          street: "[STREET ADDRESS]",
+          city: "[CITY]",
+          state: "[STATE]",
+          zipCode: "[ZIP]"
+        },
+        phone: "[PHONE]",
+        email: "[EMAIL]",
+        website: "[WEBSITE]",
+        // Include any other required company fields with placeholder values
+      };
+    } else if (typeof user.company === 'string') {
+      try {
+        // Try to fetch company data from API
+        console.log('Fetching company data from API...');
+        const companyRes = await api.get('/api/company');
+        if (companyRes.data.success && companyRes.data.data) {
+          companyData = companyRes.data.data;
+          console.log('Successfully fetched company data:', companyData);
+        } else {
+          // If API fetch fails, create a placeholder with the company ID
+          console.warn('Company API returned no valid data. Using placeholder values.');
+          companyData = {
+            name: "[COMPANY NAME]",
+            _id: user.company // Keep the ID
+          };
+        }
+      } catch (err) {
+        console.error('Failed to fetch company data:', err);
+        // Create a placeholder with the company ID
+        companyData = {
+          name: "[COMPANY NAME]",
+          _id: user.company // Keep the ID
+        };
+      }
+    } else {
+      // Company data is already embedded in the user object
+      companyData = user.company;
     }
+    
+    console.log('Using company data:', companyData);
     
     // Validate required fields before submission
     const { isValid, errors } = validateReportForm(formData, 4);
@@ -421,22 +490,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       setIsSubmitting(true);
       setError(null);
       
-      // Backup the form data and photos before submission
-      backupReportData(formData, uploadedPhotos);
-      setHasBackup(true);
-      
-      // Check if the data size is very large and warn the user
-      const dataSize = JSON.stringify({
-        ...formData,
-        photos: uploadedPhotos
-      }).length;
-      
-      if (dataSize > 5000000) { // 5MB
-        console.warn(`Large report data detected: ${dataSize} bytes`);
-        // Show warning but continue
-      }
-      
-      // Prepare photos data - remove circular references
+      // Prepare photos data - remove circular references and sanitize before backup
       const preparedPhotos = uploadedPhotos.map(photo => {
         // Extract only the properties we need, avoiding File objects with circular references
         const preparedPhoto = {
@@ -445,20 +499,37 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
           filename: photo.filename || photo.name,
           description: photo.description || '',
           section: photo.section || 'Uncategorized',
-          url: photo.url,
-          preview: photo.preview,
-          status: photo.status
+          status: photo.status || 'pending',
         };
         
-        // Add the filename from uploadedData if available
-        // This is critical for linking to the actual uploaded files
-        if (photo.uploadedData && photo.uploadedData.filename) {
-          preparedPhoto.filename = photo.uploadedData.filename;
-        } else if (photo.filename) {
-          preparedPhoto.filename = photo.filename;
+        // Only include URL properties if they're strings
+        if (typeof photo.url === 'string') {
+          preparedPhoto.url = photo.url;
+        }
+        if (typeof photo.preview === 'string') {
+          preparedPhoto.preview = photo.preview;
         }
         
-        // Include analysis data if it exists
+        // Add the filename from uploadedData if available - only include necessary properties
+        if (photo.uploadedData) {
+          preparedPhoto.uploadedData = {
+            filename: photo.uploadedData.filename,
+            thumbnailFilename: photo.uploadedData.thumbnailFilename,
+            optimizedFilename: photo.uploadedData.optimizedFilename,
+            thumbnailUrl: photo.uploadedData.thumbnailUrl,
+            optimizedUrl: photo.uploadedData.optimizedUrl,
+            originalUrl: photo.uploadedData.originalUrl,
+            thumbnailPath: photo.uploadedData.thumbnailPath,
+            optimizedPath: photo.uploadedData.optimizedPath,
+          };
+          
+          // Ensure we have the correct filename
+          if (photo.uploadedData.filename) {
+            preparedPhoto.filename = photo.uploadedData.filename;
+          }
+        }
+        
+        // Include analysis data if it exists - create a clean copy
         if (photo.analysis) {
           preparedPhoto.aiAnalysis = {
             description: photo.analysis.description || '',
@@ -472,6 +543,26 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         return preparedPhoto;
       });
       
+      // Backup safely after sanitizing photos
+      const preparedFormData = { ...formData };
+      backupReportData(preparedFormData, preparedPhotos);
+      setHasBackup(true);
+      
+      // Check if the data size is very large and warn the user
+      try {
+        const dataSize = JSON.stringify({
+          ...preparedFormData,
+          photos: preparedPhotos
+        }).length;
+        
+        if (dataSize > 5000000) { // 5MB
+          console.warn(`Large report data detected: ${dataSize} bytes`);
+          // Show warning but continue
+        }
+      } catch (sizeError) {
+        console.warn('Could not determine exact data size due to:', sizeError.message);
+      }
+      
       // Build the report data with current form values
       const updatedReportData = {
         title: formData.title,
@@ -484,10 +575,13 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         recommendations: formData.recommendations,
         materials: formData.materials,
         tags: formData.tags,
-        photos: preparedPhotos
+        photos: preparedPhotos,
+        // Include user ID and company data with placeholders if needed
+        user: user._id,
+        company: companyData
       };
       
-      console.log('Sending updated report data:', updatedReportData);
+      console.log('Sending updated report data with user and company info:', updatedReportData);
       
       // Create or update the report
       let response;

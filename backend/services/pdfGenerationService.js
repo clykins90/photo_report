@@ -47,6 +47,16 @@ const generatePdf = async (report) => {
         reject(err);
       });
       
+      // Register default fonts
+      // Using standard fonts that come with PDFKit as fallbacks
+      // Helvetica is the default font in PDFKit
+      const fonts = {
+        // These are standard fonts built into PDFKit
+        Heading: 'Helvetica-Bold',
+        Body: 'Helvetica',
+        Italic: 'Helvetica-Oblique'
+      };
+      
       // Define colors for consistent branding
       let colors = {
         primary: '#3B82F6', // Default blue
@@ -55,7 +65,8 @@ const generatePdf = async (report) => {
         lightText: '#6B7280',
         accent: '#EF4444',
         background: '#FFFFFF',
-        lightGray: '#F3F4F6'
+        lightGray: '#F3F4F6',
+        light: '#F9FAFB'   // Very light gray for backgrounds
       };
       
       // Try to get company info from the user
@@ -242,31 +253,32 @@ const generatePdf = async (report) => {
       logger.info(`Prepared ${pages.length} pages for report PDF`);
       
       // ========== RENDER ALL PAGES ==========
-      pages.forEach((page) => {
+      pages.forEach((page, pageIndex) => {
         doc.addPage();
+        const pageNumber = pageIndex + 1; // Start page numbering at 1
         
         switch (page.type) {
           case 'cover':
             renderCoverPage(doc, page.content.report, page.content.companyInfo, 
-                            page.content.companyLogo, colors);
+                            page.content.companyLogo, colors, fonts, pageNumber);
             break;
           case 'summary':
-            renderSummaryPage(doc, page.content.report, colors);
+            renderSummaryPage(doc, page.content.report, colors, fonts, pageNumber);
             break;
           case 'damages':
-            renderDamagesPage(doc, page.content.title, page.content.damages, colors);
+            renderDamagesPage(doc, page.content.title, page.content.damages, colors, fonts, pageNumber);
             break;
           case 'recommendations':
-            renderRecommendationsPage(doc, page.content.title, page.content.recommendations, colors);
+            renderRecommendationsPage(doc, page.content.title, page.content.recommendations, colors, fonts, pageNumber);
             break;
           case 'materials':
-            renderMaterialsPage(doc, page.content.title, page.content.materials, colors);
+            renderMaterialsPage(doc, page.content.title, page.content.materials, colors, fonts, pageNumber);
             break;
           case 'photo_large':
-            renderLargePhotoPage(doc, page.content.title, page.content.photo, colors);
+            renderLargePhotoPage(doc, page.content.title, page.content.photo, colors, fonts, pageNumber);
             break;
           case 'photo_grid':
-            renderPhotoGridPage(doc, page.content.title, page.content.photos, colors);
+            renderPhotoGridPage(doc, page.content.title, page.content.photos, colors, fonts, pageNumber);
             break;
           default:
             // Just skip if unknown type
@@ -278,6 +290,9 @@ const generatePdf = async (report) => {
       doc.flushPages(); // Ensures page layout is finalized
       const totalPages = doc.bufferedPageRange().count;
       
+      // We moved page numbering to the addFooters function, 
+      // so we don't need to add it here anymore.
+      /*
       // We assume we skip the cover page for numbering by starting at i=1.
       // If you want the cover to be "Page 1," just change to i=0.
       for (let i = 1; i < totalPages; i++) {
@@ -300,8 +315,14 @@ const generatePdf = async (report) => {
           { align: 'center' }
         );
       }
+      */
       
       logger.info(`Final PDF page count (buffered): ${totalPages}`);
+      
+      // Add page numbers and footers
+      if (report._id) {
+        addFooters(doc, report._id.toString(), colors, fonts);
+      }
       
       // Finalize the PDF
       doc.end();
@@ -316,7 +337,9 @@ const generatePdf = async (report) => {
 /**
  * Render a cover page
  */
-const renderCoverPage = (doc, report, companyInfo, companyLogo, colors) => {
+const renderCoverPage = (doc, report, companyInfo, companyLogo, colors, fonts, pageNumber) => {
+  // We don't show page numbers on the cover, so we don't use the pageNumber parameter
+  
   // Draw header bar
   doc.rect(0, 0, doc.page.width, 120).fill(colors.primary);
   
@@ -324,13 +347,13 @@ const renderCoverPage = (doc, report, companyInfo, companyLogo, colors) => {
   if (companyLogo) {
     doc.image(companyLogo, 50, 30, { width: 150 });
   } else if (companyInfo && companyInfo.name) {
-    doc.fillColor('#FFFFFF').fontSize(24).font('Heading');
+    doc.fillColor('#FFFFFF').fontSize(24).font(fonts.Heading);
     doc.text(companyInfo.name, 50, 50);
   }
   
   // Add report title
   const titleY = 180;
-  doc.fillColor(colors.primary).fontSize(30).font('Heading');
+  doc.fillColor(colors.primary).fontSize(30).font(fonts.Heading);
   doc.text(report.title || 'Property Inspection Report', 50, titleY, { align: 'center' });
   
   // Add property image if available
@@ -351,9 +374,9 @@ const renderCoverPage = (doc, report, companyInfo, companyLogo, colors) => {
   const boxY = doc.page.height - 200;
   doc.rect(50, boxY, doc.page.width - 100, 120).lineWidth(1).stroke(colors.primary);
   
-  doc.fillColor(colors.primary).fontSize(14).font('Heading');
+  doc.fillColor(colors.primary).fontSize(14).font(fonts.Heading);
   doc.text('CLIENT INFORMATION', 70, boxY + 20);
-  doc.fillColor(colors.text).fontSize(11).font('Body');
+  doc.fillColor(colors.text).fontSize(11).font(fonts.Body);
   
   let clientInfoY = boxY + 45;
   doc.text(`Client: ${report.clientName || 'N/A'}`, 70, clientInfoY);
@@ -377,14 +400,34 @@ const renderCoverPage = (doc, report, companyInfo, companyLogo, colors) => {
 /**
  * Render a summary page
  */
-const renderSummaryPage = (doc, report, colors) => {
+const renderSummaryPage = (doc, report, colors, fonts, pageNumber) => {
   // Page header
-  addPageHeader(doc, 'Report Summary', colors);
+  addPageHeader(doc, 'Report Summary', colors, fonts, pageNumber);
   
   // Summary content
-  doc.moveDown();
-  doc.fillColor(colors.text).fontSize(11).font('Body');
-  doc.text(report.summary);
+  if (report.summary) {
+    doc.fillColor(colors.primary).fontSize(14).font(fonts.Heading);
+    doc.text('Overview', 50, 80);
+    
+    doc.fillColor(colors.text).fontSize(11).font(fonts.Body);
+    doc.text(report.summary, 50, 105, {
+      width: doc.page.width - 100,
+      align: 'left'
+    });
+  }
+  
+  // Property details
+  const detailsY = report.summary ? 200 : 80;
+  doc.fillColor(colors.primary).fontSize(14).font(fonts.Heading);
+  doc.text('Property Details', 50, detailsY);
+  
+  // Create a details table
+  const detailsStartY = detailsY + 25;
+  if (report.propertyAddress) {
+    doc.fillColor(colors.text).fontSize(11).font(fonts.Body);
+    doc.text('Address:', 50, detailsStartY, { continued: true });
+    doc.text(` ${report.propertyAddress}`, { paragraphGap: 5 });
+  }
   
   // Add a key findings box if damages exist
   if (report.damages && report.damages.length > 0) {
@@ -392,7 +435,7 @@ const renderSummaryPage = (doc, report, colors) => {
     
     // Key findings box header
     doc.rect(50, doc.y, doc.page.width - 100, 30).fill(colors.primary);
-    doc.fillColor('#FFFFFF').fontSize(14).font('Heading');
+    doc.fillColor('#FFFFFF').fontSize(14).font(fonts.Heading);
     doc.text('KEY FINDINGS', 70, doc.y - 25);
     
     // Key findings content
@@ -400,7 +443,7 @@ const renderSummaryPage = (doc, report, colors) => {
              Math.min(report.damages.length * 25 + 20, 150)).fill(colors.light);
     
     let yPos = doc.y + 15;
-    doc.fillColor(colors.text).fontSize(11).font('Body');
+    doc.fillColor(colors.text).fontSize(11).font(fonts.Body);
     
     report.damages.slice(0, 5).forEach((damage, index) => {
       // Add bullet point
@@ -424,98 +467,89 @@ const renderSummaryPage = (doc, report, colors) => {
 /**
  * Render a damages page
  */
-const renderDamagesPage = (doc, title, damages, colors) => {
+const renderDamagesPage = (doc, title, damages, colors, fonts, pageNumber) => {
   // Page header
-  addPageHeader(doc, title, colors);
+  addPageHeader(doc, title, colors, fonts, pageNumber);
   
   damages.forEach((damage, index) => {
-    // Damage header with colored background based on severity
-    let severityColor = colors.secondary;
-    if (damage.severity) {
-      if (damage.severity.toLowerCase().includes('severe')) {
-        severityColor = colors.accent;
-      } else if (damage.severity.toLowerCase().includes('moderate')) {
-        severityColor = colors.warning;
-      } else if (damage.severity.toLowerCase().includes('minor')) {
-        severityColor = colors.success;
-      }
-    }
+    const yStart = 80 + (index * 220);
     
-    // Damage type header
-    doc.rect(50, doc.y, doc.page.width - 100, 30).fill(severityColor);
-    doc.fillColor('#FFFFFF').fontSize(12).font('Heading');
-    doc.text(
-      `${index + 1}. ${damage.type || 'Damage'}${damage.severity ? ` - ${damage.severity}` : ''}`,
-      70, 
-      doc.y - 25
-    );
+    // Draw a light background for each damage entry
+    doc.rect(50, yStart, doc.page.width - 100, 200)
+      .fillAndStroke(colors.lightGray, colors.lightText);
     
-    // Damage details in a box
-    doc.rect(50, doc.y + 5, doc.page.width - 100, 80).fill(colors.light);
-    doc.fillColor(colors.text).fontSize(11).font('Body');
+    // Damage header
+    doc.fillColor(colors.primary).fontSize(14).font(fonts.Heading)
+      .text(damage.title || `Damage ${index + 1}`, 60, yStart + 10);
     
-    // Description
-    const description = damage.description 
-      || (typeof damage === 'string' ? damage : 'No details available');
+    // Damage description
+    doc.fillColor(colors.text).fontSize(11).font(fonts.Body)
+      .text(damage.description || 'No description provided', 60, yStart + 35, { 
+        width: doc.page.width - 120,
+        height: 60,
+        ellipsis: true
+      });
     
-    doc.text(description, 70, doc.y + 15, {
-      width: doc.page.width - 140,
-    });
-    
-    // Affected areas if available
+    // Add affected areas if available
     if (damage.affectedAreas) {
-      doc.moveDown();
-      doc.fillColor(colors.primary).font('Heading').text('Affected Areas:', { continued: true });
-      doc.fillColor(colors.text).font('Body').text(` ${damage.affectedAreas}`);
+      doc.fillColor(colors.primary).font(fonts.Heading).text('Affected Areas:', 60, yStart + 100, { continued: true });
+      doc.fillColor(colors.text).font(fonts.Body).text(` ${damage.affectedAreas}`);
     }
     
-    doc.moveDown(2);
+    // Add severity indicator if available
+    if (damage.severity) {
+      const severity = typeof damage.severity === 'number' ? 
+        damage.severity : 
+        (damage.severity === 'high' ? 3 : (damage.severity === 'medium' ? 2 : 1));
+      
+      const severityText = severity === 3 ? 'High' : (severity === 2 ? 'Medium' : 'Low');
+      const severityColor = severity === 3 ? '#EF4444' : (severity === 2 ? '#F59E0B' : '#10B981');
+      
+      doc.rect(60, yStart + 125, 100, 25).fill(severityColor);
+      doc.fillColor('#FFFFFF').fontSize(12).font(fonts.Heading).text(
+        `Severity: ${severityText}`, 70, yStart + 132
+      );
+    }
   });
 };
 
 /**
  * Render a recommendations page
  */
-const renderRecommendationsPage = (doc, title, recommendations, colors) => {
+const renderRecommendationsPage = (doc, title, recommendations, colors, fonts, pageNumber) => {
   // Page header
-  addPageHeader(doc, title, colors);
+  addPageHeader(doc, title, colors, fonts, pageNumber);
   
   recommendations.forEach((recommendation, index) => {
-    // Determine if this is a complex object or just a string
-    const recTitle = recommendation.title || `Recommendation ${index + 1}`;
-    const description = recommendation.description 
-      || (typeof recommendation === 'string' ? recommendation : 'No details available');
+    const yStart = 80 + (index * 180);
     
-    // Recommendation number circle
-    doc.circle(65, doc.y + 10, 15).fill(colors.primary);
-    doc.fillColor('#FFFFFF').fontSize(12).font('Heading').text(
-      (index + 1).toString(), 
-      65 - 5, 
-      doc.y + 5,
-      { width: 10, align: 'center' }
-    );
-    
-    // Recommendation title and description
-    doc.fillColor(colors.primary).fontSize(14).font('Heading')
-       .text(recTitle, 90, doc.y, { width: doc.page.width - 140 });
-    
-    doc.moveDown(0.5);
-    doc.fillColor(colors.text).fontSize(11).font('Body')
-       .text(description, 90, doc.y, { width: doc.page.width - 140 });
-    
-    doc.moveDown(2);
+    // Draw a light background for each recommendation
+    doc.rect(50, yStart, doc.page.width - 100, 160)
+      .fillAndStroke(colors.lightGray, colors.lightText);
+      
+    // Recommendation header
+    doc.fillColor(colors.primary).fontSize(14).font(fonts.Heading)
+      .text(recommendation.title || `Recommendation ${index + 1}`, 60, yStart + 10);
+      
+    // Recommendation details
+    doc.fillColor(colors.text).fontSize(11).font(fonts.Body)
+      .text(recommendation.description || 'No description provided', 60, yStart + 35, {
+        width: doc.page.width - 120,
+        height: 100,
+        ellipsis: true
+      });
   });
 };
 
 /**
  * Render a materials page
  */
-const renderMaterialsPage = (doc, title, materials, colors) => {
+const renderMaterialsPage = (doc, title, materials, colors, fonts, pageNumber) => {
   // Page header
-  addPageHeader(doc, title, colors);
+  addPageHeader(doc, title, colors, fonts, pageNumber);
   
   if (typeof materials === 'string') {
-    doc.fillColor(colors.text).fontSize(11).font('Body');
+    doc.fillColor(colors.text).fontSize(11).font(fonts.Body);
     doc.text(materials);
     return;
   }
@@ -529,11 +563,11 @@ const renderMaterialsPage = (doc, title, materials, colors) => {
       || (typeof material === 'string' ? material : 'No details available');
     
     // Material name
-    doc.fillColor(colors.primary).fontSize(14).font('Heading')
+    doc.fillColor(colors.primary).fontSize(14).font(fonts.Heading)
        .text(name, 70, doc.y + 15, { width: doc.page.width - 140 });
     
     // Material description
-    doc.fillColor(colors.text).fontSize(11).font('Body')
+    doc.fillColor(colors.text).fontSize(11).font(fonts.Body)
        .text(description, 70, doc.y + 40, { width: doc.page.width - 140 });
     
     doc.moveDown(5);
@@ -543,118 +577,63 @@ const renderMaterialsPage = (doc, title, materials, colors) => {
 /**
  * Render a large photo with analysis page
  */
-const renderLargePhotoPage = (doc, title, photo, colors) => {
+const renderLargePhotoPage = (doc, title, photo, colors, fonts, pageNumber) => {
   // Page header
-  addPageHeader(doc, title, colors);
+  addPageHeader(doc, title, colors, fonts, pageNumber);
   
   const photoPath = findPhotoPath(photo);
   if (!photoPath) {
-    doc.fillColor(colors.text).fontSize(12).font('Body');
-    doc.text('Could not load photo. File may be missing.', 50, doc.y + 20);
+    doc.fillColor(colors.accent).fontSize(14).font(fonts.Body);
+    doc.text('Photo file not found', 50, 100);
     return;
   }
   
-  const photoWidth = doc.page.width - 100;
-  const photoHeight = photoWidth * 0.75; // 4:3 aspect ratio
+  // Calculate image dimensions to fit the page
+  const pageWidth = doc.page.width - 100; // Leave margins
+  const maxHeight = 500; // Max height for the photo
+  
+  // Position in the center of the page
   const xPosition = 50;
-  const yPosition = doc.y + 10;
+  const yPosition = 100;
   
-  // Add border
-  doc.rect(xPosition - 2, yPosition - 2, photoWidth + 4, photoHeight + 4)
-     .lineWidth(2).stroke(colors.primary);
-  
-  try {
-    doc.image(photoPath, xPosition, yPosition, {
-      width: photoWidth,
-      height: photoHeight,
-      align: 'center'
-    });
-  } catch (err) {
-    logger.error(`Error embedding photo in PDF: ${err.message}`);
-    doc.fillColor(colors.accent).fontSize(14).font('Body');
-    doc.text('Error loading image', xPosition + photoWidth / 2 - 50, yPosition + photoHeight / 2);
-    // Move down so we can place analysis text below
-    doc.y = yPosition + photoHeight;
-  }
+  // Photo width should not exceed page width
+  const photoWidth = Math.min(pageWidth, 500);
   
   // Add metadata above the photo
   const metadataY = yPosition - 20;
-  addPhotoMetadata(doc, photo, xPosition, metadataY, photoWidth, colors);
+  addPhotoMetadata(doc, photo, xPosition, metadataY, photoWidth, colors, fonts);
   
-  // Analysis box below photo
-  if (photo.aiAnalysis) {
-    const analysis = photo.aiAnalysis;
-    const boxY = yPosition + photoHeight + 20;
-    
-    // Background
-    const boxHeight = 150; 
-    doc.rect(xPosition, boxY, photoWidth, boxHeight).fill(colors.light);
-    
-    if (analysis.damageDetected) {
-      let severityColor = colors.success;
-      if (analysis.severity) {
-        if (analysis.severity.toLowerCase().includes('severe')) {
-          severityColor = colors.accent;
-        } else if (analysis.severity.toLowerCase().includes('moderate')) {
-          severityColor = colors.warning;
-        }
-      }
-      
-      // Colored bar for severity
-      doc.rect(xPosition, boxY, 15, boxHeight).fill(severityColor);
-      
-      // Damage type & severity
-      doc.fillColor(colors.primary).fontSize(14).font('Heading');
-      doc.text(analysis.damageType || 'Damage Detected', xPosition + 25, boxY + 15);
-      
-      if (analysis.severity) {
-        doc.fillColor(severityColor).fontSize(12).font('Heading');
-        doc.text(analysis.severity, xPosition + 25, boxY + 35);
-      }
-      
-      // Location
-      if (analysis.location) {
-        doc.fillColor(colors.secondary).fontSize(11).font('Body');
-        doc.text(`Location: ${analysis.location}`, xPosition + 25, boxY + 55);
-      }
-      
-      // Detailed description
-      if (analysis.description) {
-        doc.fillColor(colors.text).fontSize(10).font('Body');
-        doc.text(analysis.description, xPosition + 25, boxY + 75, {
-          width: photoWidth - 30,
-          height: 60,
-          ellipsis: true
-        });
-      }
-    } else {
-      // No damage
-      doc.rect(xPosition, boxY, 15, boxHeight).fill(colors.success);
-      
-      doc.fillColor(colors.primary).fontSize(14).font('Heading');
-      doc.text('No Damage Detected', xPosition + 25, boxY + 15);
-      
-      if (analysis.location) {
-        doc.fillColor(colors.secondary).fontSize(11).font('Body');
-        doc.text(`Location: ${analysis.location}`, xPosition + 25, boxY + 40);
-      }
-      
-      if (analysis.description) {
-        doc.fillColor(colors.text).fontSize(10).font('Body');
-        doc.text(analysis.description, xPosition + 25, boxY + 60, {
-          width: photoWidth - 40,
-          height: 80,
-          ellipsis: true
-        });
-      }
-    }
-  } else if (photo.description || photo.userDescription) {
-    // Just a caption
-    const captionY = yPosition + photoHeight + 5;
-    doc.fontSize(10).font('Italic').fillColor(colors.text);
-    doc.text(photo.description || photo.userDescription, xPosition, captionY, {
+  // Draw photo with border
+  doc.rect(xPosition - 5, yPosition - 5, photoWidth + 10, maxHeight + 10).fill('#F3F4F6');
+  doc.image(photoPath, xPosition, yPosition, { 
+    width: photoWidth,
+    height: maxHeight,
+    fit: [photoWidth, maxHeight] 
+  });
+
+  // Add caption if available
+  if (photo.caption) {
+    const captionY = yPosition + maxHeight + 20;
+    doc.fontSize(10).font(fonts.Italic).fillColor(colors.text);
+    doc.text(photo.caption, xPosition, captionY, { 
       width: photoWidth,
-      align: 'center'
+      align: 'center' 
+    });
+  }
+  
+  // Add analysis if available
+  if (photo.analysis) {
+    const analysisY = photo.caption ? 
+      doc.y + 20 : // Position after caption
+      yPosition + maxHeight + 20; // Position after photo
+      
+    doc.fillColor(colors.primary).fontSize(14).font(fonts.Heading);
+    doc.text('Analysis', xPosition, analysisY);
+    
+    doc.fillColor(colors.text).fontSize(10).font(fonts.Body);
+    doc.text(photo.analysis, xPosition, doc.y + 10, { 
+      width: photoWidth,
+      align: 'left' 
     });
   }
 };
@@ -662,96 +641,95 @@ const renderLargePhotoPage = (doc, title, photo, colors) => {
 /**
  * Render a photo grid page
  */
-const renderPhotoGridPage = (doc, title, photos, colors) => {
+const renderPhotoGridPage = (doc, title, photos, colors, fonts, pageNumber) => {
   // Page header
-  addPageHeader(doc, title, colors);
+  addPageHeader(doc, title, colors, fonts, pageNumber);
   
   const pageWidth = doc.page.width - 100;
-  const photoWidth = (pageWidth / 2) - 10; // 2 photos per row
-  const photoHeight = photoWidth * 0.75;
-  const padding = 20;
+  const photoWidth = Math.min(240, pageWidth / 2 - 10); // 2 columns with some spacing
+  const photoHeight = photoWidth * 0.75; // 4:3 aspect ratio
   
-  // Positions in a 2x2 grid
+  // Grid positions for 4 photos in a 2x2 grid
   const positions = [
-    { x: 50, y: doc.y + 10 },
-    { x: 50 + photoWidth + padding, y: doc.y + 10 },
-    { x: 50, y: doc.y + 10 + photoHeight + padding },
-    { x: 50 + photoWidth + padding, y: doc.y + 10 + photoHeight + padding }
+    { x: 50, y: 80 },  // Top left
+    { x: 50 + photoWidth + 20, y: 80 },  // Top right
+    { x: 50, y: 80 + photoHeight + 70 },  // Bottom left
+    { x: 50 + photoWidth + 20, y: 80 + photoHeight + 70 }  // Bottom right
   ];
   
-  let addedPhotoCount = 0;
-  
-  photos.forEach((photo, i) => {
-    try {
-      if (i >= positions.length) return;
-      
+  photos.forEach((photo, index) => {
+    if (index < positions.length) {
+      const pos = positions[index];
       const photoPath = findPhotoPath(photo);
-      if (!photoPath) {
-        logger.warn(`Skipping photo at position ${i}, file not found: ${photo.filename}`);
-        return;
+      
+      if (photoPath) {
+        // Draw photo with light background
+        doc.rect(pos.x - 5, pos.y - 5, photoWidth + 10, photoHeight + 10).fill(colors.lightGray);
+        
+        // Metadata above photo
+        addPhotoMetadata(doc, photo, pos.x, pos.y - 15, photoWidth, colors, fonts);
+        
+        // Caption
+        const captionText = photo.caption || (photo.description || '');
+        if (captionText) {
+          doc.fontSize(8).font(fonts.Italic).fillColor(colors.text);
+          doc.text(captionText.substring(0, 100) + (captionText.length > 100 ? '...' : ''), 
+                pos.x, pos.y + photoHeight + 5, { 
+                  width: photoWidth, 
+                  align: 'center',
+                  height: 30,
+                  ellipsis: true
+                });
+        }
+        
+        try {
+          doc.image(photoPath, pos.x, pos.y, {
+            width: photoWidth,
+            height: photoHeight,
+            fit: [photoWidth, photoHeight]
+          });
+        } catch (err) {
+          doc.fillColor(colors.accent).fontSize(12).font(fonts.Body);
+          doc.text('Error loading image', pos.x + 10, pos.y + photoHeight / 2, { 
+            width: photoWidth - 20,
+            align: 'center'
+          });
+        }
+      } else {
+        // Draw placeholder if image not found
+        doc.rect(pos.x, pos.y, photoWidth, photoHeight).fill('#E5E7EB');
+        doc.fontSize(12).font(fonts.Body).fillColor(colors.text);
+        doc.text('Image not available', 
+              pos.x + 10, pos.y + photoHeight / 2 - 10, { 
+                width: photoWidth - 20, 
+                align: 'center'
+              });
       }
-      
-      const pos = positions[i];
-      
-      // Add border
-      doc.rect(pos.x - 2, pos.y - 2, photoWidth + 4, photoHeight + 4)
-         .lineWidth(1).stroke(colors.primary);
-      
-      try {
-        doc.image(photoPath, pos.x, pos.y, {
-          width: photoWidth,
-          height: photoHeight
-        });
-        addedPhotoCount++;
-      } catch (err) {
-        logger.error(`Error embedding photo ${i} in PDF: ${err.message}`);
-        doc.fillColor(colors.accent).fontSize(12).font('Body');
-        doc.text('Error loading image', pos.x + 30, pos.y + 60);
-      }
-      
-      // Metadata above photo
-      addPhotoMetadata(doc, photo, pos.x, pos.y - 15, photoWidth, colors);
-      
-      // Caption
-      if (photo.description) {
-        doc.fontSize(9).font('Italic').fillColor(colors.text);
-        doc.text(photo.description, pos.x, pos.y + photoHeight + 5, {
-          width: photoWidth,
-          height: 20,
-          ellipsis: true
-        });
-      }
-    } catch (err) {
-      logger.error(`Error adding photo ${i} to grid: ${err.message}`);
     }
   });
-  
-  if (addedPhotoCount === 0) {
-    doc.fontSize(12).font('Body').fillColor(colors.text);
-    doc.text('Could not load photos for this page.', 50, positions[0].y + 50);
-  }
 };
 
 /**
  * Add consistent page header
  */
-const addPageHeader = (doc, title, colors) => {
+const addPageHeader = (doc, title, colors, fonts, pageNumber) => {
   // Draw header bar
   doc.rect(0, 0, doc.page.width, 50).fill(colors.primary);
   
-  // Add section title
-  doc.fillColor('#FFFFFF').fontSize(18).font('Heading');
-  doc.text(title, 50, 15);
+  // Add title
+  doc.fillColor('#FFFFFF').fontSize(14).font(fonts.Heading);
+  doc.text(title, 50, 20);
   
-  // Reset position for content
-  doc.moveDown(3);
+  // Add page number at the top right
+  doc.fillColor('#FFFFFF').fontSize(11).font(fonts.Body);
+  doc.text(`Page ${pageNumber}`, doc.page.width - 100, 20, { width: 50, align: 'right' });
 };
 
 /**
  * Add metadata to a photo
  */
-const addPhotoMetadata = (doc, photo, x, y, width, colors) => {
-  doc.fontSize(8).font('Body').fillColor(colors.secondary);
+const addPhotoMetadata = (doc, photo, x, y, width, colors, fonts) => {
+  doc.fontSize(8).font(fonts.Body).fillColor(colors.secondary);
   
   const metadata = photo.metadata || (photo.uploadedData ? photo.uploadedData.metadata : null);
   if (!metadata && !photo.filename) return;
@@ -866,6 +844,39 @@ const findPhotoPath = (photo) => {
   }
   
   return null;
+};
+
+// Add footers to all pages at the end
+const addFooters = (doc, reportId, colors, fonts) => {
+  const totalPages = doc.bufferedPageCount;
+  
+  for (let i = 0; i < totalPages; i++) {
+    doc.switchToPage(i);
+    
+    // Skip adding footer to cover page (page 0)
+    if (i === 0) continue;
+    
+    // Add a line at the bottom of the page
+    const footerY = doc.page.height - 50;
+    doc.moveTo(50, footerY).lineTo(doc.page.width - 50, footerY).stroke(colors.lightText);
+    
+    // Add report ID and timestamp
+    doc.fontSize(8).font(fonts.Body).fillColor(colors.secondary);
+    doc.text(
+      `Report ID: ${reportId} | Generated: ${new Date().toLocaleDateString()}`,
+      50, 
+      footerY + 10, 
+      { align: 'left', width: doc.page.width - 100 }
+    );
+    
+    // Add copyright and page count
+    doc.text(
+      `© PhotoReportApp. All rights reserved. | Page ${i} of ${totalPages - 1}`,
+      50, 
+      footerY + 20,
+      { align: 'left', width: doc.page.width - 100 }
+    );
+  }
 };
 
 module.exports = {

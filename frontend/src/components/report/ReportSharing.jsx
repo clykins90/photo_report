@@ -91,7 +91,7 @@ const ReportSharing = ({ reportId, existingShareUrl = null, existingExpiry = nul
             className={`w-full px-4 py-2 rounded font-medium ${
               isLoading
                 ? 'bg-gray-300 text-gray-700 cursor-not-allowed'
-                : 'bg-blue-500 text-white hover:bg-blue-600'
+                : 'bg-primary/90 hover:bg-primary/80 text-primary-foreground border border-primary/20'
             }`}
           >
             {isLoading ? 'Generating...' : 'Generate Sharing Link'}

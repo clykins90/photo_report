@@ -7,6 +7,52 @@
 const REPORT_BACKUP_KEY = 'photo_report_app_backup';
 
 /**
+ * Sanitizes photo data to remove circular references and non-serializable properties
+ * @param {Array} photos - The photos to sanitize
+ * @returns {Array} Sanitized photos array
+ */
+const sanitizePhotosForBackup = (photos) => {
+  if (!photos || !Array.isArray(photos)) return [];
+  
+  return photos.map(photo => {
+    // Create a clean copy without circular references
+    const sanitizedPhoto = {
+      id: photo.id,
+      name: photo.name,
+      filename: photo.filename || photo.name,
+      description: photo.description || '',
+      status: photo.status || 'pending',
+      preview: typeof photo.preview === 'string' ? photo.preview : null,
+    };
+    
+    // Add important uploadedData properties if available
+    if (photo.uploadedData) {
+      sanitizedPhoto.uploadedData = {
+        filename: photo.uploadedData.filename,
+        thumbnailFilename: photo.uploadedData.thumbnailFilename,
+        optimizedFilename: photo.uploadedData.optimizedFilename,
+        thumbnailUrl: photo.uploadedData.thumbnailUrl,
+        optimizedUrl: photo.uploadedData.optimizedUrl,
+        originalUrl: photo.uploadedData.originalUrl,
+      };
+    }
+    
+    // Include analysis data if it exists
+    if (photo.analysis) {
+      sanitizedPhoto.analysis = {
+        description: photo.analysis.description || '',
+        tags: Array.isArray(photo.analysis.tags) ? photo.analysis.tags : [],
+        damageDetected: photo.analysis.damageDetected || false,
+        confidence: photo.analysis.confidence || 0,
+        severity: photo.analysis.severity || 'unknown'
+      };
+    }
+    
+    return sanitizedPhoto;
+  });
+};
+
+/**
  * Backs up report data to localStorage
  * @param {Object} reportData - The report data to back up
  * @param {Array} photos - The photos data to back up
@@ -14,16 +60,19 @@ const REPORT_BACKUP_KEY = 'photo_report_app_backup';
  */
 export const backupReportData = (reportData, photos) => {
   try {
+    // Sanitize photos to remove circular references
+    const sanitizedPhotos = sanitizePhotosForBackup(photos);
+    
     // Create a backup object with timestamp
     const backup = {
       timestamp: new Date().toISOString(),
       reportData,
-      photos
+      photos: sanitizedPhotos
     };
     
     // Save to localStorage
     localStorage.setItem(REPORT_BACKUP_KEY, JSON.stringify(backup));
-    console.log('Report data backed up successfully', backup);
+    console.log('Report data backed up successfully');
     return true;
   } catch (error) {
     console.error('Failed to backup report data:', error);

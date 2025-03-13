@@ -148,15 +148,24 @@ export const createReport = async (reportData) => {
       
       // Check for specific error messages
       if (error.response.data && error.response.data.error) {
-        if (error.response.data.error.includes('size limit')) {
-          throw new Error('Report data is too large. Try reducing the amount of photos or data before submitting.');
+        const errorMsg = error.response.data.error;
+        
+        // Handle company-related errors
+        if (errorMsg.includes('company')) {
+          console.error('Company information error detected. User company:', preparedData.company);
+          
+          // If we get a company error but we're using a placeholder, show more specific message
+          if (preparedData.company && preparedData.company.name === "[COMPANY NAME]") {
+            throw new Error('Report created with placeholder company information. You may want to update your company profile in settings for better-looking reports.');
+          } else if (!preparedData.company) {
+            throw new Error('Missing company information. Please update your company profile in the settings.');
+          } else {
+            throw new Error(`Company error: ${errorMsg}. Your company ID is: ${preparedData.company}`);
+          }
         }
         
-        // Extract enum validation errors
-        if (error.response.data.error.includes('not a valid enum value')) {
-          console.error('Enum validation error detected:', error.response.data.error);
-          throw new Error('Some fields contain invalid values. Please check severity levels or other dropdown fields.');
-        }
+        // Pass through the original error message
+        throw new Error(errorMsg);
       }
     }
     

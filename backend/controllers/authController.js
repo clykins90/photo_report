@@ -155,8 +155,52 @@ const getProfile = async (req, res, next) => {
   }
 };
 
+/**
+ * Change user password
+ * @route PUT /api/auth/password
+ * @access Private
+ */
+const changePassword = async (req, res, next) => {
+  try {
+    // Check for validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+
+    // Get user from database
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      throw new ApiError(404, 'User not found');
+    }
+
+    // Check if current password matches
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      throw new ApiError(401, 'Current password is incorrect');
+    }
+
+    // Update password
+    user.password = newPassword;
+    
+    // Save user (password will be hashed by pre-save hook)
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Password updated successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   register,
   login,
   getProfile,
+  changePassword
 }; 

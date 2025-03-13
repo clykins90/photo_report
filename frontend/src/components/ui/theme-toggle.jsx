@@ -11,7 +11,7 @@ export function ThemeToggle({ theme, setTheme }) {
 
   return (
     <Button
-      variant="ghost"
+      variant="outline"
       size="icon"
       onClick={toggleTheme}
       aria-label="Toggle theme"

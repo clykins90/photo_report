@@ -46,14 +46,16 @@ const AIAnalysisStep = ({
     }
   }, [uploadedPhotos, handlePhotoUploadComplete]);
 
-  // Handle analyzing all photos
-  const handleAnalyzeAllPhotos = async () => {
-    if (analyzing) return;
+  // Handle both analysis and summary in one step
+  const handleBuildSummarizedReport = async () => {
+    if (analyzing || generatingSummary) return;
+    
     if (uploadedPhotos.length === 0) {
       setError('Please upload photos before analysis.');
       return;
     }
 
+    // Step 1: Analyze all photos
     setAnalyzing(true);
     setError(null);
     
@@ -62,50 +64,66 @@ const AIAnalysisStep = ({
     try {
       const updatedPhotos = [...uploadedPhotos];
       
-      for (let i = 0; i < unanalyzedPhotos.length; i++) {
-        const photo = unanalyzedPhotos[i];
-        setCurrentPhotoIndex(uploadedPhotos.findIndex(p => p.id === photo.id));
-        
-        try {
-          console.log(`Analyzing photo ${i + 1}/${unanalyzedPhotos.length}: ${photo.filename || photo.name}`);
+      // Skip analysis if all photos are already analyzed
+      if (unanalyzedPhotos.length > 0) {
+        for (let i = 0; i < unanalyzedPhotos.length; i++) {
+          const photo = unanalyzedPhotos[i];
+          setCurrentPhotoIndex(uploadedPhotos.findIndex(p => p.id === photo.id));
           
-          const result = await analyzePhoto(photo.filename || photo.name);
-          
-          // Find the photo in the updatedPhotos array and update its analysis
-          const photoIndex = updatedPhotos.findIndex(p => p.id === photo.id);
-          if (photoIndex !== -1) {
-            updatedPhotos[photoIndex] = {
-              ...updatedPhotos[photoIndex],
-              analysis: result.data,
-              status: 'complete'
-            };
-          }
-        } catch (photoError) {
-          console.error(`Failed to analyze photo ${photo.filename || photo.name}:`, photoError);
-          
-          // Find the photo in the updatedPhotos array and mark it as error
-          const photoIndex = updatedPhotos.findIndex(p => p.id === photo.id);
-          if (photoIndex !== -1) {
-            updatedPhotos[photoIndex] = {
-              ...updatedPhotos[photoIndex],
-              status: 'error',
-              error: photoError.message || 'Failed to analyze photo'
-            };
+          try {
+            console.log(`Analyzing photo ${i + 1}/${unanalyzedPhotos.length}: ${photo.filename || photo.name}`);
+            
+            const result = await analyzePhoto(photo.filename || photo.name);
+            
+            // Find the photo in the updatedPhotos array and update its analysis
+            const photoIndex = updatedPhotos.findIndex(p => p.id === photo.id);
+            if (photoIndex !== -1) {
+              updatedPhotos[photoIndex] = {
+                ...updatedPhotos[photoIndex],
+                analysis: result.data,
+                status: 'complete'
+              };
+            }
+          } catch (photoError) {
+            console.error(`Failed to analyze photo ${photo.filename || photo.name}:`, photoError);
+            
+            // Find the photo in the updatedPhotos array and mark it as error
+            const photoIndex = updatedPhotos.findIndex(p => p.id === photo.id);
+            if (photoIndex !== -1) {
+              updatedPhotos[photoIndex] = {
+                ...updatedPhotos[photoIndex],
+                status: 'error',
+                error: photoError.message || 'Failed to analyze photo'
+              };
+            }
           }
         }
+        
+        // Update all photos with their new status
+        handlePhotoUploadComplete(updatedPhotos);
       }
       
-      // Update all photos with their new status
-      handlePhotoUploadComplete(updatedPhotos);
+      setAnalyzing(false);
+      
+      // Step 2: Generate Summary if we have analyzed photos
+      const analyzedPhotos = updatedPhotos.filter(photo => photo.analysis && photo.analysis.description);
+      
+      if (analyzedPhotos.length > 0) {
+        setGeneratingSummary(true);
+        await handleGenerateAISummary();
+      } else {
+        setError('No photos could be successfully analyzed. Please check your images and try again.');
+      }
       
     } catch (err) {
-      console.error('Error during batch analysis:', err);
-      setError('Failed to analyze photos. Please try again.');
+      console.error('Error during batch processing:', err);
+      setError('Failed to complete the analysis and summary. Please try again.');
     } finally {
       setAnalyzing(false);
+      setGeneratingSummary(false);
     }
   };
-
+  
   // Handle updating individual photo analysis
   const handleUpdateAnalysis = (photoId, analysis) => {
     const updatedPhotos = uploadedPhotos.map(photo => {
@@ -142,18 +160,66 @@ const AIAnalysisStep = ({
   const renderStatusBadge = (status, error, analysis) => (
     <span 
       className={`inline-block px-2 py-1 text-xs rounded-full font-medium ${
-        status === 'complete' || analysis ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
+        analysis ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
         status === 'error' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' :
         status === 'analyzing' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' :
         'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
       }`}
     >
-      {status === 'complete' || analysis ? 'Analyzed' :
+      {analysis ? 'Analyzed' :
        status === 'error' ? 'Analysis Failed' :
        status === 'analyzing' ? 'Analyzing...' :
        'Pending Analysis'}
     </span>
   );
+
+  // Get the best available image URL for a photo
+  const getBestImageUrl = (photo) => {
+    const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+    
+    // If the photo has uploadedData with paths, use those first
+    if (photo.uploadedData) {
+      // First choice: direct thumbnail URL
+      if (photo.uploadedData.thumbnailUrl) {
+        return photo.uploadedData.thumbnailUrl;
+      }
+      
+      // Second choice: construct URL from thumbnailFilename
+      if (photo.uploadedData.thumbnailFilename) {
+        return `${baseApiUrl}/api/photos/${photo.uploadedData.thumbnailFilename}`;
+      }
+      
+      // Third choice: construct URL from thumbnailPath
+      if (photo.uploadedData.thumbnailPath) {
+        const thumbFilename = photo.uploadedData.thumbnailPath.split('/').pop();
+        return `${baseApiUrl}/api/photos/${thumbFilename}`;
+      }
+      
+      // Fourth choice: optimized URL
+      if (photo.uploadedData.optimizedUrl) {
+        return photo.uploadedData.optimizedUrl;
+      }
+      
+      // Fifth choice: construct URL from optimizedFilename
+      if (photo.uploadedData.optimizedFilename) {
+        return `${baseApiUrl}/api/photos/${photo.uploadedData.optimizedFilename}`;
+      }
+      
+      // Sixth choice: construct URL from optimizedPath
+      if (photo.uploadedData.optimizedPath) {
+        const optFilename = photo.uploadedData.optimizedPath.split('/').pop();
+        return `${baseApiUrl}/api/photos/${optFilename}`;
+      }
+      
+      // Last resort for uploaded files: original filename
+      if (photo.uploadedData.filename) {
+        return `${baseApiUrl}/api/photos/${photo.uploadedData.filename}`;
+      }
+    }
+    
+    // Fallback to preview or placeholder
+    return photo.preview || '/placeholder-image.png';
+  };
 
   return (
     <div>
@@ -183,17 +249,14 @@ const AIAnalysisStep = ({
           </div>
           <div className="ml-3">
             <p className="text-sm text-blue-700 dark:text-blue-300">
-              First, analyze all your photos with AI. Then, generate a comprehensive report summary.
+              Optional: Use AI to analyze your photos and generate a comprehensive report summary, or continue to the next step.
             </p>
           </div>
         </div>
       </div>
       
       <div className="mb-8">
-        <h4 className="font-semibold text-lg mb-2">Step 1: Analyze Photos</h4>
-        <p className="text-gray-600 dark:text-gray-300 mb-4">
-          Have AI analyze each photo to identify damage types, severity, and technical details.
-        </p>
+        <h4 className="font-semibold text-lg mb-2">Photo Browser</h4>
         
         <div className="flex items-center mb-4">
           <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mr-2">
@@ -206,22 +269,6 @@ const AIAnalysisStep = ({
             {analyzedCount}/{uploadedPhotos.length} Analyzed
           </span>
         </div>
-        
-        <button
-          onClick={handleAnalyzeAllPhotos}
-          disabled={analyzing || uploadedPhotos.length === 0}
-          className={`w-full py-3 px-4 rounded-md text-white font-medium mb-6 ${
-            analyzing || uploadedPhotos.length === 0
-              ? 'bg-gray-400 dark:bg-gray-600 cursor-not-allowed'
-              : 'bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800'
-          }`}
-        >
-          {analyzing 
-            ? `Analyzing Photo ${currentPhotoIndex + 1}/${uploadedPhotos.length}...` 
-            : allPhotosAnalyzed 
-              ? 'Re-Analyze All Photos' 
-              : 'Analyze All Photos with AI'}
-        </button>
         
         {/* View mode toggle */}
         {uploadedPhotos.length > 0 && (
@@ -269,9 +316,10 @@ const AIAnalysisStep = ({
                 >
                   <div className="relative pb-[100%]"> {/* 1:1 aspect ratio */}
                     <img 
-                      src={photo.preview} 
+                      src={getBestImageUrl(photo)} 
                       alt={`Photo ${index + 1}`}
                       className="absolute w-full h-full object-cover"
+                      onError={(e) => e.target.src = '/placeholder-image.png'}
                     />
                   </div>
                   <div className="p-2 text-center">
@@ -301,9 +349,10 @@ const AIAnalysisStep = ({
                     <div className="flex flex-col md:flex-row">
                       <div className="md:w-1/3 p-4">
                         <img 
-                          src={selectedPhoto.preview} 
+                          src={getBestImageUrl(selectedPhoto)} 
                           alt={selectedPhoto.name || 'Selected photo'}
                           className="w-full h-auto object-contain rounded"
+                          onError={(e) => e.target.src = '/placeholder-image.png'}
                         />
                         <div className="mt-2 text-center">
                           {renderStatusBadge(selectedPhoto.status, selectedPhoto.error, selectedPhoto.analysis)}
@@ -377,9 +426,10 @@ const AIAnalysisStep = ({
                 <div className="flex flex-col md:flex-row">
                   <div className="md:w-1/3 p-4">
                     <img 
-                      src={photo.preview} 
+                      src={getBestImageUrl(photo)} 
                       alt={`Photo ${index + 1}`}
                       className="w-full h-auto object-contain rounded"
+                      onError={(e) => e.target.src = '/placeholder-image.png'}
                     />
                     <div className="mt-2 text-center">
                       {renderStatusBadge(photo.status, photo.error, photo.analysis)}
@@ -411,42 +461,19 @@ const AIAnalysisStep = ({
         )}
       </div>
       
-      <div className="mb-8">
-        <h4 className="font-semibold text-lg mb-2">Step 2: Generate Report Summary</h4>
-        <p className="text-gray-600 dark:text-gray-300 mb-4">
-          Once photos are analyzed, generate a comprehensive summary of findings, damages, and recommendations.
-        </p>
-        
-        <button
-          onClick={handleGenerateAISummary}
-          disabled={!hasAnalyzedPhotos || generatingSummary}
-          className={`w-full py-3 px-4 rounded-md text-white font-medium ${
-            !hasAnalyzedPhotos || generatingSummary
-              ? 'bg-gray-400 dark:bg-gray-600 cursor-not-allowed'
-              : 'bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-800'
-          }`}
-        >
-          {generatingSummary 
-            ? 'Generating Summary...' 
-            : allPhotosAnalyzed 
-              ? 'Generate Report Summary'
-              : 'Analyze All Photos First'}
-        </button>
-        
-        {formData.summary && (
-          <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border dark:border-gray-700">
-            <h5 className="font-semibold">Generated Summary:</h5>
-            <p className="mt-2 whitespace-pre-line text-foreground">{formData.summary}</p>
-            
-            {formData.materials && (
-              <div className="mt-4">
-                <h5 className="font-semibold">Materials Identified:</h5>
-                <p className="mt-2 whitespace-pre-line text-foreground">{formData.materials}</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      {formData.summary && (
+        <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border dark:border-gray-700">
+          <h5 className="font-semibold">Generated Summary:</h5>
+          <p className="mt-2 whitespace-pre-line text-foreground">{formData.summary}</p>
+          
+          {formData.materials && (
+            <div className="mt-4">
+              <h5 className="font-semibold">Materials Identified:</h5>
+              <p className="mt-2 whitespace-pre-line text-foreground">{formData.materials}</p>
+            </div>
+          )}
+        </div>
+      )}
       
       {formData.damages && formData.damages.length > 0 && (
         <div className="mb-8">
@@ -460,6 +487,30 @@ const AIAnalysisStep = ({
         </div>
       )}
       
+      <div className="flex flex-col mt-8 mb-8">
+        <button
+          onClick={handleBuildSummarizedReport}
+          disabled={analyzing || generatingSummary || uploadedPhotos.length === 0}
+          className={`w-full py-3 px-4 rounded-md text-white font-medium mb-6 ${
+            analyzing || generatingSummary || uploadedPhotos.length === 0
+              ? 'bg-gray-400 dark:bg-gray-600 cursor-not-allowed'
+              : 'bg-purple-600 hover:bg-purple-700 dark:bg-purple-700 dark:hover:bg-purple-800'
+          }`}
+        >
+          {analyzing 
+            ? `Analyzing Photo ${currentPhotoIndex + 1}/${uploadedPhotos.length}...` 
+            : generatingSummary
+              ? 'Generating Summary...'
+              : allPhotosAnalyzed
+                ? 'Re-analyze & Build Summarized Report' 
+                : 'Build Summarized Report with AI'}
+        </button>
+        
+        <div className="text-center text-sm text-gray-500 mb-6">
+          <p>This is an optional step. You can continue to the next step without using AI.</p>
+        </div>
+      </div>
+      
       <div className="flex justify-between mt-8">
         <button
           type="button"
@@ -472,12 +523,7 @@ const AIAnalysisStep = ({
         <button
           type="button"
           onClick={nextStep}
-          disabled={!hasAnalyzedPhotos}
-          className={`${
-            !hasAnalyzedPhotos
-              ? 'bg-gray-400 cursor-not-allowed' 
-              : 'bg-blue-500 hover:bg-blue-700'
-          } text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline`}
+          className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
         >
           Next: Review & Finalize
         </button>
@@ -486,4 +532,4 @@ const AIAnalysisStep = ({
   );
 };
 
-export default AIAnalysisStep; 
+export default AIAnalysisStep;

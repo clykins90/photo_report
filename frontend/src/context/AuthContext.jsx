@@ -21,17 +21,55 @@ export const AuthProvider = ({ children }) => {
         try {
           const res = await api.get('/api/auth/profile');
           
-          // Ensure the user always has a company property
-          // In development, we'll add a fallback company ID if not provided
+          // Ensure the user always has a valid company property
           let userData = res.data.data;
           
-          // Check if user data doesn't have a company property or it's null
-          if (!userData.company) {
-            console.warn('User is missing company property. Using test company ID for development.');
-            userData = {
-              ...userData,
-              company: '6601313e0bc8870bfc66a8e5' // Test company ID for development
-            };
+          // Check if user data doesn't have a company property or it's incomplete
+          if (!userData.company || (typeof userData.company === 'object' && !userData.company.name)) {
+            console.warn('User is missing company information. Attempting to fetch from company API...');
+            
+            try {
+              // Try to fetch company data from API
+              const companyRes = await api.get('/api/company');
+              if (companyRes.data.success && companyRes.data.data && companyRes.data.data.name) {
+                userData.company = companyRes.data.data;
+                console.log('Successfully retrieved company data:', userData.company);
+              } else {
+                console.warn('Company API returned no valid data. Using test company ID for development.');
+                userData.company = {
+                  name: 'Test Company',
+                  _id: '6601313e0bc8870bfc66a8e5' // Test company ID for development
+                };
+              }
+            } catch (companyErr) {
+              console.error('Failed to fetch company data:', companyErr);
+              // Fallback to a development company
+              userData.company = {
+                name: 'Test Company',
+                _id: '6601313e0bc8870bfc66a8e5' // Test company ID for development
+              };
+            }
+          } else if (typeof userData.company === 'string') {
+            // If company is just an ID string, try to convert it to an object with a name
+            try {
+              const companyRes = await api.get('/api/company');
+              if (companyRes.data.success && companyRes.data.data) {
+                userData.company = companyRes.data.data;
+              } else {
+                // Convert the string ID to a minimal company object
+                userData.company = {
+                  name: 'Company', // Default name
+                  _id: userData.company // Keep the ID
+                };
+              }
+            } catch (companyErr) {
+              console.error('Failed to fetch company data:', companyErr);
+              // Convert the string ID to a minimal company object
+              userData.company = {
+                name: 'Company', // Default name
+                _id: userData.company // Keep the ID
+              };
+            }
           }
           
           setUser(userData);
@@ -60,14 +98,58 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       const res = await api.post('/api/auth/register', formData);
       
-      // Ensure the registered user has a company property
+      // Ensure the registered user has a valid company property
       let userData = res.data.data.user;
-      if (!userData.company) {
-        console.warn('Registered user is missing company property. Using test company ID.');
-        userData = {
-          ...userData,
-          company: '6601313e0bc8870bfc66a8e5' // Test company ID for development
-        };
+      
+      // Check if user data doesn't have a company property or it's incomplete
+      if (!userData.company || (typeof userData.company === 'object' && !userData.company.name)) {
+        console.warn('Registered user is missing company information. Attempting to fetch from company API...');
+        
+        try {
+          // Try to fetch company data from API if we have a token
+          localStorage.setItem('token', res.data.data.token); // Set token first for auth
+          const companyRes = await api.get('/api/company');
+          if (companyRes.data.success && companyRes.data.data && companyRes.data.data.name) {
+            userData.company = companyRes.data.data;
+            console.log('Successfully retrieved company data:', userData.company);
+          } else {
+            console.warn('Company API returned no valid data. Using test company object for development.');
+            userData.company = {
+              name: 'Test Company',
+              _id: '6601313e0bc8870bfc66a8e5' // Test company ID for development
+            };
+          }
+        } catch (companyErr) {
+          console.error('Failed to fetch company data:', companyErr);
+          // Fallback to a development company
+          userData.company = {
+            name: 'Test Company',
+            _id: '6601313e0bc8870bfc66a8e5' // Test company ID for development
+          };
+        }
+      } else if (typeof userData.company === 'string') {
+        // If company is just an ID string, try to convert it to an object with a name
+        try {
+          // Try to fetch company data from API if we have a token
+          localStorage.setItem('token', res.data.data.token); // Set token first for auth
+          const companyRes = await api.get('/api/company');
+          if (companyRes.data.success && companyRes.data.data) {
+            userData.company = companyRes.data.data;
+          } else {
+            // Convert the string ID to a minimal company object
+            userData.company = {
+              name: 'Company', // Default name
+              _id: userData.company // Keep the ID
+            };
+          }
+        } catch (companyErr) {
+          console.error('Failed to fetch company data:', companyErr);
+          // Convert the string ID to a minimal company object
+          userData.company = {
+            name: 'Company', // Default name
+            _id: userData.company // Keep the ID
+          };
+        }
       }
       
       localStorage.setItem('token', res.data.data.token);
@@ -91,14 +173,58 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       const res = await api.post('/api/auth/login', { email, password });
       
-      // Ensure the logged in user has a company property
+      // Ensure the logged in user has a valid company property
       let userData = res.data.data.user;
-      if (!userData.company) {
-        console.warn('Logged in user is missing company property. Using test company ID.');
-        userData = {
-          ...userData,
-          company: '6601313e0bc8870bfc66a8e5' // Test company ID for development
-        };
+      
+      // Check if user data doesn't have a company property or it's incomplete
+      if (!userData.company || (typeof userData.company === 'object' && !userData.company.name)) {
+        console.warn('Logged in user is missing company information. Attempting to fetch from company API...');
+        
+        try {
+          // Try to fetch company data from API if we have a token
+          localStorage.setItem('token', res.data.data.token); // Set token first for auth
+          const companyRes = await api.get('/api/company');
+          if (companyRes.data.success && companyRes.data.data && companyRes.data.data.name) {
+            userData.company = companyRes.data.data;
+            console.log('Successfully retrieved company data:', userData.company);
+          } else {
+            console.warn('Company API returned no valid data. Using test company object for development.');
+            userData.company = {
+              name: 'Test Company',
+              _id: '6601313e0bc8870bfc66a8e5' // Test company ID for development
+            };
+          }
+        } catch (companyErr) {
+          console.error('Failed to fetch company data:', companyErr);
+          // Fallback to a development company
+          userData.company = {
+            name: 'Test Company',
+            _id: '6601313e0bc8870bfc66a8e5' // Test company ID for development
+          };
+        }
+      } else if (typeof userData.company === 'string') {
+        // If company is just an ID string, try to convert it to an object with a name
+        try {
+          // Try to fetch company data from API if we have a token
+          localStorage.setItem('token', res.data.data.token); // Set token first for auth
+          const companyRes = await api.get('/api/company');
+          if (companyRes.data.success && companyRes.data.data) {
+            userData.company = companyRes.data.data;
+          } else {
+            // Convert the string ID to a minimal company object
+            userData.company = {
+              name: 'Company', // Default name
+              _id: userData.company // Keep the ID
+            };
+          }
+        } catch (companyErr) {
+          console.error('Failed to fetch company data:', companyErr);
+          // Convert the string ID to a minimal company object
+          userData.company = {
+            name: 'Company', // Default name
+            _id: userData.company // Keep the ID
+          };
+        }
       }
       
       localStorage.setItem('token', res.data.data.token);

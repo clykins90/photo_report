@@ -73,14 +73,14 @@ const ReportDetail = ({ report, onDelete }) => {
           <div className="flex space-x-2">
             <button
               onClick={handleEdit}
-              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+              className="bg-primary/90 hover:bg-primary/80 text-primary-foreground font-medium py-2 px-4 rounded focus:outline-none focus:shadow-outline border border-primary/20"
             >
               Edit
             </button>
             
             <button
               onClick={handleDelete}
-              className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+              className="bg-destructive/90 hover:bg-destructive/80 text-destructive-foreground font-medium py-2 px-4 rounded focus:outline-none focus:shadow-outline border border-destructive/20"
             >
               Delete
             </button>
