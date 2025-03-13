@@ -27,7 +27,7 @@ const ReviewStep = ({
   };
   
   // Check if we're in development mode
-  const isDevelopment = process.env.NODE_ENV === 'development' || 
+  const isDevelopment = import.meta.env.MODE === 'development' || 
                         window.location.hostname === 'localhost' || 
                         window.location.hostname === '127.0.0.1';
   

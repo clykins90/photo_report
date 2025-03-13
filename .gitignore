@@ -79,3 +79,11 @@ desktop.ini
 backend/uploads/
 .parcel-cache
 **/.parcel-cache 
+
+markdown
+backend_structure.markdown
+database_structure.markdown
+frontend_structure.markdown
+ai_system_prompt.md
+guide.md
+todo_list.md

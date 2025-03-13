@@ -91,7 +91,7 @@ const SharedReportPage = () => {
                 </div>
                 {report.company.logoUrl && (
                   <img 
-                    src={`${process.env.REACT_APP_API_URL}/${report.company.logoUrl}`} 
+                    src={`${import.meta.env.VITE_API_URL}/${report.company.logoUrl}`} 
                     alt={`${report.company.name} logo`}
                     className="h-16 w-auto"
                   />
@@ -190,7 +190,7 @@ const SharedReportPage = () => {
                     {photos.map((photo, photoIndex) => (
                       <div key={photoIndex} className="border rounded-lg overflow-hidden">
                         <img 
-                          src={`${process.env.REACT_APP_API_URL}/${photo.path}`} 
+                          src={`${import.meta.env.VITE_API_URL}/${photo.path}`} 
                           alt={`Photo ${photoIndex + 1}`}
                           className="w-full h-48 object-cover"
                         />
@@ -262,7 +262,7 @@ const SharedReportPage = () => {
           {report.pdfPath && (
             <div className="p-6 bg-gray-50 border-t">
               <a 
-                href={`${process.env.REACT_APP_API_URL}/${report.pdfPath}`}
+                href={`${import.meta.env.VITE_API_URL}/${report.pdfPath}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
