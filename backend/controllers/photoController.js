@@ -7,6 +7,7 @@ const imageProcessor = require('../utils/imageProcessor');
 const config = require('../config/config');
 const photoAnalysisService = require('../services/photoAnalysisService');
 const gridfs = require('../utils/gridfs'); // Add GridFS utility
+const mongoose = require('mongoose');
 
 /**
  * Upload and process a batch of photos
@@ -27,17 +28,34 @@ const uploadBatchPhotos = async (req, res, next) => {
 
     logger.info(`Processing ${req.files.length} uploaded files`);
 
-    // Get file paths
-    const filePaths = req.files.map(file => {
-      logger.info(`Processing file: ${file.originalname}, saved as: ${file.filename}`);
-      return path.join(file.destination, file.filename);
-    });
-
-    // Process images
-    const processedImages = await Promise.all(filePaths.map(async (filePath, index) => {
+    // Process all files - handle both memory storage and disk storage
+    const processedImages = await Promise.all(req.files.map(async (file, index) => {
       try {
-        // Get original file info
-        const originalFile = req.files[index];
+        let filePath;
+        let originalBuffer;
+        
+        // Handle both disk storage and memory storage
+        if (file.destination && file.filename) {
+          // For disk storage
+          filePath = path.join(file.destination, file.filename);
+          logger.info(`Processing disk-stored file: ${file.originalname}, saved as: ${file.filename}`);
+        } else if (file.buffer) {
+          // For memory storage, save buffer to temporary file
+          const tempFileName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+          filePath = path.join(config.tempUploadDir, tempFileName);
+          
+          // Ensure temp directory exists
+          if (!fsSync.existsSync(config.tempUploadDir)) {
+            fsSync.mkdirSync(config.tempUploadDir, { recursive: true });
+          }
+          
+          // Write buffer to temp file
+          await fs.writeFile(filePath, file.buffer);
+          originalBuffer = file.buffer;
+          logger.info(`Processing memory-stored file: ${file.originalname}, saved to temp file: ${tempFileName}`);
+        } else {
+          throw new ApiError(400, 'Invalid file format');
+        }
         
         // Process image (resize, optimize)
         const optimizedPath = await imageProcessor.optimizeImage(filePath, {
@@ -57,42 +75,48 @@ const uploadBatchPhotos = async (req, res, next) => {
         try {
           metadata = await imageProcessor.extractExifData(filePath);
         } catch (exifError) {
-          logger.warn(`Could not extract EXIF data for ${filePath}: ${exifError.message}`);
+          logger.warn(`Could not extract EXIF data for ${file.originalname}: ${exifError.message}`);
         }
         
-        // Upload original file to GridFS
+        // Create base metadata object
+        const fileMetadata = {
+          originalName: file.originalname, 
+          type: 'original',
+          exif: metadata,
+          userId: req.user?._id?.toString(),
+          uploadDate: new Date()
+        };
+        
+        // Add reportId to metadata if provided
+        if (req.body.reportId) {
+          fileMetadata.reportId = req.body.reportId;
+          logger.info(`Associating file with report: ${req.body.reportId}`);
+        }
+        
+        // First store original in GridFS
         const originalGridFS = await gridfs.uploadFile(filePath, {
-          filename: originalFile.filename,
-          contentType: originalFile.mimetype,
-          metadata: {
-            originalName: originalFile.originalname,
-            type: 'original',
-            exif: metadata,
-            userId: req.user?._id?.toString(),
-          }
+          filename: file.filename || path.basename(filePath),
+          contentType: file.mimetype,
+          metadata: fileMetadata
         });
         
-        // Upload optimized file to GridFS
+        // Store optimized version in GridFS
         const optimizedGridFS = await gridfs.uploadFile(optimizedPath, {
           filename: path.basename(optimizedPath),
           contentType: 'image/jpeg',
           metadata: {
-            originalName: originalFile.originalname,
-            type: 'optimized',
-            exif: metadata,
-            userId: req.user?._id?.toString(),
+            ...fileMetadata,
+            type: 'optimized'
           }
         });
         
-        // Upload thumbnail to GridFS
+        // Store thumbnail in GridFS
         const thumbnailGridFS = await gridfs.uploadFile(thumbnailPath, {
           filename: path.basename(thumbnailPath),
           contentType: 'image/jpeg',
           metadata: {
-            originalName: originalFile.originalname,
-            type: 'thumbnail',
-            exif: metadata,
-            userId: req.user?._id?.toString(),
+            ...fileMetadata,
+            type: 'thumbnail'
           }
         });
         
@@ -101,7 +125,7 @@ const uploadBatchPhotos = async (req, res, next) => {
         const optimizedFilename = path.basename(optimizedPath);
         const thumbnailFilename = path.basename(thumbnailPath);
         
-        logger.info(`Generated files for ${originalFile.originalname}:
+        logger.info(`Generated files for ${file.originalname}:
           - Original: ${filePath} -> GridFS ID: ${originalGridFS.id}
           - Optimized: ${optimizedPath} -> GridFS ID: ${optimizedGridFS.id}
           - Thumbnail: ${thumbnailPath} -> GridFS ID: ${thumbnailGridFS.id}
@@ -112,14 +136,14 @@ const uploadBatchPhotos = async (req, res, next) => {
           await fs.unlink(filePath);
           await fs.unlink(optimizedPath);
           await fs.unlink(thumbnailPath);
-          logger.info(`Deleted temporary files for ${originalFile.originalname}`);
+          logger.info(`Deleted temporary files for ${file.originalname}`);
         } catch (deleteError) {
           logger.warn(`Could not delete temporary files: ${deleteError.message}`);
         }
         
         return {
-          originalName: originalFile.originalname,
-          filename: originalFile.filename,
+          originalName: file.originalname,
+          filename: file.filename,
           gridfs: {
             original: originalGridFS.id,
             optimized: optimizedGridFS.id,
@@ -129,15 +153,15 @@ const uploadBatchPhotos = async (req, res, next) => {
           thumbnailFilename,
           optimizedUrl: `${baseUrl}/api/files/${optimizedGridFS.id}`,
           thumbnailUrl: `${baseUrl}/api/files/${thumbnailGridFS.id}`,
-          size: originalFile.size,
-          mimetype: originalFile.mimetype,
+          size: file.size,
+          mimetype: file.mimetype,
           metadata
         };
       } catch (error) {
         logger.error(`Error processing image ${filePath}: ${error.message}`);
         return {
-          originalName: req.files[index].originalname,
-          filename: req.files[index].filename,
+          originalName: file.originalname,
+          filename: file.filename,
           path: filePath,
           error: error.message
         };
@@ -168,23 +192,47 @@ const uploadSinglePhoto = async (req, res, next) => {
     if (!req.file) {
       throw new ApiError(400, 'Please upload a photo');
     }
-
-    // Get file path
-    const filePath = path.join(req.file.destination, req.file.filename);
-
-    // Process image
+    
+    const file = req.file;
+    let filePath;
+    let originalBuffer;
+    
+    // Handle both disk storage and memory storage
+    if (file.destination && file.filename) {
+      // For disk storage
+      filePath = path.join(file.destination, file.filename);
+      logger.info(`Processing disk-stored file: ${file.originalname}, saved as: ${file.filename}`);
+    } else if (file.buffer) {
+      // For memory storage, save buffer to temporary file
+      const tempFileName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+      filePath = path.join(config.tempUploadDir, tempFileName);
+      
+      // Ensure temp directory exists
+      if (!fsSync.existsSync(config.tempUploadDir)) {
+        fsSync.mkdirSync(config.tempUploadDir, { recursive: true });
+      }
+      
+      // Write buffer to temp file
+      await fs.writeFile(filePath, file.buffer);
+      originalBuffer = file.buffer;
+      logger.info(`Processing memory-stored file: ${file.originalname}, saved to temp file: ${tempFileName}`);
+    } else {
+      throw new ApiError(400, 'Invalid file format');
+    }
+    
+    // Process image (resize, optimize)
     const optimizedPath = await imageProcessor.optimizeImage(filePath, {
       width: 1200,
       quality: 80,
       format: 'jpeg',
     });
-
+    
     // Generate thumbnail
     const thumbnailPath = await imageProcessor.generateThumbnail(filePath, {
       width: 300,
       height: 300,
     });
-
+    
     // Extract EXIF data
     let exifData = {};
     try {
@@ -193,16 +241,25 @@ const uploadSinglePhoto = async (req, res, next) => {
       logger.warn(`Could not extract EXIF data for ${filePath}: ${exifError.message}`);
     }
     
+    // Create metadata with reportId if provided
+    const fileMetadata = {
+      originalName: file.originalname,
+      type: 'original',
+      exif: exifData,
+      userId: req.user?._id?.toString(),
+    };
+    
+    // Add reportId to metadata if provided in the request
+    if (req.body.reportId) {
+      fileMetadata.reportId = req.body.reportId;
+      logger.info(`Associating file with report: ${req.body.reportId}`);
+    }
+    
     // Upload original file to GridFS
     const originalGridFS = await gridfs.uploadFile(filePath, {
-      filename: req.file.filename,
-      contentType: req.file.mimetype,
-      metadata: {
-        originalName: req.file.originalname,
-        type: 'original',
-        exif: exifData,
-        userId: req.user?._id?.toString(),
-      }
+      filename: file.filename,
+      contentType: file.mimetype,
+      metadata: fileMetadata
     });
     
     // Upload optimized file to GridFS
@@ -210,10 +267,8 @@ const uploadSinglePhoto = async (req, res, next) => {
       filename: path.basename(optimizedPath),
       contentType: 'image/jpeg',
       metadata: {
-        originalName: req.file.originalname,
+        ...fileMetadata,
         type: 'optimized',
-        exif: exifData,
-        userId: req.user?._id?.toString(),
       }
     });
     
@@ -222,10 +277,8 @@ const uploadSinglePhoto = async (req, res, next) => {
       filename: path.basename(thumbnailPath),
       contentType: 'image/jpeg',
       metadata: {
-        originalName: req.file.originalname,
+        ...fileMetadata,
         type: 'thumbnail',
-        exif: exifData,
-        userId: req.user?._id?.toString(),
       }
     });
     
@@ -237,7 +290,7 @@ const uploadSinglePhoto = async (req, res, next) => {
       await fs.unlink(filePath);
       await fs.unlink(optimizedPath);
       await fs.unlink(thumbnailPath);
-      logger.info(`Deleted temporary files for ${req.file.originalname}`);
+      logger.info(`Deleted temporary files for ${file.originalname}`);
     } catch (deleteError) {
       logger.warn(`Could not delete temporary files: ${deleteError.message}`);
     }
@@ -245,7 +298,7 @@ const uploadSinglePhoto = async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: {
-        originalName: req.file.originalname,
+        originalName: file.originalname,
         gridfs: {
           original: originalGridFS.id,
           optimized: optimizedGridFS.id,
@@ -263,190 +316,360 @@ const uploadSinglePhoto = async (req, res, next) => {
 };
 
 /**
- * Analyze a photo using AI with specialized roofing inspection system prompt
- * @route POST /api/photos/analyze/:filename
- * @access Private
+ * Analyze a photo using AI
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next middleware function
+ * @returns {Promise<void>}
  */
 const analyzePhoto = async (req, res, next) => {
   try {
-    const { filename } = req.params;
+    const { filename, id } = req.params;
+    let fileId = id;
+    let query;
     
-    // Validate filename to prevent directory traversal
-    if (!filename || filename.includes('..') || filename.includes('/')) {
-      throw new ApiError(400, 'Invalid filename');
+    // Determine if we're looking up by ID or filename (legacy)
+    if (req.path.includes('/analyze-by-id/')) {
+      logger.info(`Looking up file by ID: ${fileId}`);
+      
+      // Validate ID
+      if (!fileId || fileId === 'undefined') {
+        logger.error(`Invalid file ID for analysis: "${fileId}"`);
+        throw new ApiError(400, 'Invalid or missing file ID. Please provide a valid file ID for analysis.');
+      }
+      
+      // Try to find file directly by ID
+      try {
+        fileId = new mongoose.Types.ObjectId(fileId);
+        query = { _id: fileId };
+      } catch (error) {
+        logger.error(`Invalid ObjectId format: ${fileId}`);
+        throw new ApiError(400, 'Invalid file ID format.');
+      }
+    } else {
+      // Legacy code path for filename lookup
+      logger.warn(`Using legacy filename lookup for: ${filename}. Consider updating to ID-based lookup.`);
+      
+      // Validate filename to prevent directory traversal
+      if (!filename || filename === 'undefined' || filename.includes('..') || filename.includes('/')) {
+        logger.error(`Invalid filename for analysis: "${filename}"`);
+        throw new ApiError(400, 'Invalid or missing filename. Please provide a valid filename for analysis.');
+      }
+      
+      query = { filename };
     }
 
-    // Try to find the file in GridFS by filename
-    const query = { filename };
+    // Try to find the file in GridFS using the query
     const files = await gridfs.findFiles(query);
     
     if (files && files.length > 0) {
-      logger.info(`Found file in GridFS with ID: ${files[0]._id} for analysis`);
+      const foundFile = files[0];
+      logger.info(`Found file in GridFS with ID: ${foundFile._id} for analysis`);
       
       // Create a temporary file for analysis
-      const tempFilePath = path.join(config.tempUploadDir, `temp_${filename}`);
+      const tempFilePath = path.join(config.tempUploadDir, `temp_analysis_${foundFile._id}`);
       
       try {
         // Download the file from GridFS to a temporary location
-        await gridfs.downloadFile(files[0]._id, { destination: tempFilePath });
+        await gridfs.downloadFile(foundFile._id, { destination: tempFilePath });
         
-        logger.info(`Starting AI analysis for photo from GridFS: ${filename}`);
+        logger.info(`Starting AI analysis for photo from GridFS: ${foundFile._id}`);
         
         // Analyze the photo using the specialized roofing inspection system prompt
         const analysis = await photoAnalysisService.analyzePhoto(tempFilePath);
         
-        logger.info(`Successfully analyzed photo ${filename}: ${analysis.damageDetected ? 'Damage detected' : 'No damage detected'}`);
-        
-        // Clean up temporary file
+        // Clean up the temporary file
         try {
           await fs.unlink(tempFilePath);
-          logger.info(`Deleted temporary file: ${tempFilePath}`);
-        } catch (deleteError) {
-          logger.warn(`Could not delete temporary file: ${deleteError.message}`);
+          logger.debug(`Deleted temporary file: ${tempFilePath}`);
+        } catch (e) {
+          logger.warn(`Could not delete temporary file ${tempFilePath}: ${e.message}`);
         }
         
         return res.status(200).json({
           success: true,
-          data: analysis,
+          message: 'Photo analysis completed successfully',
+          data: analysis
         });
       } catch (error) {
-        // Clean up temporary file if it exists
+        // Clean up the temporary file in case of error
         try {
-          await fs.access(tempFilePath);
-          await fs.unlink(tempFilePath);
+          if (fsSync.existsSync(tempFilePath)) {
+            await fs.unlink(tempFilePath);
+            logger.debug(`Deleted temporary file due to error: ${tempFilePath}`);
+          }
         } catch (e) {
-          // Ignore if file doesn't exist
+          logger.warn(`Could not delete temporary file ${tempFilePath}: ${e.message}`);
         }
         
-        logger.error(`AI analysis failed for GridFS photo ${filename}: ${error.message}`);
-        throw new ApiError(500, `Failed to analyze photo: ${error.message}`);
+        throw error;
       }
-    }
-    
-    // Fallback to filesystem for backward compatibility
-    logger.warn(`File not found in GridFS, checking filesystem: ${filename}`);
-    
-    const filePath = path.join(config.tempUploadDir, filename);
-    
-    try {
-      // Check if file exists in filesystem
-      await fs.access(filePath);
-      
-      logger.info(`Starting AI analysis for photo from filesystem: ${filename}`);
-      
-      // Analyze the photo using the specialized roofing inspection system prompt
-      const analysis = await photoAnalysisService.analyzePhoto(filePath);
-      
-      logger.info(`Successfully analyzed photo ${filename}: ${analysis.damageDetected ? 'Damage detected' : 'No damage detected'}`);
-      
-      res.status(200).json({
-        success: true,
-        data: analysis,
-      });
-    } catch (error) {
-      logger.error(`AI analysis failed for photo ${filename}: ${error.message}`);
-      
-      // File doesn't exist or analysis failed
-      if (error.message.includes('ENOENT')) {
-        throw new ApiError(404, `Photo file not found: ${filename}`);
-      } else if (error.message.includes('OpenAI')) {
-        throw new ApiError(500, `AI service error: ${error.message}`);
-      } else {
-        throw new ApiError(500, `Failed to analyze photo: ${error.message}`);
-      }
+    } else {
+      const identifier = id || filename;
+      logger.error(`File not found for analysis: ${identifier}`);
+      throw new ApiError(404, `File not found: ${identifier}`);
     }
   } catch (error) {
-    next(error);
+    return next(error);
   }
 };
 
 /**
- * Delete a temporary photo
- * @route DELETE /api/photos/:filename
+ * Analyze a batch of photos using AI (up to 20 at a time)
+ * @route POST /api/photos/analyze-batch
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next middleware function
+ * @returns {Promise<void>}
+ */
+const analyzeBatchPhotos = async (req, res, next) => {
+  try {
+    const { fileIds } = req.body;
+
+    if (!fileIds || !Array.isArray(fileIds) || fileIds.length === 0) {
+      throw new ApiError(400, 'Please provide an array of file IDs to analyze');
+    }
+
+    // Limit batch size to 20 photos at once
+    const MAX_BATCH_SIZE = 20;
+    if (fileIds.length > MAX_BATCH_SIZE) {
+      throw new ApiError(400, `Batch size exceeds maximum of ${MAX_BATCH_SIZE} photos. Please split into smaller batches.`);
+    }
+
+    logger.info(`Starting batch analysis of ${fileIds.length} photos`);
+
+    // Find all files in GridFS using the provided IDs
+    const photoTempPaths = [];
+    const photoDetails = [];
+
+    // Process each file ID
+    for (const fileId of fileIds) {
+      try {
+        const objId = new mongoose.Types.ObjectId(fileId);
+        const files = await gridfs.findFiles({ _id: objId });
+
+        if (!files || files.length === 0) {
+          photoDetails.push({
+            fileId,
+            success: false,
+            error: `File not found: ${fileId}`
+          });
+          continue;
+        }
+
+        const foundFile = files[0];
+        
+        // Create a temporary file for analysis
+        const tempFilePath = path.join(config.tempUploadDir, `temp_batch_analysis_${foundFile._id}`);
+        photoTempPaths.push(tempFilePath);
+
+        try {
+          // Download the file from GridFS to a temporary location
+          await gridfs.downloadFile(foundFile._id, { destination: tempFilePath });
+          photoDetails.push({
+            fileId,
+            tempFilePath,
+            success: true,
+            originalFile: foundFile
+          });
+        } catch (downloadError) {
+          logger.error(`Failed to download file ${fileId} for analysis: ${downloadError.message}`);
+          photoDetails.push({
+            fileId,
+            success: false,
+            error: `Download failed: ${downloadError.message}`
+          });
+        }
+      } catch (idError) {
+        logger.error(`Invalid file ID format: ${fileId} - ${idError.message}`);
+        photoDetails.push({
+          fileId,
+          success: false,
+          error: 'Invalid file ID format'
+        });
+      }
+    }
+
+    // Get the paths of successfully downloaded photos
+    const validPhotoTempPaths = photoDetails
+      .filter(detail => detail.success && detail.tempFilePath)
+      .map(detail => detail.tempFilePath);
+
+    if (validPhotoTempPaths.length === 0) {
+      throw new ApiError(400, 'No valid photos found for analysis');
+    }
+
+    // Analyze the batch of photos
+    const analysisResults = await photoAnalysisService.analyzeBatchPhotos(validPhotoTempPaths);
+
+    // Match results with original photo details
+    const completeResults = photoDetails.map(detail => {
+      if (!detail.success) {
+        return {
+          fileId: detail.fileId,
+          success: false,
+          error: detail.error
+        };
+      }
+
+      // Find the matching analysis result
+      const resultMatch = analysisResults.find(result => 
+        result.imagePath === detail.tempFilePath
+      );
+
+      if (!resultMatch || !resultMatch.success) {
+        return {
+          fileId: detail.fileId,
+          success: false,
+          error: resultMatch ? resultMatch.error : 'Analysis failed'
+        };
+      }
+
+      return {
+        fileId: detail.fileId,
+        success: true,
+        data: resultMatch.data
+      };
+    });
+
+    // Clean up temporary files
+    for (const tempPath of photoTempPaths) {
+      try {
+        if (fsSync.existsSync(tempPath)) {
+          await fs.unlink(tempPath);
+        }
+      } catch (cleanupError) {
+        logger.warn(`Could not delete temporary file ${tempPath}: ${cleanupError.message}`);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Batch photo analysis completed',
+      count: completeResults.length,
+      data: completeResults
+    });
+  } catch (error) {
+    // Clean up any remaining temporary files in case of an error
+    if (req.tempPaths && Array.isArray(req.tempPaths)) {
+      for (const tempPath of req.tempPaths) {
+        try {
+          if (fsSync.existsSync(tempPath)) {
+            await fs.unlink(tempPath);
+          }
+        } catch (e) {
+          logger.warn(`Could not delete temporary file ${tempPath}: ${e.message}`);
+        }
+      }
+    }
+    return next(error);
+  }
+};
+
+/**
+ * Delete a photo
+ * @route DELETE /api/photos/delete-by-id/:id or /api/photos/:filename (legacy)
  * @access Private
  */
 const deletePhoto = async (req, res, next) => {
   try {
-    const { filename } = req.params;
+    const { filename, id } = req.params;
+    let fileId = id;
+    let query;
     
-    // Validate filename to prevent directory traversal
-    if (!filename || filename.includes('..') || filename.includes('/')) {
-      throw new ApiError(400, 'Invalid filename');
+    // Determine if we're looking up by ID or filename (legacy)
+    if (req.path.includes('/delete-by-id/')) {
+      logger.info(`Deleting file by ID: ${fileId}`);
+      
+      // Validate ID
+      if (!fileId || fileId === 'undefined') {
+        logger.error(`Invalid file ID for deletion: "${fileId}"`);
+        throw new ApiError(400, 'Invalid or missing file ID. Please provide a valid file ID for deletion.');
+      }
+      
+      // Try to find file directly by ID
+      try {
+        fileId = new mongoose.Types.ObjectId(fileId);
+        query = { _id: fileId };
+      } catch (error) {
+        logger.error(`Invalid ObjectId format: ${fileId}`);
+        throw new ApiError(400, 'Invalid file ID format.');
+      }
+    } else {
+      // Legacy code path for filename lookup
+      logger.warn(`Using legacy filename lookup for deletion: ${filename}. Consider updating to ID-based lookup.`);
+      
+      // Validate filename to prevent directory traversal
+      if (!filename || filename.includes('..') || filename.includes('/')) {
+        throw new ApiError(400, 'Invalid filename');
+      }
+      
+      query = { filename };
     }
 
-    // Try to find the file in GridFS by filename
-    const query = { filename };
+    // Try to find the file in GridFS
     const files = await gridfs.findFiles(query);
     
     if (files && files.length > 0) {
-      // Delete all matching files in GridFS
-      const deletionPromises = files.map(file => gridfs.deleteFile(file._id));
-      await Promise.all(deletionPromises);
+      // Delete the main file in GridFS
+      const targetFile = files[0];
+      await gridfs.deleteFile(targetFile._id);
+      logger.info(`Deleted file from GridFS with ID: ${targetFile._id}`);
       
-      logger.info(`Deleted ${files.length} files from GridFS with filename: ${filename}`);
-      
-      // Also try to delete any associated files (thumbnails, optimized versions)
-      // Search for files with related metadata
-      const relatedQuery = { 'metadata.originalName': filename };
-      const relatedFiles = await gridfs.findFiles(relatedQuery);
-      
-      if (relatedFiles && relatedFiles.length > 0) {
-        const relatedDeletionPromises = relatedFiles.map(file => gridfs.deleteFile(file._id));
-        await Promise.all(relatedDeletionPromises);
-        logger.info(`Deleted ${relatedFiles.length} related files from GridFS for: ${filename}`);
+      // Try to find and delete related files (thumbnails, optimized versions)
+      try {
+        // Look for files that share the same original upload
+        let relatedFiles = [];
+        
+        if (targetFile.metadata && targetFile.metadata.originalName) {
+          // If this is the original file, find its derivatives
+          const relatedQuery = { 'metadata.originalName': targetFile.metadata.originalName };
+          relatedFiles = await gridfs.findFiles(relatedQuery);
+        }
+        // Also check for files that are related based on metadata grouping
+        if (targetFile.metadata && targetFile.metadata.groupId) {
+          const groupQuery = { 'metadata.groupId': targetFile.metadata.groupId };
+          const groupFiles = await gridfs.findFiles(groupQuery);
+          relatedFiles = [...relatedFiles, ...groupFiles];
+        }
+        
+        // Remove duplicates
+        const uniqueFileIds = new Set();
+        const uniqueRelatedFiles = relatedFiles.filter(file => {
+          // Skip the file we already deleted
+          if (file._id.toString() === targetFile._id.toString()) {
+            return false;
+          }
+          // Check if we've seen this ID before
+          const fileIdStr = file._id.toString();
+          if (uniqueFileIds.has(fileIdStr)) {
+            return false;
+          }
+          uniqueFileIds.add(fileIdStr);
+          return true;
+        });
+        
+        if (uniqueRelatedFiles.length > 0) {
+          // Delete all related files
+          const deletionPromises = uniqueRelatedFiles.map(file => gridfs.deleteFile(file._id));
+          await Promise.all(deletionPromises);
+          logger.info(`Deleted ${uniqueRelatedFiles.length} related files from GridFS`);
+        }
+      } catch (relatedError) {
+        logger.warn(`Error while trying to delete related files: ${relatedError.message}`);
+        // Continue with the success response even if related file deletion failed
       }
       
       return res.status(200).json({
         success: true,
-        message: 'Photo deleted successfully from GridFS',
+        message: 'Photo deleted successfully',
       });
     }
     
-    // Fallback to filesystem for backward compatibility
-    logger.warn(`File not found in GridFS, checking filesystem: ${filename}`);
-    
-    // Check filesystem
-    const filePath = path.join(config.tempUploadDir, filename);
-    
-    try {
-      // Check if file exists in filesystem
-      await fs.access(filePath);
-      
-      // Delete file
-      await fs.unlink(filePath);
-      
-      // Also try to delete any derived files (thumbnails, optimized versions)
-      const baseName = path.basename(filename, path.extname(filename));
-      const ext = path.extname(filename);
-      
-      // Try to delete optimized version
-      const optimizedPath = path.join(config.tempUploadDir, `${baseName}_optimized${ext}`);
-      try {
-        await fs.access(optimizedPath);
-        await fs.unlink(optimizedPath);
-        logger.info(`Deleted optimized version: ${optimizedPath}`);
-      } catch (err) {
-        // Ignore if file doesn't exist
-      }
-      
-      // Try to delete thumbnail version
-      const thumbnailPath = path.join(config.tempUploadDir, `${baseName}_thumb${ext}`);
-      try {
-        await fs.access(thumbnailPath);
-        await fs.unlink(thumbnailPath);
-        logger.info(`Deleted thumbnail version: ${thumbnailPath}`);
-      } catch (err) {
-        // Ignore if file doesn't exist
-      }
-      
-      return res.status(200).json({
-        success: true,
-        message: 'Photo deleted successfully from filesystem',
-      });
-    } catch (error) {
-      // File doesn't exist in filesystem either
-      throw new ApiError(404, 'Photo not found in GridFS or filesystem');
-    }
+    // If we reach here, no file was found with the given ID/filename
+    const identifier = id || filename;
+    logger.error(`File not found for deletion: ${identifier}`);
+    throw new ApiError(404, `File not found: ${identifier}`);
   } catch (error) {
     next(error);
   }
@@ -624,6 +847,7 @@ module.exports = {
   uploadBatchPhotos,
   uploadSinglePhoto,
   analyzePhoto,
+  analyzeBatchPhotos,
   deletePhoto,
   getPhoto
 }; 

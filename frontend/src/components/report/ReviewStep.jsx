@@ -1,6 +1,7 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import DamageForm from './DamageForm';
 import AuthContext from '../../context/AuthContext';
+import { validateReportForm } from '../../utils/formValidation';
 
 const ReviewStep = ({ 
   formData, 
@@ -16,6 +17,13 @@ const ReviewStep = ({
   error
 }) => {
   const { user } = useContext(AuthContext);
+  const [validationErrors, setValidationErrors] = useState({});
+  
+  // Validate the form fields on initial render and when formData changes
+  useEffect(() => {
+    const { errors } = validateReportForm(formData, 4);
+    setValidationErrors(errors);
+  }, [formData]);
   
   // Debug function to show user and company info
   const showDebugInfo = () => {
@@ -79,9 +87,53 @@ const ReviewStep = ({
     return photo.preview || '/placeholder-image.png';
   };
   
+  // Function to check if property address is complete
+  const isAddressComplete = () => {
+    return formData.propertyAddress?.street?.trim() && 
+           formData.propertyAddress?.city?.trim() && 
+           formData.propertyAddress?.state?.trim() && 
+           formData.propertyAddress?.zipCode?.trim();
+  };
+
+  // Function to handle Edit Basic Info button click
+  const handleEditBasicInfo = () => {
+    prevStep();
+    prevStep();
+    prevStep();
+  };
+  
   return (
     <div>
       <h3 className="text-xl font-semibold mb-4">Review & Submit Report</h3>
+      
+      {/* Show validation errors at the top */}
+      {Object.keys(validationErrors).length > 0 && (
+        <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 dark:border-red-700 p-4 mb-6">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-500 dark:text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-red-700 dark:text-red-300 font-medium">Please fix the following issues before submitting:</p>
+              <ul className="mt-1 text-sm text-red-700 dark:text-red-300 list-disc list-inside">
+                {Object.values(validationErrors).map((error, index) => (
+                  <li key={index}>{error}</li>
+                ))}
+              </ul>
+              <div className="mt-3">
+                <button
+                  onClick={handleEditBasicInfo}
+                  className="bg-red-100 hover:bg-red-200 dark:bg-red-900/40 dark:hover:bg-red-800/60 text-red-800 dark:text-red-300 py-1 px-3 rounded text-sm font-medium"
+                >
+                  Go to Basic Info Step
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       
       {isDevelopment && (
         <div className="mb-4 p-2 bg-secondary/20 rounded">
@@ -101,26 +153,44 @@ const ReviewStep = ({
       <div className="space-y-6">
         {/* Basic Information */}
         <section className="bg-card text-card-foreground p-4 rounded-lg shadow">
-          <h4 className="text-lg font-medium mb-2">Basic Information</h4>
+          <div className="flex justify-between items-center mb-2">
+            <h4 className="text-lg font-medium">Basic Information</h4>
+            <button 
+              onClick={handleEditBasicInfo}
+              className="text-blue-500 hover:text-blue-700 text-sm"
+            >
+              Edit Basic Info
+            </button>
+          </div>
+          
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <p className="text-sm font-medium text-muted-foreground">Report Title</p>
-              <p className="font-medium">{formData.title || 'Not provided'}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Client Name</p>
-              <p className="font-medium">{formData.clientName || 'Not provided'}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Property Address</p>
-              <p className="font-medium">
-                {formData.propertyAddress.street}<br />
-                {formData.propertyAddress.city}, {formData.propertyAddress.state} {formData.propertyAddress.zipCode}
+              <p className={`font-medium ${validationErrors.title ? 'text-red-500' : ''}`}>
+                {formData.title || 'Not provided'}
               </p>
             </div>
             <div>
+              <p className="text-sm font-medium text-muted-foreground">Client Name</p>
+              <p className={`font-medium ${validationErrors.clientName ? 'text-red-500' : ''}`}>
+                {formData.clientName || 'Not provided'}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Property Address</p>
+              <p className={`font-medium ${!isAddressComplete() ? 'text-red-500' : ''}`}>
+                {formData.propertyAddress.street || '[Street Address Required]'}<br />
+                {formData.propertyAddress.city || '[City Required]'}, {formData.propertyAddress.state || '[State Required]'} {formData.propertyAddress.zipCode || '[Zip Required]'}
+              </p>
+              {!isAddressComplete() && (
+                <p className="text-red-500 text-xs mt-1">All address fields are required</p>
+              )}
+            </div>
+            <div>
               <p className="text-sm font-medium text-muted-foreground">Inspection Date</p>
-              <p className="font-medium">{formData.inspectionDate}</p>
+              <p className={`font-medium ${validationErrors.inspectionDate ? 'text-red-500' : ''}`}>
+                {formData.inspectionDate}
+              </p>
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">Weather Conditions</p>

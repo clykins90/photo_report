@@ -154,6 +154,13 @@ app.use('/logos', (req, res, next) => {
   }
 }));
 
+// Serve placeholder image and other static assets from public directory
+app.use(express.static(publicDir, {
+  setHeaders: (res) => {
+    res.set('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+  }
+}));
+
 // Connect to database
 connectDB().then(() => {
   // Initialize GridFS after database connection

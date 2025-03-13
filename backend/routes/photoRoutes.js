@@ -4,6 +4,7 @@ const {
   uploadSinglePhoto, 
   deletePhoto,
   analyzePhoto,
+  analyzeBatchPhotos,
   getPhoto
 } = require('../controllers/photoController');
 const { protect } = require('../middleware/auth');
@@ -85,13 +86,30 @@ router.post(
   uploadSinglePhoto
 );
 
+// Main ID-based routes (preferred)
+// @route   POST /api/photos/analyze-by-id/:id
+// @desc    Analyze a photo using AI with file ID
+// @access  Private
+router.post('/analyze-by-id/:id', analyzePhoto);
+
+// @route   POST /api/photos/analyze-batch
+// @desc    Analyze multiple photos (up to 20) at once using AI
+// @access  Private
+router.post('/analyze-batch', analyzeBatchPhotos);
+
+// @route   DELETE /api/photos/delete-by-id/:id
+// @desc    Delete a photo by ID
+// @access  Private
+router.delete('/delete-by-id/:id', deletePhoto);
+
+// Legacy filename-based routes (maintained for backward compatibility)
 // @route   POST /api/photos/analyze/:filename
-// @desc    Analyze a photo using AI
+// @desc    Analyze a photo using AI with filename
 // @access  Private
 router.post('/analyze/:filename', analyzePhoto);
 
 // @route   DELETE /api/photos/:filename
-// @desc    Delete a temporary photo
+// @desc    Delete a photo by filename
 // @access  Private
 router.delete('/:filename', deletePhoto);
 

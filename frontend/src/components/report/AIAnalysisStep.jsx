@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { analyzePhoto } from '../../services/photoService';
+import { analyzePhoto, analyzeBatchPhotos } from '../../services/photoService';
 import AIDescriptionEditor from '../photo/AIDescriptionEditor';
 import DamageForm from './DamageForm';
 
@@ -20,11 +20,63 @@ const AIAnalysisStep = ({
   const [error, setError] = useState(null);
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
   const [selectedPhoto, setSelectedPhoto] = useState(null);
+  const [localGeneratingSummary, setLocalGeneratingSummary] = useState(false);
+  const [heroLoadingMessage, setHeroLoadingMessage] = useState('');
+  const [batchProgress, setBatchProgress] = useState(0);
+
+  // Marvel-inspired loading messages
+  const heroLoadingMessages = [
+    "Avengers Assemble! Analyzing your roofing photos...",
+    "Hulk SMASH! ...I mean, carefully examining shingle damage...",
+    "With great power comes great roof analysis...",
+    "Captain America's shield has nothing on your roof's protection...",
+    "Thor is summoning lightning to illuminate every detail...",
+    "Iron Man's AI is scanning for damage patterns...",
+    "Doctor Strange is looking through 14,000,605 possible roof conditions...",
+    "The Guardians of the Galaxy are detecting cosmic roof damage...",
+    "Black Widow is infiltrating hard-to-see problem areas...",
+    "Spider-Man is web-slinging across your roof to catch every detail...",
+    "Wakanda Forever! Using vibranium-enhanced imaging technology...",
+    "Ant-Man is shrinking down to inspect microscopic damage...",
+    "Shazam! Electrifying your report with lightning-fast analysis...",
+    "Black Panther is prowling your roof with heightened senses...",
+    "Wonder Woman's lasso of truth is revealing hidden roof problems...",
+    "Vision is using his synthetic intelligence to process images...",
+    "Scarlet Witch is altering probability to find all damage points...",
+    "Thanos would snap his fingers, but we're being more thorough...",
+    "Captain Marvel is using cosmic powers to see through your roof layers...",
+    "Hawkeye never misses a detail, and neither do we!",
+  ];
 
   // Count how many photos have been analyzed
-  const analyzedCount = uploadedPhotos.filter(p => p.analysis).length;
+  const [analyzedCount, setAnalyzedCount] = useState(0);
   const hasAnalyzedPhotos = analyzedCount > 0;
   const allPhotosAnalyzed = analyzedCount === uploadedPhotos.length && uploadedPhotos.length > 0;
+  
+  // Update analyzed count whenever photos change
+  useEffect(() => {
+    const count = uploadedPhotos.filter(p => p.analysis).length;
+    setAnalyzedCount(count);
+  }, [uploadedPhotos]);
+
+  // Cycle through hero messages during loading
+  useEffect(() => {
+    let interval;
+    if (analyzing || localGeneratingSummary) {
+      // Pick initial random message
+      setHeroLoadingMessage(heroLoadingMessages[Math.floor(Math.random() * heroLoadingMessages.length)]);
+      
+      // Change message every 4 seconds
+      interval = setInterval(() => {
+        const newMessage = heroLoadingMessages[Math.floor(Math.random() * heroLoadingMessages.length)];
+        setHeroLoadingMessage(newMessage);
+      }, 4000);
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [analyzing, localGeneratingSummary]);
 
   // Ensure photos with analysis data have status set to 'complete'
   useEffect(() => {
@@ -48,7 +100,7 @@ const AIAnalysisStep = ({
 
   // Handle both analysis and summary in one step
   const handleBuildSummarizedReport = async () => {
-    if (analyzing || generatingSummary) return;
+    if (analyzing || generatingSummary || localGeneratingSummary) return;
     
     if (uploadedPhotos.length === 0) {
       setError('Please upload photos before analysis.');
@@ -58,6 +110,7 @@ const AIAnalysisStep = ({
     // Step 1: Analyze all photos
     setAnalyzing(true);
     setError(null);
+    setBatchProgress(0);
     
     const unanalyzedPhotos = uploadedPhotos.filter(photo => !photo.analysis);
     
@@ -66,40 +119,125 @@ const AIAnalysisStep = ({
       
       // Skip analysis if all photos are already analyzed
       if (unanalyzedPhotos.length > 0) {
-        for (let i = 0; i < unanalyzedPhotos.length; i++) {
-          const photo = unanalyzedPhotos[i];
-          setCurrentPhotoIndex(uploadedPhotos.findIndex(p => p.id === photo.id));
+        // Process in batches of 20 photos
+        const BATCH_SIZE = 20;
+        const batches = [];
+        
+        // Split unanalyzed photos into batches
+        for (let i = 0; i < unanalyzedPhotos.length; i += BATCH_SIZE) {
+          batches.push(unanalyzedPhotos.slice(i, i + BATCH_SIZE));
+        }
+        
+        console.log(`Processing ${unanalyzedPhotos.length} photos in ${batches.length} batches`);
+        
+        // Track overall photo completion
+        let photosCompleted = uploadedPhotos.filter(p => p.analysis).length;
+        const totalPhotos = uploadedPhotos.length;
+        
+        // Process each batch
+        for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+          const batch = batches[batchIndex];
+          console.log(`Processing batch ${batchIndex + 1}/${batches.length} with ${batch.length} photos`);
+          
+          // Mark all photos in this batch as analyzing
+          batch.forEach(photo => {
+            const photoIndex = updatedPhotos.findIndex(p => p.id === photo.id);
+            if (photoIndex !== -1) {
+              updatedPhotos[photoIndex] = {
+                ...updatedPhotos[photoIndex],
+                status: 'analyzing'
+              };
+            }
+          });
+          
+          // Update photos state to show "analyzing" status
+          handlePhotoUploadComplete(updatedPhotos);
           
           try {
-            console.log(`Analyzing photo ${i + 1}/${unanalyzedPhotos.length}: ${photo.filename || photo.name}`);
+            // Analyze the batch
+            const batchResult = await analyzeBatchPhotos(batch);
             
-            const result = await analyzePhoto(photo.filename || photo.name);
+            // Process results and update photos
+            batchResult.data.forEach(result => {
+              // Find the corresponding photo by ID
+              const photoToUpdate = batch.find(p => {
+                // Extract the file ID from the photo object
+                let photoFileId;
+                if (p.uploadedData && p.uploadedData.gridfs) {
+                  photoFileId = p.uploadedData.gridfs.optimized || p.uploadedData.gridfs.original;
+                } else if (p.uploadedData && p.uploadedData.optimizedUrl) {
+                  const urlParts = p.uploadedData.optimizedUrl.split('/');
+                  photoFileId = urlParts[urlParts.length - 1];
+                } else if (p.uploadedData && p.uploadedData.thumbnailUrl) {
+                  const urlParts = p.uploadedData.thumbnailUrl.split('/');
+                  photoFileId = urlParts[urlParts.length - 1];
+                } else if (p._id) {
+                  photoFileId = p._id;
+                }
+                
+                return photoFileId === result.fileId;
+              });
+              
+              if (photoToUpdate) {
+                const photoIndex = updatedPhotos.findIndex(p => p.id === photoToUpdate.id);
+                if (photoIndex !== -1) {
+                  if (result.success) {
+                    updatedPhotos[photoIndex] = {
+                      ...updatedPhotos[photoIndex],
+                      analysis: result.data,
+                      status: 'complete'
+                    };
+                    // Increment completed count for each successful analysis
+                    photosCompleted++;
+                  } else {
+                    updatedPhotos[photoIndex] = {
+                      ...updatedPhotos[photoIndex],
+                      status: 'error',
+                      error: result.error || 'Failed to analyze photo'
+                    };
+                  }
+                  
+                  // Update progress based on total photos processed
+                  const progressPercent = Math.min(Math.round((photosCompleted / totalPhotos) * 100), 100);
+                  setBatchProgress(progressPercent);
+                  
+                  // Update photos array after each photo is processed to show real-time progress
+                  handlePhotoUploadComplete([...updatedPhotos]);
+                }
+              }
+            });
             
-            // Find the photo in the updatedPhotos array and update its analysis
-            const photoIndex = updatedPhotos.findIndex(p => p.id === photo.id);
-            if (photoIndex !== -1) {
-              updatedPhotos[photoIndex] = {
-                ...updatedPhotos[photoIndex],
-                analysis: result.data,
-                status: 'complete'
-              };
+            // Update batch progress based on batch completion
+            const batchesCompleted = batchIndex + 1;
+            const totalBatches = batches.length;
+            const batchProgressPercent = Math.min(Math.round((batchesCompleted / totalBatches) * 100), 100);
+            
+            // Update with batch-based progress if photo-based progress isn't reliable
+            if (photosCompleted === 0) {
+              setBatchProgress(batchProgressPercent);
             }
-          } catch (photoError) {
-            console.error(`Failed to analyze photo ${photo.filename || photo.name}:`, photoError);
             
-            // Find the photo in the updatedPhotos array and mark it as error
-            const photoIndex = updatedPhotos.findIndex(p => p.id === photo.id);
-            if (photoIndex !== -1) {
-              updatedPhotos[photoIndex] = {
-                ...updatedPhotos[photoIndex],
-                status: 'error',
-                error: photoError.message || 'Failed to analyze photo'
-              };
-            }
+          } catch (batchError) {
+            console.error(`Error processing batch ${batchIndex + 1}:`, batchError);
+            
+            // Mark all photos in this batch as error
+            batch.forEach(photo => {
+              const photoIndex = updatedPhotos.findIndex(p => p.id === photo.id);
+              if (photoIndex !== -1) {
+                updatedPhotos[photoIndex] = {
+                  ...updatedPhotos[photoIndex],
+                  status: 'error',
+                  error: batchError.message || 'Failed to analyze photo'
+                };
+              }
+            });
+            
+            // Update all photos with their new status
+            handlePhotoUploadComplete([...updatedPhotos]);
           }
         }
         
-        // Update all photos with their new status
+        // Final update of all photos with their new status
         handlePhotoUploadComplete(updatedPhotos);
       }
       
@@ -109,7 +247,7 @@ const AIAnalysisStep = ({
       const analyzedPhotos = updatedPhotos.filter(photo => photo.analysis && photo.analysis.description);
       
       if (analyzedPhotos.length > 0) {
-        setGeneratingSummary(true);
+        setLocalGeneratingSummary(true);
         await handleGenerateAISummary();
       } else {
         setError('No photos could be successfully analyzed. Please check your images and try again.');
@@ -120,7 +258,7 @@ const AIAnalysisStep = ({
       setError('Failed to complete the analysis and summary. Please try again.');
     } finally {
       setAnalyzing(false);
-      setGeneratingSummary(false);
+      setLocalGeneratingSummary(false);
     }
   };
   
@@ -221,9 +359,91 @@ const AIAnalysisStep = ({
     return photo.preview || '/placeholder-image.png';
   };
 
+  // Render the superhero loading screen
+  const renderHeroLoadingScreen = () => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-r from-blue-900 to-purple-900">
+      <div className="max-w-xl p-8 text-center">
+        <div className="mb-8 animate-pulse">
+          <svg className="mx-auto h-24 w-24 text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 22l-3.5-6h7L12 22zM5.5 8.5l1.5 2h10l1.5-2L12 2 5.5 8.5z"></path>
+            <path d="M12 12c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"></path>
+          </svg>
+        </div>
+        
+        <h2 className="mb-4 text-3xl font-bold text-white">{heroLoadingMessage}</h2>
+        
+        <div className="mb-6">
+          <div className="h-2 w-full rounded-full bg-gray-700">
+            <div 
+              className={`h-2 rounded-full transition-all duration-300 ease-in-out ${
+                analyzing 
+                  ? (
+                      batchProgress < 30 
+                        ? 'bg-blue-400' 
+                        : batchProgress < 70 
+                          ? 'bg-yellow-400' 
+                          : 'bg-green-400'
+                    )
+                  : 'bg-yellow-400'
+              }`}
+              style={{ 
+                width: analyzing 
+                  ? batchProgress > 0 
+                    ? `${batchProgress}%` 
+                    : `${uploadedPhotos.length > 0 ? (analyzedCount / uploadedPhotos.length) * 100 : 0}%`
+                  : (localGeneratingSummary ? 100 : 0) + '%' 
+              }}
+            ></div>
+          </div>
+          <div className="mt-2 text-sm text-gray-300 flex justify-between">
+            <div>
+              {analyzing 
+                ? batchProgress > 0
+                  ? `Processing photos: ${batchProgress}%` 
+                  : `Analyzing photos: ${analyzedCount} of ${uploadedPhotos.length}`
+                : localGeneratingSummary 
+                  ? "Generating your summary..." 
+                  : "Starting analysis..."}
+            </div>
+            <div>
+              {analyzing && uploadedPhotos.length > 0 && (
+                `${Math.round((analyzedCount / uploadedPhotos.length) * 100)}% complete`
+              )}
+            </div>
+          </div>
+        </div>
+        
+        <p className="text-white">Our superhero AI is hard at work creating your report!</p>
+        
+        {uploadedPhotos.length > 0 && (
+          <div className="mt-4 bg-purple-900/30 p-4 rounded-lg text-left">
+            <h3 className="text-yellow-400 text-lg font-medium mb-2">Progress Details:</h3>
+            <ul className="text-white text-sm">
+              <li className="flex justify-between">
+                <span>Total photos:</span> 
+                <span className="font-semibold">{uploadedPhotos.length}</span>
+              </li>
+              <li className="flex justify-between">
+                <span>Analyzed:</span> 
+                <span className="font-semibold">{analyzedCount}</span>
+              </li>
+              <li className="flex justify-between">
+                <span>Remaining:</span> 
+                <span className="font-semibold">{uploadedPhotos.length - analyzedCount}</span>
+              </li>
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div>
       <h3 className="text-xl font-semibold mb-4">AI Photo Analysis & Summary</h3>
+      
+      {/* Show loading overlay when analyzing or generating summary */}
+      {(analyzing || localGeneratingSummary) && renderHeroLoadingScreen()}
       
       {error && (
         <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 dark:border-red-700 p-4 mb-6">
@@ -372,7 +592,7 @@ const AIAnalysisStep = ({
                                 ? 'Analyzing photo...' 
                                 : selectedPhoto.status === 'error'
                                 ? `Analysis failed: ${selectedPhoto.error}`
-                                : 'Click "Analyze All Photos" to analyze this photo'}
+                                : 'Click "Build Summarized Report with AI" to analyze this photo'}
                             </p>
                           </div>
                         )}
@@ -449,7 +669,7 @@ const AIAnalysisStep = ({
                             ? 'Analyzing photo...' 
                             : photo.status === 'error'
                             ? `Analysis failed: ${photo.error}`
-                            : 'Click "Analyze All Photos" to analyze this photo'}
+                            : 'Click "Build Summarized Report with AI" to analyze this photo'}
                         </p>
                       </div>
                     )}
@@ -490,20 +710,18 @@ const AIAnalysisStep = ({
       <div className="flex flex-col mt-8 mb-8">
         <button
           onClick={handleBuildSummarizedReport}
-          disabled={analyzing || generatingSummary || uploadedPhotos.length === 0}
+          disabled={analyzing || generatingSummary || localGeneratingSummary || uploadedPhotos.length === 0}
           className={`w-full py-3 px-4 rounded-md text-white font-medium mb-6 ${
-            analyzing || generatingSummary || uploadedPhotos.length === 0
+            analyzing || generatingSummary || localGeneratingSummary || uploadedPhotos.length === 0
               ? 'bg-gray-400 dark:bg-gray-600 cursor-not-allowed'
               : 'bg-purple-600 hover:bg-purple-700 dark:bg-purple-700 dark:hover:bg-purple-800'
           }`}
         >
-          {analyzing 
-            ? `Analyzing Photo ${currentPhotoIndex + 1}/${uploadedPhotos.length}...` 
-            : generatingSummary
-              ? 'Generating Summary...'
-              : allPhotosAnalyzed
-                ? 'Re-analyze & Build Summarized Report' 
-                : 'Build Summarized Report with AI'}
+          {analyzing || localGeneratingSummary 
+            ? "Processing..." 
+            : allPhotosAnalyzed
+              ? 'Re-analyze & Build Summarized Report' 
+              : 'Build Summarized Report with AI'}
         </button>
         
         <div className="text-center text-sm text-gray-500 mb-6">

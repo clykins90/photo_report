@@ -58,6 +58,23 @@ export const validateReportForm = (formData, step) => {
     if (!formData.inspectionDate) {
       errors.inspectionDate = 'Inspection date is required';
     }
+    
+    // Validate required property address fields for final submission
+    if (!formData.propertyAddress?.street?.trim()) {
+      errors.propertyAddressStreet = 'Street address is required';
+    }
+    
+    if (!formData.propertyAddress?.city?.trim()) {
+      errors.propertyAddressCity = 'City is required';
+    }
+    
+    if (!formData.propertyAddress?.state?.trim()) {
+      errors.propertyAddressState = 'State is required';
+    }
+    
+    if (!formData.propertyAddress?.zipCode?.trim()) {
+      errors.propertyAddressZip = 'Zip code is required';
+    }
   }
   
   return {
@@ -76,7 +93,19 @@ export const getFormErrorMessage = (errors) => {
     return '';
   }
   
-  // Return the first error message
+  // Check for address-related errors
+  const addressErrors = [
+    'propertyAddressStreet', 
+    'propertyAddressCity', 
+    'propertyAddressState', 
+    'propertyAddressZip'
+  ].filter(key => errors[key]);
+  
+  if (addressErrors.length > 0) {
+    return 'Please complete all property address fields before submitting (street, city, state, and zip code).';
+  }
+  
+  // Return the first error message for other error types
   const firstError = Object.values(errors)[0];
   return firstError;
 }; 

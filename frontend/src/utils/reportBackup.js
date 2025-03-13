@@ -60,17 +60,59 @@ const sanitizePhotosForBackup = (photos) => {
  */
 export const backupReportData = (reportData, photos) => {
   try {
+    // Make a shallow copy of reportData to avoid modifying the original
+    const reportDataCopy = { ...reportData };
+    
+    // Remove any File objects or references from reportDataCopy
+    if (reportDataCopy.photos) {
+      delete reportDataCopy.photos;
+    }
+    
     // Sanitize photos to remove circular references
     const sanitizedPhotos = sanitizePhotosForBackup(photos);
     
     // Create a backup object with timestamp
     const backup = {
       timestamp: new Date().toISOString(),
-      reportData,
+      reportData: reportDataCopy,
       photos: sanitizedPhotos
     };
     
-    // Save to localStorage
+    // Attempt to serialize - if it fails, try a more aggressive sanitization
+    try {
+      JSON.stringify(backup);
+    } catch (serializationError) {
+      console.warn('Initial serialization failed, attempting more aggressive sanitization', serializationError);
+      
+      // More aggressive sanitization that converts File objects to simple references
+      const safeBackup = JSON.parse(JSON.stringify({
+        timestamp: backup.timestamp,
+        reportData: backup.reportData,
+        photos: backup.photos.map(p => ({
+          ...p,
+          // Remove any potentially problematic fields
+          file: undefined,
+          originalFile: undefined,
+          preview: typeof p.preview === 'string' ? p.preview : null
+        }))
+      }, (key, value) => {
+        // Handle non-serializable objects
+        if (value instanceof File || value instanceof Blob) {
+          return undefined; // Skip File objects
+        }
+        if (typeof value === 'object' && value !== null && Object.prototype.toString.call(value) === '[object File]') {
+          return undefined; // Skip File-like objects
+        }
+        return value;
+      }));
+      
+      // Save to localStorage
+      localStorage.setItem(REPORT_BACKUP_KEY, JSON.stringify(safeBackup));
+      console.log('Report data backed up successfully (after aggressive sanitization)');
+      return true;
+    }
+    
+    // If we got here, the initial serialization was successful
     localStorage.setItem(REPORT_BACKUP_KEY, JSON.stringify(backup));
     console.log('Report data backed up successfully');
     return true;

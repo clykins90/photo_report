@@ -2,11 +2,18 @@ import React from 'react';
 import PhotoUploader from '../photo/PhotoUploader';
 
 const PhotoUploadStep = ({ 
-  uploadedPhotos, 
+  uploadedPhotos = [],
   onUploadComplete, 
   prevStep, 
-  nextStep 
+  nextStep,
+  reportId = null
 }) => {
+  const handleUploadComplete = (uploadedPhotos) => {
+    if (onUploadComplete) {
+      onUploadComplete(uploadedPhotos);
+    }
+  };
+
   return (
     <div>
       <h3 className="text-xl font-semibold mb-4">Upload Photos</h3>
@@ -27,8 +34,9 @@ const PhotoUploadStep = ({
       </div>
       
       <PhotoUploader 
-        onUploadComplete={onUploadComplete} 
+        onUploadComplete={handleUploadComplete} 
         initialPhotos={uploadedPhotos}
+        reportId={reportId}
         showUploadControls={true}
       />
       

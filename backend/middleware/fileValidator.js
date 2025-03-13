@@ -112,17 +112,58 @@ const validateImageFiles = (options = {}) => {
 
       // Validate each file
       for (const file of files) {
-        const filePath = path.join(file.destination, file.filename);
-        logger.info(`Validating file: ${filePath}`);
+        let filePath;
         
-        // Validate dimensions
-        validationPromises.push(validateImageDimensions(filePath, options));
-        
-        // Validate format
-        validationPromises.push(validateImageFormat(filePath, config.allowedFileTypes.map(type => {
-          // Convert MIME types to formats
-          return type.split('/')[1];
-        })));
+        // Handle both disk storage and memory storage
+        if (file.destination && file.filename) {
+          // For disk storage
+          filePath = path.join(file.destination, file.filename);
+          logger.info(`Validating disk-stored file: ${filePath}`);
+          
+          // Validate dimensions
+          validationPromises.push(validateImageDimensions(filePath, options));
+          
+          // Validate format
+          validationPromises.push(validateImageFormat(filePath, config.allowedFileTypes.map(type => {
+            // Convert MIME types to formats
+            return type.split('/')[1];
+          })));
+        } else if (file.buffer) {
+          // For memory storage - validate the buffer directly
+          logger.info(`Validating memory-stored file: ${file.originalname}`);
+          
+          try {
+            // Validate dimensions using buffer
+            const metadata = await sharp(file.buffer).metadata();
+            const { width, height } = metadata;
+            const { minWidth = 0, maxWidth = 5000, minHeight = 0, maxHeight = 5000 } = options;
+            
+            if (width < minWidth || width > maxWidth) {
+              throw new ApiError(400, `Image width must be between ${minWidth} and ${maxWidth} pixels`);
+            }
+            
+            if (height < minHeight || height > maxHeight) {
+              throw new ApiError(400, `Image height must be between ${minHeight} and ${maxHeight} pixels`);
+            }
+            
+            // Validate format using buffer
+            const { format } = metadata;
+            const allowedFormats = config.allowedFileTypes.map(type => type.split('/')[1]);
+            
+            if (!allowedFormats.includes(format.toLowerCase())) {
+              throw new ApiError(400, `Invalid image format. Allowed formats: ${allowedFormats.join(', ')}`);
+            }
+          } catch (error) {
+            if (error instanceof ApiError) {
+              throw error;
+            }
+            logger.error(`Error validating buffer image: ${file.originalname}`, error);
+            throw new ApiError(400, 'Invalid image file');
+          }
+        } else {
+          logger.error(`Cannot validate file - neither path nor buffer available: ${JSON.stringify(file)}`);
+          throw new ApiError(400, 'Invalid file format');
+        }
       }
 
       // Wait for all validations to complete
@@ -150,16 +191,58 @@ const validateSingleImage = (options = {}) => {
         return next(new ApiError(400, 'No file uploaded'));
       }
 
-      const filePath = path.join(req.file.destination, req.file.filename);
+      const file = req.file;
       
-      // Validate dimensions
-      await validateImageDimensions(filePath, options);
-      
-      // Validate format
-      await validateImageFormat(filePath, config.allowedFileTypes.map(type => {
-        // Convert MIME types to formats
-        return type.split('/')[1];
-      }));
+      // Handle both disk storage and memory storage
+      if (file.destination && file.filename) {
+        // For disk storage
+        const filePath = path.join(file.destination, file.filename);
+        logger.info(`Validating disk-stored file: ${filePath}`);
+        
+        // Validate dimensions
+        await validateImageDimensions(filePath, options);
+        
+        // Validate format
+        await validateImageFormat(filePath, config.allowedFileTypes.map(type => {
+          // Convert MIME types to formats
+          return type.split('/')[1];
+        }));
+      } else if (file.buffer) {
+        // For memory storage - validate the buffer directly
+        logger.info(`Validating memory-stored file: ${file.originalname}`);
+        
+        try {
+          // Validate dimensions using buffer
+          const metadata = await sharp(file.buffer).metadata();
+          const { width, height } = metadata;
+          const { minWidth = 0, maxWidth = 5000, minHeight = 0, maxHeight = 5000 } = options;
+          
+          if (width < minWidth || width > maxWidth) {
+            throw new ApiError(400, `Image width must be between ${minWidth} and ${maxWidth} pixels`);
+          }
+          
+          if (height < minHeight || height > maxHeight) {
+            throw new ApiError(400, `Image height must be between ${minHeight} and ${maxHeight} pixels`);
+          }
+          
+          // Validate format using buffer
+          const { format } = metadata;
+          const allowedFormats = config.allowedFileTypes.map(type => type.split('/')[1]);
+          
+          if (!allowedFormats.includes(format.toLowerCase())) {
+            throw new ApiError(400, `Invalid image format. Allowed formats: ${allowedFormats.join(', ')}`);
+          }
+        } catch (error) {
+          if (error instanceof ApiError) {
+            throw error;
+          }
+          logger.error(`Error validating buffer image: ${file.originalname}`, error);
+          throw new ApiError(400, 'Invalid image file');
+        }
+      } else {
+        logger.error(`Cannot validate file - neither path nor buffer available: ${JSON.stringify(file)}`);
+        throw new ApiError(400, 'Invalid file format');
+      }
       
       next();
     } catch (error) {

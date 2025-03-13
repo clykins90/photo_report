@@ -426,6 +426,17 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       return;
     }
     
+    // First check for address validation explicitly
+    const addressMissing = !formData.propertyAddress?.street?.trim() ||
+                          !formData.propertyAddress?.city?.trim() ||
+                          !formData.propertyAddress?.state?.trim() ||
+                          !formData.propertyAddress?.zipCode?.trim();
+    
+    if (addressMissing) {
+      setError('Please complete all property address fields before submitting (street, city, state, and zip code).');
+      return;
+    }
+    
     // Create default company information if missing
     let companyData = null;
     
@@ -727,10 +738,11 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       case 2:
         return (
           <PhotoUploadStep 
-            uploadedPhotos={uploadedPhotos} 
-            onUploadComplete={handlePhotoUploadComplete} 
-            prevStep={prevStep} 
-            nextStep={nextStep} 
+            uploadedPhotos={uploadedPhotos}
+            onUploadComplete={handlePhotoUploadComplete}
+            reportId={existingReport?._id || formData._id}
+            prevStep={() => setStep(1)}
+            nextStep={() => setStep(3)}
           />
         );
       case 3:

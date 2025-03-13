@@ -67,7 +67,7 @@ const analyzePhoto = async (imagePath) => {
 
     // Call OpenAI API with the detailed roofing system prompt
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
@@ -145,6 +145,49 @@ const analyzePhoto = async (imagePath) => {
   }
 };
 
+/**
+ * Analyzes multiple photos in a batch using OpenAI's Vision API
+ * @param {Array<string>} imagePaths - Array of paths to image files
+ * @returns {Promise<Array<Object>>} Array of analysis results
+ */
+const analyzeBatchPhotos = async (imagePaths) => {
+  if (!imagePaths || !Array.isArray(imagePaths) || imagePaths.length === 0) {
+    throw new Error('No valid image paths provided for batch analysis');
+  }
+
+  logger.info(`Starting batch analysis of ${imagePaths.length} photos`);
+  const results = [];
+
+  try {
+    // Process photos in parallel with Promise.all
+    // This is more efficient than sequential processing
+    const analysisPromises = imagePaths.map(async (imagePath) => {
+      try {
+        const analysis = await analyzePhoto(imagePath);
+        return {
+          imagePath,
+          success: true,
+          data: analysis
+        };
+      } catch (error) {
+        logger.error(`Error analyzing photo ${imagePath}: ${error.message}`);
+        return {
+          imagePath,
+          success: false,
+          error: error.message
+        };
+      }
+    });
+
+    const batchResults = await Promise.all(analysisPromises);
+    return batchResults;
+  } catch (error) {
+    logger.error(`Error in batch photo analysis: ${error.message}`);
+    throw new Error(`Failed to complete batch photo analysis: ${error.message}`);
+  }
+};
+
 module.exports = {
   analyzePhoto,
+  analyzeBatchPhotos
 }; 

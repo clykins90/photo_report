@@ -8,6 +8,7 @@ const logger = require('../utils/logger');
 const pdfGenerationService = require('../services/pdfGenerationService');
 const reportAIService = require('../services/reportAIService');
 const crypto = require('crypto');
+const gridfs = require('../utils/gridfs'); // Add GridFS utility for photo deletion
 
 /**
  * Create a new report
@@ -346,14 +347,96 @@ const deleteReport = async (req, res, next) => {
       throw new ApiError(403, 'Not authorized to delete this report');
     }
 
-    // Delete report
+    // 1. Delete all associated photos from GridFS
+    if (report.photos && report.photos.length > 0) {
+      logger.info(`Deleting ${report.photos.length} photos associated with report ${report._id}`);
+      
+      // Process each photo
+      for (const photo of report.photos) {
+        try {
+          // Find files in GridFS - first try to find by both reportId and filename
+          const reportIdStr = report._id.toString();
+          
+          // Primary query: look for files with both reportId and filename
+          let files = await gridfs.findFiles({ 
+            filename: photo.filename,
+            'metadata.reportId': reportIdStr
+          });
+          
+          // If no files found with reportId, fall back to filename only
+          // This handles files uploaded before reportId was implemented
+          if (!files || files.length === 0) {
+            files = await gridfs.findFiles({ filename: photo.filename });
+            logger.info(`No files found with reportId, falling back to filename match for: ${photo.filename}`);
+          }
+          
+          if (files && files.length > 0) {
+            // Delete all matching files from GridFS
+            const deletionPromises = files.map(file => gridfs.deleteFile(file._id));
+            await Promise.all(deletionPromises);
+            logger.info(`Deleted ${files.length} files for photo ${photo.filename}`);
+            
+            // Also look for any related files (thumbnails, optimized versions)
+            // Use reportId if available for more precise matching
+            const relatedQuery = reportIdStr ? 
+              { 
+                'metadata.originalName': photo.filename,
+                'metadata.reportId': reportIdStr
+              } : 
+              { 'metadata.originalName': photo.filename };
+              
+            const relatedFiles = await gridfs.findFiles(relatedQuery);
+            
+            if (relatedFiles && relatedFiles.length > 0) {
+              const relatedDeletionPromises = relatedFiles.map(file => gridfs.deleteFile(file._id));
+              await Promise.all(relatedDeletionPromises);
+              logger.info(`Deleted ${relatedFiles.length} related files for photo ${photo.filename}`);
+            }
+          } else {
+            logger.warn(`No GridFS files found for photo ${photo.filename}`);
+            
+            // Fallback to filesystem for backwards compatibility
+            if (photo.path) {
+              const filePath = path.resolve(photo.path);
+              if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+                logger.info(`Deleted photo file from filesystem: ${filePath}`);
+              }
+            }
+          }
+        } catch (photoError) {
+          // Log error but continue with other photos
+          logger.error(`Error deleting photo ${photo.filename}: ${photoError.message}`);
+        }
+      }
+    }
+
+    // 2. Delete associated PDF file if exists
+    if (report.pdfPath) {
+      try {
+        const pdfPath = path.resolve(report.pdfPath);
+        if (fs.existsSync(pdfPath)) {
+          fs.unlinkSync(pdfPath);
+          logger.info(`Deleted PDF file: ${pdfPath}`);
+        } else {
+          logger.warn(`PDF file not found: ${pdfPath}`);
+        }
+      } catch (pdfError) {
+        // Log error but continue with report deletion
+        logger.error(`Error deleting PDF file: ${pdfError.message}`);
+      }
+    }
+
+    // 3. Delete the report itself
     await Report.deleteOne({ _id: report._id });
+    logger.info(`Report ${report._id} deleted successfully`);
 
     res.status(200).json({
       success: true,
       data: {},
     });
   } catch (error) {
+    logger.error(`Error deleting report: ${error.message}`);
     next(error);
   }
 };
