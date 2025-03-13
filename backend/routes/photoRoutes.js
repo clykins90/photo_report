@@ -7,7 +7,8 @@ const {
   getPhoto
 } = require('../controllers/photoController');
 const { protect } = require('../middleware/auth');
-const { uploadSingle, uploadMultiple } = require('../middleware/tempUpload');
+const { uploadMultiple, uploadSingle } = require('../middleware/tempUpload');
+const { uploadMultipleToGridFS, uploadSingleToGridFS } = require('../middleware/gridfsUpload');
 const { validateImageFiles, validateSingleImage } = require('../middleware/fileValidator');
 const logger = require('../utils/logger');
 
@@ -42,6 +43,20 @@ router.post(
   uploadBatchPhotos
 );
 
+// @route   POST /api/photos/batch/gridfs
+// @desc    Upload and process a batch of photos directly to GridFS
+// @access  Private
+router.post(
+  '/batch/gridfs',
+  (req, res, next) => {
+    logger.info('Starting batch photo upload process with GridFS');
+    next();
+  },
+  uploadMultipleToGridFS('photos', 50),
+  validateImageFiles(),
+  uploadBatchPhotos
+);
+
 // @route   POST /api/photos/single
 // @desc    Upload and process a single photo
 // @access  Private
@@ -52,6 +67,20 @@ router.post(
     next();
   },
   uploadSingle('photo'),
+  validateSingleImage(),
+  uploadSinglePhoto
+);
+
+// @route   POST /api/photos/single/gridfs
+// @desc    Upload and process a single photo directly to GridFS
+// @access  Private
+router.post(
+  '/single/gridfs',
+  (req, res, next) => {
+    logger.info('Starting single photo upload process with GridFS');
+    next();
+  },
+  uploadSingleToGridFS('photo'),
   validateSingleImage(),
   uploadSinglePhoto
 );

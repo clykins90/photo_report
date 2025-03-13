@@ -26,11 +26,11 @@ const ProtectedRoute = ({ children }) => {
 // 404 page component
 const NotFound = () => (
   <div className="container mx-auto px-4 py-12 text-center">
-    <h1 className="text-4xl font-bold text-gray-900 mb-4">404 - Page Not Found</h1>
-    <p className="text-xl text-gray-600 mb-8">The page you are looking for does not exist.</p>
+    <h1 className="text-4xl font-bold text-foreground mb-4">404 - Page Not Found</h1>
+    <p className="text-xl text-muted-foreground mb-8">The page you are looking for does not exist.</p>
     <a 
       href="/login" 
-      className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow transition duration-300"
+      className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold py-2 px-4 rounded-lg shadow transition duration-300"
     >
       Return to Login
     </a>

@@ -6,6 +6,7 @@ const logger = require('../utils/logger');
 const imageProcessor = require('../utils/imageProcessor');
 const config = require('../config/config');
 const photoAnalysisService = require('../services/photoAnalysisService');
+const gridfs = require('../utils/gridfs'); // Add GridFS utility
 
 /**
  * Upload and process a batch of photos
@@ -59,27 +60,75 @@ const uploadBatchPhotos = async (req, res, next) => {
           logger.warn(`Could not extract EXIF data for ${filePath}: ${exifError.message}`);
         }
         
+        // Upload original file to GridFS
+        const originalGridFS = await gridfs.uploadFile(filePath, {
+          filename: originalFile.filename,
+          contentType: originalFile.mimetype,
+          metadata: {
+            originalName: originalFile.originalname,
+            type: 'original',
+            exif: metadata,
+            userId: req.user?._id?.toString(),
+          }
+        });
+        
+        // Upload optimized file to GridFS
+        const optimizedGridFS = await gridfs.uploadFile(optimizedPath, {
+          filename: path.basename(optimizedPath),
+          contentType: 'image/jpeg',
+          metadata: {
+            originalName: originalFile.originalname,
+            type: 'optimized',
+            exif: metadata,
+            userId: req.user?._id?.toString(),
+          }
+        });
+        
+        // Upload thumbnail to GridFS
+        const thumbnailGridFS = await gridfs.uploadFile(thumbnailPath, {
+          filename: path.basename(thumbnailPath),
+          contentType: 'image/jpeg',
+          metadata: {
+            originalName: originalFile.originalname,
+            type: 'thumbnail',
+            exif: metadata,
+            userId: req.user?._id?.toString(),
+          }
+        });
+        
         // Create a more detailed response with URL paths
         const baseUrl = `${req.protocol}://${req.get('host')}`;
         const optimizedFilename = path.basename(optimizedPath);
         const thumbnailFilename = path.basename(thumbnailPath);
         
         logger.info(`Generated files for ${originalFile.originalname}:
-          - Original: ${filePath}
-          - Optimized: ${optimizedPath} (${optimizedFilename})
-          - Thumbnail: ${thumbnailPath} (${thumbnailFilename})
+          - Original: ${filePath} -> GridFS ID: ${originalGridFS.id}
+          - Optimized: ${optimizedPath} -> GridFS ID: ${optimizedGridFS.id}
+          - Thumbnail: ${thumbnailPath} -> GridFS ID: ${thumbnailGridFS.id}
         `);
+        
+        // Clean up temporary files after uploading to GridFS
+        try {
+          await fs.unlink(filePath);
+          await fs.unlink(optimizedPath);
+          await fs.unlink(thumbnailPath);
+          logger.info(`Deleted temporary files for ${originalFile.originalname}`);
+        } catch (deleteError) {
+          logger.warn(`Could not delete temporary files: ${deleteError.message}`);
+        }
         
         return {
           originalName: originalFile.originalname,
           filename: originalFile.filename,
-          path: filePath,
-          optimizedPath,
-          thumbnailPath,
+          gridfs: {
+            original: originalGridFS.id,
+            optimized: optimizedGridFS.id,
+            thumbnail: thumbnailGridFS.id
+          },
           optimizedFilename,
           thumbnailFilename,
-          optimizedUrl: `${baseUrl}/api/photos/${optimizedFilename}`,
-          thumbnailUrl: `${baseUrl}/api/photos/${thumbnailFilename}`,
+          optimizedUrl: `${baseUrl}/api/files/${optimizedGridFS.id}`,
+          thumbnailUrl: `${baseUrl}/api/files/${thumbnailGridFS.id}`,
           size: originalFile.size,
           mimetype: originalFile.mimetype,
           metadata
@@ -137,14 +186,74 @@ const uploadSinglePhoto = async (req, res, next) => {
     });
 
     // Extract EXIF data
-    const exifData = await imageProcessor.extractExifData(filePath);
+    let exifData = {};
+    try {
+      exifData = await imageProcessor.extractExifData(filePath);
+    } catch (exifError) {
+      logger.warn(`Could not extract EXIF data for ${filePath}: ${exifError.message}`);
+    }
+    
+    // Upload original file to GridFS
+    const originalGridFS = await gridfs.uploadFile(filePath, {
+      filename: req.file.filename,
+      contentType: req.file.mimetype,
+      metadata: {
+        originalName: req.file.originalname,
+        type: 'original',
+        exif: exifData,
+        userId: req.user?._id?.toString(),
+      }
+    });
+    
+    // Upload optimized file to GridFS
+    const optimizedGridFS = await gridfs.uploadFile(optimizedPath, {
+      filename: path.basename(optimizedPath),
+      contentType: 'image/jpeg',
+      metadata: {
+        originalName: req.file.originalname,
+        type: 'optimized',
+        exif: exifData,
+        userId: req.user?._id?.toString(),
+      }
+    });
+    
+    // Upload thumbnail to GridFS
+    const thumbnailGridFS = await gridfs.uploadFile(thumbnailPath, {
+      filename: path.basename(thumbnailPath),
+      contentType: 'image/jpeg',
+      metadata: {
+        originalName: req.file.originalname,
+        type: 'thumbnail',
+        exif: exifData,
+        userId: req.user?._id?.toString(),
+      }
+    });
+    
+    // Create URL paths
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    
+    // Clean up temporary files after uploading to GridFS
+    try {
+      await fs.unlink(filePath);
+      await fs.unlink(optimizedPath);
+      await fs.unlink(thumbnailPath);
+      logger.info(`Deleted temporary files for ${req.file.originalname}`);
+    } catch (deleteError) {
+      logger.warn(`Could not delete temporary files: ${deleteError.message}`);
+    }
 
     res.status(200).json({
       success: true,
       data: {
-        original: filePath,
-        optimized: optimizedPath,
-        thumbnail: thumbnailPath,
+        originalName: req.file.originalname,
+        gridfs: {
+          original: originalGridFS.id,
+          optimized: optimizedGridFS.id,
+          thumbnail: thumbnailGridFS.id
+        },
+        originalUrl: `${baseUrl}/api/files/${originalGridFS.id}`,
+        optimizedUrl: `${baseUrl}/api/files/${optimizedGridFS.id}`,
+        thumbnailUrl: `${baseUrl}/api/files/${thumbnailGridFS.id}`,
         metadata: exifData,
       },
     });
@@ -167,13 +276,63 @@ const analyzePhoto = async (req, res, next) => {
       throw new ApiError(400, 'Invalid filename');
     }
 
+    // Try to find the file in GridFS by filename
+    const query = { filename };
+    const files = await gridfs.findFiles(query);
+    
+    if (files && files.length > 0) {
+      logger.info(`Found file in GridFS with ID: ${files[0]._id} for analysis`);
+      
+      // Create a temporary file for analysis
+      const tempFilePath = path.join(config.tempUploadDir, `temp_${filename}`);
+      
+      try {
+        // Download the file from GridFS to a temporary location
+        await gridfs.downloadFile(files[0]._id, { destination: tempFilePath });
+        
+        logger.info(`Starting AI analysis for photo from GridFS: ${filename}`);
+        
+        // Analyze the photo using the specialized roofing inspection system prompt
+        const analysis = await photoAnalysisService.analyzePhoto(tempFilePath);
+        
+        logger.info(`Successfully analyzed photo ${filename}: ${analysis.damageDetected ? 'Damage detected' : 'No damage detected'}`);
+        
+        // Clean up temporary file
+        try {
+          await fs.unlink(tempFilePath);
+          logger.info(`Deleted temporary file: ${tempFilePath}`);
+        } catch (deleteError) {
+          logger.warn(`Could not delete temporary file: ${deleteError.message}`);
+        }
+        
+        return res.status(200).json({
+          success: true,
+          data: analysis,
+        });
+      } catch (error) {
+        // Clean up temporary file if it exists
+        try {
+          await fs.access(tempFilePath);
+          await fs.unlink(tempFilePath);
+        } catch (e) {
+          // Ignore if file doesn't exist
+        }
+        
+        logger.error(`AI analysis failed for GridFS photo ${filename}: ${error.message}`);
+        throw new ApiError(500, `Failed to analyze photo: ${error.message}`);
+      }
+    }
+    
+    // Fallback to filesystem for backward compatibility
+    logger.warn(`File not found in GridFS, checking filesystem: ${filename}`);
+    
     const filePath = path.join(config.tempUploadDir, filename);
     
     try {
-      // Check if file exists
+      // Check if file exists in filesystem
       await fs.access(filePath);
       
-      logger.info(`Starting AI analysis for photo: ${filename}`);
+      logger.info(`Starting AI analysis for photo from filesystem: ${filename}`);
       
       // Analyze the photo using the specialized roofing inspection system prompt
       const analysis = await photoAnalysisService.analyzePhoto(filePath);
@@ -215,22 +374,78 @@ const deletePhoto = async (req, res, next) => {
       throw new ApiError(400, 'Invalid filename');
     }
 
+    // Try to find the file in GridFS by filename
+    const query = { filename };
+    const files = await gridfs.findFiles(query);
+    
+    if (files && files.length > 0) {
+      // Delete all matching files in GridFS
+      const deletionPromises = files.map(file => gridfs.deleteFile(file._id));
+      await Promise.all(deletionPromises);
+      
+      logger.info(`Deleted ${files.length} files from GridFS with filename: ${filename}`);
+      
+      // Also try to delete any associated files (thumbnails, optimized versions)
+      // Search for files with related metadata
+      const relatedQuery = { 'metadata.originalName': filename };
+      const relatedFiles = await gridfs.findFiles(relatedQuery);
+      
+      if (relatedFiles && relatedFiles.length > 0) {
+        const relatedDeletionPromises = relatedFiles.map(file => gridfs.deleteFile(file._id));
+        await Promise.all(relatedDeletionPromises);
+        logger.info(`Deleted ${relatedFiles.length} related files from GridFS for: ${filename}`);
+      }
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Photo deleted successfully from GridFS',
+      });
+    }
+    
+    // Fallback to filesystem for backward compatibility
+    logger.warn(`File not found in GridFS, checking filesystem: ${filename}`);
+    
+    // Check filesystem
     const filePath = path.join(config.tempUploadDir, filename);
     
     try {
-      // Check if file exists
+      // Check if file exists in filesystem
       await fs.access(filePath);
       
       // Delete file
       await fs.unlink(filePath);
       
-      res.status(200).json({
+      // Also try to delete any derived files (thumbnails, optimized versions)
+      const baseName = path.basename(filename, path.extname(filename));
+      const ext = path.extname(filename);
+      
+      // Try to delete optimized version
+      const optimizedPath = path.join(config.tempUploadDir, `${baseName}_optimized${ext}`);
+      try {
+        await fs.access(optimizedPath);
+        await fs.unlink(optimizedPath);
+        logger.info(`Deleted optimized version: ${optimizedPath}`);
+      } catch (err) {
+        // Ignore if file doesn't exist
+      }
+      
+      // Try to delete thumbnail version
+      const thumbnailPath = path.join(config.tempUploadDir, `${baseName}_thumb${ext}`);
+      try {
+        await fs.access(thumbnailPath);
+        await fs.unlink(thumbnailPath);
+        logger.info(`Deleted thumbnail version: ${thumbnailPath}`);
+      } catch (err) {
+        // Ignore if file doesn't exist
+      }
+      
+      return res.status(200).json({
         success: true,
-        message: 'Photo deleted successfully',
+        message: 'Photo deleted successfully from filesystem',
       });
     } catch (error) {
-      // File doesn't exist
-      throw new ApiError(404, 'Photo not found');
+      // File doesn't exist in filesystem either
+      throw new ApiError(404, 'Photo not found in GridFS or filesystem');
     }
   } catch (error) {
     next(error);
@@ -258,102 +473,128 @@ const getPhoto = async (req, res, next) => {
     
     // Determine if we're looking for a thumbnail based on the filename
     const isThumbnailRequest = filename.includes('_thumb');
-    logger.info(`This appears to be a ${isThumbnailRequest ? 'thumbnail' : 'regular image'} request`);
+    const isOptimizedRequest = filename.includes('_optimized');
+    logger.info(`This appears to be a ${isThumbnailRequest ? 'thumbnail' : isOptimizedRequest ? 'optimized' : 'regular image'} request`);
     
-    // Get the absolute paths to the directories from config
-    const tempDir = config.tempUploadDir;
-    const uploadsDir = config.uploadDir;
-    const cwdPath = process.cwd();
-    
-    logger.info(`Current working directory: ${cwdPath}`);
-    logger.info(`Temp directory: ${tempDir}`);
-    logger.info(`Uploads directory: ${uploadsDir}`);
-    
-    // Try multiple possible paths where the photo might be stored
-    const possiblePaths = [
-      // Main upload directories
-      path.join(tempDir, filename),
-      path.join(uploadsDir, filename),
+    try {
+      // Search for the file in GridFS by filename
+      const query = { filename };
       
-      // Check optimized versions (if we're not looking for a thumb already)
-      !isThumbnailRequest ? path.join(tempDir, filename.replace('.jpg', '_optimized.jpg').replace('.jpeg', '_optimized.jpeg')) : null,
+      // Find all files matching the query
+      const files = await gridfs.findFiles(query);
       
-      // Check thumbnail versions (if we're not looking for a thumb already)
-      !isThumbnailRequest ? path.join(tempDir, filename.replace('.jpg', '_thumb.jpg').replace('.jpeg', '_thumb.jpeg')) : null,
-      
-      // Try original filename variations (if we're looking for a derived file)
-      isThumbnailRequest ? path.join(tempDir, filename.replace('_thumb.jpg', '.jpg').replace('_thumb.jpeg', '.jpeg')) : null,
-      filename.includes('_optimized') ? path.join(tempDir, filename.replace('_optimized.jpg', '.jpg').replace('_optimized.jpeg', '.jpeg')) : null,
-      
-      // Fallback to other locations relative to cwd
-      path.join(cwdPath, 'temp', filename),
-      path.join(cwdPath, 'uploads', filename),
-      path.join('./backend/temp', filename),
-      path.join('./backend/uploads', filename),
-      
-      // Public directory fallback
-      path.join(cwdPath, 'public', 'uploads', filename)
-    ].filter(Boolean); // Remove null entries
-    
-    // Log all possible paths we're going to check
-    logger.info(`Will check the following paths for ${filename}:`, possiblePaths);
-    
-    // Find the first path that exists
-    let foundPath = null;
-    let checkedPaths = [];
-    
-    for (const testPath of possiblePaths) {
-      try {
-        logger.info(`Checking path: ${testPath}`);
-        // Track all checked paths for debugging
-        checkedPaths.push({
-          path: testPath,
-          exists: fsSync.existsSync(testPath),
-          isDirectory: fsSync.existsSync(testPath) ? fsSync.statSync(testPath).isDirectory() : false
-        });
+      if (files && files.length > 0) {
+        // Use the first matching file
+        const fileId = files[0]._id;
+        logger.info(`Found file in GridFS with ID: ${fileId}`);
         
-        if (fsSync.existsSync(testPath) && !fsSync.statSync(testPath).isDirectory()) {
-          foundPath = testPath;
-          logger.info(`Found photo at: ${foundPath}`);
-          break;
+        // Stream the file directly to the response
+        await gridfs.streamToResponse(fileId, res);
+        return; // Return early as response is handled by streamToResponse
+      }
+      
+      // If not found by exact filename, try searching by similar filenames
+      // For example, if requesting a thumbnail but stored with different naming convention
+      let alternativeQuery = {};
+      
+      if (isThumbnailRequest) {
+        // If requesting thumbnail, search for files with metadata type 'thumbnail'
+        alternativeQuery = { 
+          'metadata.type': 'thumbnail',
+          // Try to match based on the original filename without the _thumb suffix
+          'metadata.originalName': filename.replace('_thumb', '')
+        };
+      } else if (isOptimizedRequest) {
+        // If requesting optimized, search for files with metadata type 'optimized'
+        alternativeQuery = { 
+          'metadata.type': 'optimized',
+          // Try to match based on the original filename without the _optimized suffix
+          'metadata.originalName': filename.replace('_optimized', '')
+        };
+      } else {
+        // If requesting original, search for files with metadata type 'original'
+        alternativeQuery = { 
+          'metadata.type': 'original',
+          'metadata.originalName': { $regex: new RegExp(filename, 'i') }
+        };
+      }
+      
+      logger.info(`Trying alternative query for GridFS:`, alternativeQuery);
+      const alternativeFiles = await gridfs.findFiles(alternativeQuery);
+      
+      if (alternativeFiles && alternativeFiles.length > 0) {
+        // Use the first matching file
+        const fileId = alternativeFiles[0]._id;
+        logger.info(`Found file in GridFS with alternative query, ID: ${fileId}`);
+        
+        // Stream the file directly to the response
+        await gridfs.streamToResponse(fileId, res);
+        return; // Return early as response is handled by streamToResponse
+      }
+      
+      // If still not found, try fallback to filesystem for backward compatibility
+      logger.warn(`File not found in GridFS, falling back to filesystem check for: ${filename}`);
+      
+      // Get the absolute paths to the directories from config
+      const tempDir = config.tempUploadDir;
+      const uploadsDir = config.uploadDir;
+      const cwdPath = process.cwd();
+      
+      // Try multiple possible paths where the photo might be stored
+      const possiblePaths = [
+        // Main upload directories
+        path.join(tempDir, filename),
+        path.join(uploadsDir, filename),
+        
+        // Check other locations relative to cwd
+        path.join(cwdPath, 'temp', filename),
+        path.join(cwdPath, 'uploads', filename),
+        path.join('./backend/temp', filename),
+        path.join('./backend/uploads', filename),
+        
+        // Public directory fallback
+        path.join(cwdPath, 'public', 'uploads', filename)
+      ];
+      
+      // Find the first path that exists
+      let foundPath = null;
+      
+      for (const testPath of possiblePaths) {
+        try {
+          if (fsSync.existsSync(testPath) && !fsSync.statSync(testPath).isDirectory()) {
+            foundPath = testPath;
+            logger.info(`Found photo in filesystem at: ${foundPath}`);
+            break;
+          }
+        } catch (err) {
+          logger.warn(`Error checking path ${testPath}: ${err.message}`);
         }
-      } catch (err) {
-        logger.warn(`Error checking path ${testPath}: ${err.message}`);
-        checkedPaths.push({
-          path: testPath,
-          error: err.message
-        });
-      }
-    }
-    
-    if (foundPath) {
-      // Determine content type based on file extension
-      const ext = path.extname(foundPath).toLowerCase();
-      let contentType = 'application/octet-stream'; // Default
-      
-      if (ext === '.jpg' || ext === '.jpeg') {
-        contentType = 'image/jpeg';
-      } else if (ext === '.png') {
-        contentType = 'image/png';
-      } else if (ext === '.heic') {
-        contentType = 'image/heic';
       }
       
-      // Add cache control headers for better performance
-      res.set({
-        'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
-        'ETag': require('crypto').createHash('md5').update(filename).digest('hex')
-      });
-      
-      // Stream the file to the response
-      try {
-        logger.info(`Preparing to stream photo from: ${foundPath}`);
-        const stream = fsSync.createReadStream(foundPath);
+      if (foundPath) {
+        // Determine content type based on file extension
+        const ext = path.extname(foundPath).toLowerCase();
+        let contentType = 'application/octet-stream'; // Default
         
-        // Add explicit error handling for the stream
+        if (ext === '.jpg' || ext === '.jpeg') {
+          contentType = 'image/jpeg';
+        } else if (ext === '.png') {
+          contentType = 'image/png';
+        } else if (ext === '.heic') {
+          contentType = 'image/heic';
+        }
+        
+        // Add cache control headers for better performance
+        res.set({
+          'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
+          'ETag': require('crypto').createHash('md5').update(filename).digest('hex')
+        });
+        
+        // Stream the file to the response
+        const stream = fsSync.createReadStream(foundPath);
         stream.on('error', (err) => {
-          logger.error(`Error streaming photo: ${err.message}, Stack: ${err.stack}`);
+          logger.error(`Error streaming photo from filesystem: ${err.message}`);
           if (!res.headersSent) {
             res.status(500).json({
               success: false,
@@ -362,37 +603,14 @@ const getPhoto = async (req, res, next) => {
           }
         });
         
-        // Add finish event handler to confirm successful streaming
-        stream.on('end', () => {
-          logger.info(`Successfully streamed photo: ${filename}`);
-        });
-        
         stream.pipe(res);
-      } catch (streamError) {
-        logger.error(`Exception when creating stream: ${streamError.message}, Stack: ${streamError.stack}`);
-        if (!res.headersSent) {
-          res.status(500).json({
-            success: false,
-            error: `Failed to create stream: ${streamError.message}`
-          });
-        }
-      }
-    } else {
-      // Log more details when photo is not found
-      logger.error(`Photo not found: ${filename}`);
-      logger.error(`Checked paths: ${JSON.stringify(checkedPaths)}`);
-      
-      // Log available photos in temp directory for debugging
-      try {
-        const tempFiles = fsSync.readdirSync(config.tempUploadDir);
-        logger.info(`Available files in temp directory: ${JSON.stringify(tempFiles.slice(0, 10))}${tempFiles.length > 10 ? ` (and ${tempFiles.length - 10} more)` : ''}`);
-        
-        const uploadFiles = fsSync.readdirSync(config.uploadDir);
-        logger.info(`Available files in uploads directory: ${JSON.stringify(uploadFiles.slice(0, 10))}${uploadFiles.length > 10 ? ` (and ${uploadFiles.length - 10} more)` : ''}`);
-      } catch (err) {
-        logger.warn(`Error reading directories: ${err.message}`);
+        return;
       }
       
+      // If we got here, the file wasn't found in GridFS or filesystem
+      throw new ApiError(404, 'Photo not found');
+    } catch (error) {
+      logger.error(`Error retrieving photo from GridFS: ${error.message}`);
       throw new ApiError(404, 'Photo not found');
     }
   }

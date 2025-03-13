@@ -6,25 +6,41 @@ const config = require('../config/config');
 const logger = require('../utils/logger');
 const fs = require('fs');
 
-// Ensure temp directory exists
-if (!fs.existsSync(config.tempUploadDir)) {
-  fs.mkdirSync(config.tempUploadDir, { recursive: true });
-  logger.info(`Created temporary upload directory: ${config.tempUploadDir}`);
+// Check if running in Vercel environment
+const isVercel = process.env.VERCEL === '1';
+
+// Ensure temp directory exists in non-Vercel environments
+if (!isVercel && !fs.existsSync(config.tempUploadDir)) {
+  try {
+    fs.mkdirSync(config.tempUploadDir, { recursive: true });
+    logger.info(`Created temporary upload directory: ${config.tempUploadDir}`);
+  } catch (error) {
+    logger.warn(`Could not create temp directory: ${error.message}`);
+  }
 }
 
-// Configure storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    logger.info(`Setting destination for file: ${file.originalname}`);
-    cb(null, config.tempUploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Generate a unique filename with original extension
-    const uniqueFilename = `${uuidv4()}${path.extname(file.originalname)}`;
-    logger.info(`Generated unique filename: ${uniqueFilename} for original: ${file.originalname}`);
-    cb(null, uniqueFilename);
-  }
-});
+// Configure storage based on environment
+let storage;
+
+if (isVercel) {
+  // Use memory storage in Vercel environment
+  logger.info('Using memory storage for temporary uploads in Vercel environment');
+  storage = multer.memoryStorage();
+} else {
+  // Use disk storage in development/non-Vercel environments
+  storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      logger.info(`Setting destination for file: ${file.originalname}`);
+      cb(null, config.tempUploadDir);
+    },
+    filename: (req, file, cb) => {
+      // Generate a unique filename with original extension
+      const uniqueFilename = `${uuidv4()}${path.extname(file.originalname)}`;
+      logger.info(`Generated unique filename: ${uniqueFilename} for original: ${file.originalname}`);
+      cb(null, uniqueFilename);
+    }
+  });
+}
 
 // File filter to only allow certain image types
 const fileFilter = (req, file, cb) => {

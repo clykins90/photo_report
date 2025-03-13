@@ -20,6 +20,7 @@ This application allows contractors to:
 - Express.js
 - MongoDB
 - Mongoose
+- GridFS for MongoDB file storage
 - Multer for file handling
 - Sharp for image processing
 - JWT for authentication
@@ -50,6 +51,12 @@ This application allows contractors to:
   - Uses roofing industry terminology for insurance adjuster-friendly reports
   - Generates relevant tags for each photo to improve searchability
   - Provides confidence scores for each analysis
+- **MongoDB GridFS Integration**: Scalable file storage solution
+  - Stores images and PDFs directly in MongoDB using GridFS
+  - Efficient streaming of files to/from the database
+  - Built-in file chunking for handling large files
+  - Eliminates dependency on external file storage services
+  - Metadata support for advanced file organization and retrieval
 - **Comprehensive Report Generation**: AI-powered summary of all analyzed photos
   - Automatically aggregates findings from individual photo analyses
   - Creates a structured summary of all damages found
@@ -77,6 +84,43 @@ This application allows contractors to:
   - Provides detailed progress feedback
 - **Report Sharing**: Generate secure, time-limited links to share reports with clients
 
+## API Structure
+
+The application follows a consistent RESTful API structure with the following endpoints:
+
+### Authentication Endpoints
+- `POST /api/auth/register` - Register a new user
+- `POST /api/auth/login` - Login a user
+- `GET /api/auth/profile` - Get the current user's profile (protected)
+- `PUT /api/auth/password` - Change user password (protected)
+
+### Company Endpoints
+- `GET /api/company` - Get company information (protected)
+- `PUT /api/company` - Update company information (protected)
+- `POST /api/company/logo` - Upload company logo (protected)
+
+### Report Endpoints
+- `GET /api/reports` - Get all reports for the current user (protected)
+- `POST /api/reports` - Create a new report (protected)
+- `GET /api/reports/:id` - Get a report by ID (protected)
+- `PUT /api/reports/:id` - Update a report (protected)
+- `DELETE /api/reports/:id` - Delete a report (protected)
+- `POST /api/reports/:id/generate-pdf` - Generate a PDF for a report (protected)
+- `POST /api/reports/:id/share` - Generate a sharing link for a report (protected)
+- `GET /api/reports/shared/:token` - Get a shared report using a token (public)
+
+### Photo Endpoints
+- `POST /api/photos/batch` - Upload multiple photos (protected)
+- `POST /api/photos` - Upload a single photo (protected)
+- `DELETE /api/photos/:id` - Delete a photo (protected)
+- `POST /api/photos/:id/analyze` - Analyze a photo using AI (protected)
+- `GET /api/photos/:id` - Get a photo by ID (protected)
+
+All protected endpoints require a valid JWT token that must be included in the Authorization header as a Bearer token:
+```
+Authorization: Bearer [your-token]
+```
+
 ### Authentication and User Experience
 - Secure login/registration system with JWT tokens
 - Persistent authentication that maintains user sessions across page refreshes
@@ -87,6 +131,27 @@ This application allows contractors to:
 
 ## Recent Improvements
 
+### Vercel Serverless Deployment Fixes
+- **Robust Serverless Environment Support**: Enhanced the application to work correctly in Vercel's serverless environment
+  - Fixed filesystem access issues by conditionally creating directories based on environment
+  - Properly handled temporary directories in serverless environments
+  - Added environment detection to prevent filesystem operations when running on Vercel
+  - Improved error handling for filesystem operations
+  - Implemented memory storage for file uploads in Vercel environment
+  - Used GridFS for all file storage in serverless environments
+  - Added streaming support for serving files directly from GridFS
+  - Implemented PDF generation with GridFS integration for serverless compatibility
+- **API URL Handling Improvements**: Fixed issues with API URL paths in production
+  - Resolved the double `/api` prefix issue in production URLs (`/api/api/auth/register`)
+  - Implemented robust URL rewriting in the frontend API service
+  - Enhanced environment variable handling for better deployment configuration
+  - Added better logging for API request troubleshooting
+  - **Fixed API Route Handling**: Resolved routing issues in the backend
+    - Removed conflicting URL rewriting middleware that was causing registration errors
+    - Preserved consistent API path prefixes across development and production
+    - Ensured all API routes follow the `/api/[resource]` pattern consistently
+    - Improved routing configuration in Vercel to correctly handle API requests
+
 ### Data Model Changes
 - **User Profile with Company Information**: Company information is now embedded directly in the user profile
   - Eliminated the need for separate Company collection
@@ -95,6 +160,14 @@ This application allows contractors to:
   - Maintains all company branding, contact info, and settings directly with the user
 
 ### Bug Fixes and Performance Improvements
+- **GridFS Integration for File Storage**: Migrated photo and file storage to GridFS
+  - Improved file storage capabilities by leveraging MongoDB's GridFS for scalable, reliable storage
+  - Eliminated dependency on local filesystem, enabling better cloud deployment
+  - Enhanced file metadata handling with robust querying capabilities
+  - Added backward compatibility with filesystem storage for smooth migration
+  - Implemented proper cleanup of files when no longer needed
+  - Added dedicated API endpoints for file operations through GridFS
+  - Improved error handling for file operations
 - **Resolved Circular Reference Issues**: Fixed JSON circular reference errors during report submission and backup
   - Added robust sanitization of photo data to remove circular references before storage
   - Implemented targeted cleanup to retain only essential properties in photo objects
@@ -461,4 +534,74 @@ This modular architecture improves code maintainability by:
 - Reducing component complexity and file size
 - Improving testability of individual components
 - Allowing parallel development of different form steps
-- Making the codebase more approachable for new developers 
+- Making the codebase more approachable for new developers
+
+## Development
+
+### Setup and Installation
+
+1. Clone the repository
+```bash
+git clone https://github.com/yourusername/photo-report-app.git
+cd photo-report-app
+```
+
+2. Install dependencies for both frontend and backend
+```bash
+# Install root dependencies
+npm install
+
+# Install backend dependencies
+cd backend
+npm install
+
+# Install frontend dependencies
+cd ../frontend
+npm install
+```
+
+3. Create environment files
+   - Create `.env` file in the backend directory based on `.env.example`
+   - Create `.env.local` file in the frontend directory based on `.env.example`
+
+4. Start the development servers
+```bash
+# Start the backend server
+cd backend
+npm run dev
+
+# In a separate terminal, start the frontend server
+cd frontend
+npm run dev
+```
+
+### Testing GridFS Implementation
+
+The application uses MongoDB GridFS for storing images and PDFs. To test the GridFS implementation:
+
+1. Ensure MongoDB is connected and running
+2. Run the GridFS test script from the backend directory:
+```bash
+cd backend
+npm run test-gridfs
+```
+
+This script will:
+- Create test image and PDF files if they don't exist
+- Upload these files to GridFS
+- Retrieve file information
+- Download the files from GridFS
+- Delete the test files from GridFS
+
+Expected output will show the test progression and confirm that all GridFS operations are working correctly.
+
+### GridFS API Endpoints
+
+The following API endpoints are available for GridFS operations:
+
+- `GET /api/files/:fileId` - Stream a file from GridFS
+- `GET /api/files/info/:fileId` - Get file information (requires authentication)
+- `DELETE /api/files/:fileId` - Delete a file from GridFS (requires authentication)
+- `GET /api/files/search` - Search for files by metadata (requires authentication)
+
+File uploads are handled through the middleware system, which automatically stores uploaded files in GridFS. 

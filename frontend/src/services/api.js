@@ -13,9 +13,24 @@ const api = axios.create({
   maxBodyLength: 20 * 1024 * 1024, // 20MB
 });
 
+// Fix for double /api prefix in URLs
+const fixApiPath = (url) => {
+  // If we're in production and the baseURL is already '/api'
+  if (import.meta.env.VITE_API_URL === '/api' && url.startsWith('/api/')) {
+    // Remove the leading /api from the URL since it's already in baseURL
+    return url.substring(4); // Remove '/api' prefix
+  }
+  return url;
+};
+
 // Add a request interceptor to include auth token in requests
 api.interceptors.request.use(
   (config) => {
+    // Fix API path to prevent double /api prefix
+    if (config.url) {
+      config.url = fixApiPath(config.url);
+    }
+    
     console.log('API Request:', config.method.toUpperCase(), config.url);
     
     const token = localStorage.getItem('token');

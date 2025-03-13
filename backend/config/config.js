@@ -9,16 +9,28 @@ const tempUploadDir = process.env.TEMP_UPLOAD_DIR || path.join(__dirname, '../te
 // Define permanent upload directory
 const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, '../uploads');
 
-// Ensure temp directory exists
-if (!fs.existsSync(tempUploadDir)) {
-  fs.mkdirSync(tempUploadDir, { recursive: true });
-  console.log(`Created temporary upload directory: ${tempUploadDir}`);
-}
+// Only create directories in non-production environments or if specifically configured
+const isVercel = process.env.VERCEL === '1';
+if (!isVercel) {
+  // Ensure temp directory exists
+  if (!fs.existsSync(tempUploadDir)) {
+    try {
+      fs.mkdirSync(tempUploadDir, { recursive: true });
+      console.log(`Created temporary upload directory: ${tempUploadDir}`);
+    } catch (error) {
+      console.warn(`Warning: Could not create temp directory: ${error.message}`);
+    }
+  }
 
-// Ensure uploads directory exists
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-  console.log(`Created permanent upload directory: ${uploadDir}`);
+  // Ensure uploads directory exists
+  if (!fs.existsSync(uploadDir)) {
+    try {
+      fs.mkdirSync(uploadDir, { recursive: true });
+      console.log(`Created permanent upload directory: ${uploadDir}`);
+    } catch (error) {
+      console.warn(`Warning: Could not create uploads directory: ${error.message}`);
+    }
+  }
 }
 
 module.exports = {

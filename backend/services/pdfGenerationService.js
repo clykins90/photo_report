@@ -253,14 +253,15 @@ const generatePdf = async (report) => {
       logger.info(`Prepared ${pages.length} pages for report PDF`);
       
       // ========== RENDER ALL PAGES ==========
-      pages.forEach((page, pageIndex) => {
+      for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+        const page = pages[pageIndex];
         doc.addPage();
         const pageNumber = pageIndex + 1; // Start page numbering at 1
         
         switch (page.type) {
           case 'cover':
             renderCoverPage(doc, page.content.report, page.content.companyInfo, 
-                            page.content.companyLogo, colors, fonts, pageNumber);
+                          page.content.companyLogo, colors, fonts, pageNumber);
             break;
           case 'summary':
             renderSummaryPage(doc, page.content.report, colors, fonts, pageNumber);
@@ -275,16 +276,16 @@ const generatePdf = async (report) => {
             renderMaterialsPage(doc, page.content.title, page.content.materials, colors, fonts, pageNumber);
             break;
           case 'photo_large':
-            renderLargePhotoPage(doc, page.content.title, page.content.photo, colors, fonts, pageNumber);
+            await renderLargePhotoPage(doc, page.content.title, page.content.photo, colors, fonts, pageNumber);
             break;
           case 'photo_grid':
-            renderPhotoGridPage(doc, page.content.title, page.content.photos, colors, fonts, pageNumber);
+            await renderPhotoGridPage(doc, page.content.title, page.content.photos, colors, fonts, pageNumber);
             break;
           default:
             // Just skip if unknown type
             break;
         }
-      });
+      }
       
       // ===== Now that all content is placed, flush & add footers =====
       doc.flushPages(); // Ensures page layout is finalized
@@ -575,63 +576,29 @@ const renderMaterialsPage = (doc, title, materials, colors, fonts, pageNumber) =
 };
 
 /**
- * Render a large photo with analysis page
+ * Render a large photo page
  */
-const renderLargePhotoPage = (doc, title, photo, colors, fonts, pageNumber) => {
+const renderLargePhotoPage = async (doc, title, photo, colors, fonts, pageNumber) => {
   // Page header
   addPageHeader(doc, title, colors, fonts, pageNumber);
   
-  const photoPath = findPhotoPath(photo);
-  if (!photoPath) {
-    doc.fillColor(colors.accent).fontSize(14).font(fonts.Body);
-    doc.text('Photo file not found', 50, 100);
-    return;
-  }
+  const photoWidth = doc.page.width - 100;  // Centered with 50pt margins
+  const photoHeight = photoWidth * 0.75;    // 4:3 aspect ratio
   
-  // Calculate image dimensions to fit the page
-  const pageWidth = doc.page.width - 100; // Leave margins
-  const maxHeight = 500; // Max height for the photo
+  // Photo position (centered)
+  const x = 50;
+  const y = 80;
   
-  // Position in the center of the page
-  const xPosition = 50;
-  const yPosition = 100;
+  // Get the caption for the photo
+  const caption = photo.caption || photo.description || '';
   
-  // Photo width should not exceed page width
-  const photoWidth = Math.min(pageWidth, 500);
+  // Embed the photo using our new function
+  await embedPhoto(doc, photo, x, y, photoWidth, photoHeight, caption);
   
-  // Add metadata above the photo
-  const metadataY = yPosition - 20;
-  addPhotoMetadata(doc, photo, xPosition, metadataY, photoWidth, colors, fonts);
-  
-  // Draw photo with border
-  doc.rect(xPosition - 5, yPosition - 5, photoWidth + 10, maxHeight + 10).fill('#F3F4F6');
-  doc.image(photoPath, xPosition, yPosition, { 
-    width: photoWidth,
-    height: maxHeight,
-    fit: [photoWidth, maxHeight] 
-  });
-
-  // Add caption if available
-  if (photo.caption) {
-    const captionY = yPosition + maxHeight + 20;
-    doc.fontSize(10).font(fonts.Italic).fillColor(colors.text);
-    doc.text(photo.caption, xPosition, captionY, { 
-      width: photoWidth,
-      align: 'center' 
-    });
-  }
-  
-  // Add analysis if available
-  if (photo.analysis) {
-    const analysisY = photo.caption ? 
-      doc.y + 20 : // Position after caption
-      yPosition + maxHeight + 20; // Position after photo
-      
-    doc.fillColor(colors.primary).fontSize(14).font(fonts.Heading);
-    doc.text('Analysis', xPosition, analysisY);
-    
-    doc.fillColor(colors.text).fontSize(10).font(fonts.Body);
-    doc.text(photo.analysis, xPosition, doc.y + 10, { 
+  // Add details if available
+  if (photo.details) {
+    doc.fontSize(10).font(fonts.Body).fillColor(colors.text);
+    doc.text(photo.details, x, y + photoHeight + 40, { 
       width: photoWidth,
       align: 'left' 
     });
@@ -641,7 +608,7 @@ const renderLargePhotoPage = (doc, title, photo, colors, fonts, pageNumber) => {
 /**
  * Render a photo grid page
  */
-const renderPhotoGridPage = (doc, title, photos, colors, fonts, pageNumber) => {
+const renderPhotoGridPage = async (doc, title, photos, colors, fonts, pageNumber) => {
   // Page header
   addPageHeader(doc, title, colors, fonts, pageNumber);
   
@@ -657,56 +624,27 @@ const renderPhotoGridPage = (doc, title, photos, colors, fonts, pageNumber) => {
     { x: 50 + photoWidth + 20, y: 80 + photoHeight + 70 }  // Bottom right
   ];
   
-  photos.forEach((photo, index) => {
-    if (index < positions.length) {
-      const pos = positions[index];
-      const photoPath = findPhotoPath(photo);
+  for (let i = 0; i < photos.length; i++) {
+    if (i < positions.length) {
+      const photo = photos[i];
+      const pos = positions[i];
       
-      if (photoPath) {
-        // Draw photo with light background
-        doc.rect(pos.x - 5, pos.y - 5, photoWidth + 10, photoHeight + 10).fill(colors.lightGray);
-        
-        // Metadata above photo
-        addPhotoMetadata(doc, photo, pos.x, pos.y - 15, photoWidth, colors, fonts);
-        
-        // Caption
-        const captionText = photo.caption || (photo.description || '');
-        if (captionText) {
-          doc.fontSize(8).font(fonts.Italic).fillColor(colors.text);
-          doc.text(captionText.substring(0, 100) + (captionText.length > 100 ? '...' : ''), 
-                pos.x, pos.y + photoHeight + 5, { 
-                  width: photoWidth, 
-                  align: 'center',
-                  height: 30,
-                  ellipsis: true
-                });
-        }
-        
-        try {
-          doc.image(photoPath, pos.x, pos.y, {
-            width: photoWidth,
-            height: photoHeight,
-            fit: [photoWidth, photoHeight]
-          });
-        } catch (err) {
-          doc.fillColor(colors.accent).fontSize(12).font(fonts.Body);
-          doc.text('Error loading image', pos.x + 10, pos.y + photoHeight / 2, { 
-            width: photoWidth - 20,
-            align: 'center'
-          });
-        }
-      } else {
-        // Draw placeholder if image not found
-        doc.rect(pos.x, pos.y, photoWidth, photoHeight).fill('#E5E7EB');
-        doc.fontSize(12).font(fonts.Body).fillColor(colors.text);
-        doc.text('Image not available', 
-              pos.x + 10, pos.y + photoHeight / 2 - 10, { 
-                width: photoWidth - 20, 
-                align: 'center'
-              });
+      // Get the caption for the photo
+      const caption = photo.caption || photo.description || '';
+      
+      // Embed the photo using our new function
+      await embedPhoto(doc, photo, pos.x, pos.y, photoWidth, photoHeight, caption);
+      
+      // Add details if available
+      if (photo.details) {
+        doc.fontSize(9).font(fonts.Body).fillColor(colors.text);
+        doc.text(photo.details, pos.x, pos.y + photoHeight + 30, { 
+          width: photoWidth, 
+          align: 'left' 
+        });
       }
     }
-  });
+  }
 };
 
 /**
@@ -826,6 +764,23 @@ const addPhotoMetadata = (doc, photo, x, y, width, colors, fonts) => {
  * Find the file path for a photo, trying multiple possible locations
  */
 const findPhotoPath = (photo) => {
+  // Check if we're in Vercel environment
+  const isVercel = process.env.VERCEL === '1';
+  
+  // In Vercel, we should use GridFS instead of filesystem
+  if (isVercel) {
+    // If photo has a gridfs id, return a special marker to handle it differently
+    if (photo.gridfsId || photo.id || (photo.gridfs && photo.gridfs.id)) {
+      const photoId = photo.gridfsId || photo.id || (photo.gridfs && photo.gridfs.id);
+      return `gridfs:${photoId}`;
+    }
+    
+    // If no GridFS ID is available, return null - we can't access filesystem in Vercel
+    logger.warn(`No GridFS ID available for photo in Vercel environment`);
+    return null;
+  }
+  
+  // In development/non-Vercel, use filesystem paths
   const possiblePaths = [
     path.join(process.cwd(), 'temp', photo.filename),
     path.join(process.cwd(), 'temp', photo.filename.replace('.jpeg', '_optimized.jpeg').replace('.jpg', '_optimized.jpg')),
@@ -841,6 +796,12 @@ const findPhotoPath = (photo) => {
         return testPath;
       }
     } catch (err) {}
+  }
+  
+  // If not found and we have a GridFS ID, return a special marker to retrieve from GridFS
+  if (photo.gridfsId || photo.id || (photo.gridfs && photo.gridfs.id)) {
+    const photoId = photo.gridfsId || photo.id || (photo.gridfs && photo.gridfs.id);
+    return `gridfs:${photoId}`;
   }
   
   return null;
@@ -876,6 +837,128 @@ const addFooters = (doc, reportId, colors, fonts) => {
       footerY + 20,
       { align: 'left', width: doc.page.width - 100 }
     );
+  }
+};
+
+/**
+ * Embed a photo in the PDF with a caption
+ */
+const embedPhoto = async (doc, photo, x, y, width, height, caption) => {
+  try {
+    const photoPath = findPhotoPath(photo);
+    
+    if (photoPath) {
+      // Check if it's a GridFS path
+      if (photoPath.startsWith('gridfs:')) {
+        const fileId = photoPath.replace('gridfs:', '');
+        logger.info(`Loading photo from GridFS with ID: ${fileId}`);
+        
+        try {
+          // Get GridFS module
+          const gridfs = require('../utils/gridfs');
+          
+          // Create a temporary buffer to store the image data
+          const chunks = [];
+          
+          // Get a download stream from GridFS
+          const downloadStream = await gridfs.downloadFile(fileId);
+          
+          // Set up promise to resolve when download is complete
+          await new Promise((resolve, reject) => {
+            downloadStream.on('data', (chunk) => {
+              chunks.push(chunk);
+            });
+            
+            downloadStream.on('error', (error) => {
+              logger.error(`Error downloading photo from GridFS: ${error.message}`);
+              reject(error);
+            });
+            
+            downloadStream.on('end', () => {
+              try {
+                const imageData = Buffer.concat(chunks);
+                
+                // Embed the image in the PDF from buffer
+                doc.image(imageData, x, y, {
+                  width: width,
+                  height: height,
+                  align: 'center',
+                  valign: 'center'
+                });
+                
+                // Add caption below photo if provided
+                if (caption) {
+                  const captionY = y + height + 10;
+                  doc.fontSize(10).text(caption, x, captionY, { 
+                    width: width, 
+                    align: 'center' 
+                  });
+                }
+                
+                resolve();
+              } catch (err) {
+                logger.error(`Error embedding photo from GridFS: ${err.message}`);
+                addMissingImagePlaceholder(doc, x, y, width, height, caption);
+              }
+            });
+          });
+        } catch (error) {
+          logger.error(`Failed to embed GridFS photo: ${error.message}`);
+          addMissingImagePlaceholder(doc, x, y, width, height, caption);
+        }
+      } else {
+        // It's a local filesystem path - handle as before
+        doc.image(photoPath, x, y, {
+          width: width,
+          height: height,
+          align: 'center',
+          valign: 'center'
+        });
+        
+        // Add caption below photo if provided
+        if (caption) {
+          const captionY = y + height + 10;
+          doc.fontSize(10).text(caption, x, captionY, { 
+            width: width, 
+            align: 'center' 
+          });
+        }
+      }
+    } else {
+      // Add a placeholder for missing images
+      addMissingImagePlaceholder(doc, x, y, width, height, caption);
+    }
+  } catch (error) {
+    logger.error(`Error embedding photo: ${error.message}`);
+    addMissingImagePlaceholder(doc, x, y, width, height, caption);
+  }
+};
+
+/**
+ * Add a placeholder box for missing images
+ */
+const addMissingImagePlaceholder = (doc, x, y, width, height, caption) => {
+  // Draw a placeholder rectangle
+  doc.rect(x, y, width, height)
+     .lineWidth(1)
+     .stroke('#cccccc');
+  
+  // Add text in the center of the placeholder
+  doc.fontSize(12)
+     .fillColor('#999999')
+     .text('Image Not Available', 
+           x + width/2 - 60, 
+           y + height/2 - 10, 
+           { width: 120, align: 'center' });
+  
+  // Add caption if provided
+  if (caption) {
+    const captionY = y + height + 10;
+    doc.fontSize(10)
+       .text(caption, x, captionY, { 
+         width: width, 
+         align: 'center' 
+       });
   }
 };
 

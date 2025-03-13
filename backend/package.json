@@ -7,7 +7,8 @@
     "dev": "nodemon server.js",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test-gridfs": "node test-gridfs.js"
   },
   "keywords": [],
   "author": "",
@@ -23,6 +24,7 @@
     "express-validator": "^7.2.1",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
+    "mongodb": "^6.5.0",
     "mongoose": "^8.12.1",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
