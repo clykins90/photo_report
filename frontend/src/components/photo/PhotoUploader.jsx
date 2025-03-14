@@ -123,7 +123,7 @@ const PhotoUploader = ({
         // Create a blob URL for preview and track it
         preview: createAndTrackBlobUrl(file),
         // Set initial status
-        status: 'complete', // Mark as complete for local storage
+        status: 'pending', // Mark as pending until uploaded to server
         analysis: null,
         // Store the name in a separate property
         displayName: file.name || extractFilename(file)
@@ -136,7 +136,7 @@ const PhotoUploader = ({
     
     // If reportId is available, upload to server
     if (reportId && newFiles.length > 0) {
-      uploadFilesToServer(newFiles);
+      await uploadFilesToServer(newFiles);
     }
   }, [files, reportId, showUploadControls]);
 
@@ -222,20 +222,22 @@ const PhotoUploader = ({
       
       // Call onUploadComplete with the updated files
       if (onUploadComplete) {
-        // Get the updated files with server IDs
-        const updatedFiles = files.map(file => {
-          // Find the matching uploaded file
+        // Get the current updated files with server IDs
+        const currentFiles = [...files];
+        
+        // Find and update files with server data
+        currentFiles.forEach((file, index) => {
           const matchingUploadedFile = response.photos?.find(uploaded => {
             const fileName = file.originalFile ? file.originalFile.name : file.displayName;
             return uploaded.originalName === fileName || uploaded.filename.includes(fileName);
           });
           
           if (matchingUploadedFile) {
-            return {
+            currentFiles[index] = {
               ...file,
               status: 'complete',
               _id: matchingUploadedFile._id,
-              id: matchingUploadedFile._id,
+              id: matchingUploadedFile._id, // Update the ID to match MongoDB ID
               fileId: matchingUploadedFile.fileId || matchingUploadedFile._id,
               filename: matchingUploadedFile.filename,
               originalName: matchingUploadedFile.originalName,
@@ -245,10 +247,13 @@ const PhotoUploader = ({
               path: matchingUploadedFile.path
             };
           }
-          return file;
         });
         
-        onUploadComplete(updatedFiles);
+        // Update the state with the current files
+        setFiles(currentFiles);
+        
+        // Call onUploadComplete with the updated files
+        onUploadComplete(currentFiles);
       }
     } catch (err) {
       console.error('Upload failed:', err.message);
@@ -290,14 +295,27 @@ const PhotoUploader = ({
     if (files.length === 0 || analyzing || !reportId) return;
     
     try {
+      // First, check if we have any photos with valid MongoDB ObjectIDs
+      const photosWithValidIds = files.filter(file => 
+        file.status === 'complete' && 
+        !file.analysis && 
+        file._id && 
+        typeof file._id === 'string' && 
+        /^[0-9a-fA-F]{24}$/.test(file._id)
+      );
+      
+      if (photosWithValidIds.length === 0) {
+        throw new Error('No valid MongoDB ObjectIDs found in the photos. Make sure photos are properly uploaded first.');
+      }
+      
       setAnalyzing(true);
       setError(null);
       setAnalysisProgress(0);
       
-      // Update status of all files to analyzing
+      // Update status of all files to analyzing, but only those with valid IDs
       setFiles(prev => {
         const updatedFiles = prev.map(file => {
-          if (file.status === 'complete' && !file.analysis) {
+          if (file.status === 'complete' && !file.analysis && file._id && typeof file._id === 'string' && /^[0-9a-fA-F]{24}$/.test(file._id)) {
             return {
               ...file,
               status: 'analyzing',
@@ -472,16 +490,26 @@ const PhotoUploader = ({
       )}
       
       {/* Analyze button */}
-      {files.length > 0 && !analyzing && files.some(file => file.status === 'complete' && !file.analysis) && (
+      {files.length > 0 && !analyzing && (
         <div className="mt-4">
-          <button
-            type="button"
-            onClick={analyzeAllPhotos}
-            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-            disabled={analyzing}
-          >
-            Analyze Photos with AI
-          </button>
+          {files.some(file => file.status === 'complete' && !file.analysis && file._id && typeof file._id === 'string' && /^[0-9a-fA-F]{24}$/.test(file._id)) ? (
+            <button
+              type="button"
+              onClick={analyzeAllPhotos}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+              disabled={analyzing}
+            >
+              Analyze Photos with AI
+            </button>
+          ) : (
+            files.some(file => file.status === 'pending' || file.status === 'uploading') ? (
+              <p className="text-sm text-amber-600">Please wait for photos to finish uploading before analysis.</p>
+            ) : (
+              files.some(file => !file._id || typeof file._id !== 'string' || !/^[0-9a-fA-F]{24}$/.test(file._id)) && (
+                <p className="text-sm text-amber-600">Photos must be uploaded to the server before they can be analyzed.</p>
+              )
+            )
+          )}
         </div>
       )}
       
