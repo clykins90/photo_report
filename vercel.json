@@ -41,6 +41,22 @@
       "dest": "/$1"
     },
     {
+      "src": "/login",
+      "dest": "/index.html"
+    },
+    {
+      "src": "/register",
+      "dest": "/index.html"
+    },
+    {
+      "src": "/dashboard",
+      "dest": "/index.html"
+    },
+    {
+      "src": "/reports/(.*)",
+      "dest": "/index.html"
+    },
+    {
       "handle": "filesystem"
     },
     {
