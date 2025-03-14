@@ -1,4 +1,5 @@
 const fs = require('fs');
+const fsPromises = fs.promises;
 const path = require('path');
 const logger = require('./logger');
 const config = require('../config/config');
@@ -12,43 +13,47 @@ const deleteFile = async (filename) => {
   try {
     const filePath = path.join(config.tempUploadDir, filename);
     if (fs.existsSync(filePath)) {
-      await fs.promises.unlink(filePath);
-      logger.info(`Deleted file: ${filename}`);
+      await fsPromises.unlink(filePath);
+      logger.info(`Deleted temporary file: ${filePath}`);
       return true;
     }
     return false;
   } catch (error) {
-    logger.error(`Error deleting file ${filename}:`, error);
+    logger.error(`Error deleting file ${filename}: ${error.message}`);
     return false;
   }
 };
 
 /**
- * Clean up files older than a certain age
- * @param {number} maxAgeMs - Maximum age in milliseconds
+ * Clean up old temporary files
+ * @param {number} maxAgeMs - Maximum age of files in milliseconds
  * @returns {Promise<number>} - Number of files deleted
  */
 const cleanupOldFiles = async (maxAgeMs = 24 * 60 * 60 * 1000) => { // Default: 24 hours
   try {
     const now = Date.now();
-    const files = await fs.promises.readdir(config.tempUploadDir);
     let deletedCount = 0;
+    
+    // Read all files in the temp directory
+    const files = await fsPromises.readdir(config.tempUploadDir);
     
     for (const file of files) {
       const filePath = path.join(config.tempUploadDir, file);
-      const stats = await fs.promises.stat(filePath);
-      const fileAge = now - stats.mtime.getTime();
       
-      if (fileAge > maxAgeMs) {
-        await fs.promises.unlink(filePath);
+      // Get file stats
+      const stats = await fsPromises.stat(filePath);
+      
+      // Check if file is older than maxAgeMs
+      if (now - stats.mtimeMs > maxAgeMs) {
+        await fsPromises.unlink(filePath);
+        logger.info(`Cleaned up old temporary file: ${filePath}`);
         deletedCount++;
-        logger.info(`Deleted old file: ${file} (age: ${Math.round(fileAge / 1000 / 60)} minutes)`);
       }
     }
     
     return deletedCount;
   } catch (error) {
-    logger.error('Error cleaning up old files:', error);
+    logger.error(`Error cleaning up old files: ${error.message}`);
     return 0;
   }
 };

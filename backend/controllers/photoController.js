@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
-const fs = require('fs').promises;
+const fs = require('fs');
+const fsPromises = fs.promises;
 const path = require('path');
 const logger = require('../utils/logger');
 const gridfs = require('../utils/gridfs');
@@ -84,7 +85,7 @@ const uploadPhotos = async (req, res) => {
         // If file was saved to temp directory, clean it up
         if (file.path) {
           try {
-            await fs.unlink(file.path);
+            await fsPromises.unlink(file.path);
             logger.debug(`Deleted temporary file: ${file.path}`);
           } catch (unlinkError) {
             logger.warn(`Failed to delete temporary file ${file.path}: ${unlinkError.message}`);
@@ -299,7 +300,7 @@ const analyzePhotos = async (req, res) => {
         
         // Clean up temp file
         try {
-          await fs.unlink(tempFilePath);
+          await fsPromises.unlink(tempFilePath);
           logger.debug(`Deleted temporary file: ${tempFilePath}`);
         } catch (unlinkError) {
           logger.warn(`Failed to delete temporary file ${tempFilePath}: ${unlinkError.message}`);

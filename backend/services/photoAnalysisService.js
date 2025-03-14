@@ -1,4 +1,5 @@
 const fs = require('fs');
+const fsPromises = fs.promises;
 const OpenAI = require('openai');
 const logger = require('../utils/logger');
 
@@ -38,7 +39,7 @@ const analyzePhoto = async (imagePath) => {
     logger.info(`Analyzing photo: ${imagePath}`);
     
     // Read image as base64
-    const imageBuffer = await fs.promises.readFile(imagePath);
+    const imageBuffer = await fsPromises.readFile(imagePath);
     const base64Image = imageBuffer.toString('base64');
     
     // Call OpenAI Vision API
