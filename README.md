@@ -48,13 +48,27 @@ This application allows contractors to:
 - Optimized for Vercel's serverless environment using `/tmp` directory for temporary file storage
 
 ### Photo Storage and Processing
-- Photos are stored directly in MongoDB using GridFS
-- Memory-based file uploads for improved performance and compatibility with serverless environments
-- Temporary files are stored in the `/tmp` directory for processing
-- Original photos are stored for PDF generation and detailed viewing
-- Thumbnails are generated for report previews
-- AI analysis is performed using OpenAI's Vision API
-- Photos are associated with reports in the database
+- MongoDB GridFS for efficient storage of large photo collections
+- Optimized photo upload process with batch processing
+- Automatic thumbnail generation for faster loading
+- Secure photo access with proper authentication
+- AI-powered photo analysis using OpenAI's Vision API
+- Detailed damage assessment with severity ratings and confidence scores
+- Batch processing of photos to avoid API rate limits
+
+### Photo Analysis Workflow
+1. Photos are uploaded to MongoDB GridFS with metadata linking them to reports
+2. The analysis process retrieves photos from GridFS and creates temporary files
+3. OpenAI's Vision API analyzes each photo for damage, providing detailed descriptions
+4. Analysis results are stored with the photo metadata in the report document
+5. Users can review and edit AI-generated descriptions before finalizing reports
+
+### Troubleshooting Common Issues
+- **"No photos found to analyze"**: Ensure photos are properly uploaded to the database and associated with the correct report ID
+- **API 404 errors**: Check that the API endpoints are being called with the correct parameters and no unnecessary query strings
+- **Analysis timeout**: Large batches of photos may exceed API timeouts; use smaller batches
+- **Missing analysis results**: Verify that the OpenAI API key is valid and has sufficient quota
+- **Photo upload failures**: Check file size limits and supported image formats
 
 ## Photo Service Architecture
 

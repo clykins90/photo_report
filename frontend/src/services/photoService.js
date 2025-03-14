@@ -153,7 +153,7 @@ export const analyzePhotos = async (reportId) => {
       throw new Error('Report ID is required for photo analysis');
     }
 
-    photoLogger(`Analyzing photos for report: ${reportId}`);
+    photoLogger(`Analyzing all photos for report: ${reportId}`);
 
     // Don't include any query parameters
     const response = await api.post(`/photos/analyze/${reportId}`);
@@ -224,17 +224,14 @@ export const analyzePhoto = async (photo, reportId) => {
       throw new Error('Report ID is required for photo analysis');
     }
 
-    // Try to get the ID from various possible locations
-    const photoId = photo._id || 
-                    photo.id || 
-                    photo.fileId || 
-                    (photo.uploadedData && photo.uploadedData.gridfsId);
-    
-    if (!photoId || typeof photoId !== 'string') {
-      throw new Error('No valid photo ID found in the photo object');
+    // Only use MongoDB ObjectID (24 hex chars)
+    if (!photo._id || typeof photo._id !== 'string' || !/^[0-9a-fA-F]{24}$/.test(photo._id)) {
+      throw new Error('Photo must have a valid MongoDB ObjectID (_id). Make sure the photo is properly uploaded first.');
     }
 
-    photoLogger(`Analyzing single photo: ${photoId} for report: ${reportId}`);
+    const photoId = photo._id;
+    
+    photoLogger(`Analyzing single photo with MongoDB ObjectID: ${photoId} for report: ${reportId}`);
 
     // Use URL parameter for reportId without any query parameters
     const response = await api.post(`/photos/analyze/${reportId}`, { 
@@ -282,20 +279,17 @@ export const analyzeBatchPhotos = async (photos, reportId) => {
 
     photoLogger(`Analyzing batch of ${photos.length} photos for report: ${reportId}`);
 
-    // Extract photo IDs - handle different photo object formats
-    const photoIds = photos.map(photo => {
-      // Try to get the ID from various possible locations
-      return photo._id || 
-             photo.id || 
-             photo.fileId || 
-             (photo.uploadedData && photo.uploadedData.gridfsId);
-    }).filter(id => id && typeof id === 'string');
+    // Extract ONLY MongoDB ObjectIDs (24 hex chars)
+    // This is the simplest solution - only send valid MongoDB IDs to the backend
+    const photoIds = photos
+      .filter(photo => photo._id && typeof photo._id === 'string' && /^[0-9a-fA-F]{24}$/.test(photo._id))
+      .map(photo => photo._id);
     
     if (photoIds.length === 0) {
-      throw new Error('No valid photo IDs found in the batch');
+      throw new Error('No valid MongoDB ObjectIDs found in the photos. Make sure photos are properly uploaded first.');
     }
     
-    photoLogger(`Extracted ${photoIds.length} valid photo IDs for analysis`);
+    photoLogger(`Extracted ${photoIds.length} MongoDB ObjectIDs for analysis:`, photoIds);
     
     // Use URL parameter for reportId and send photoIds in the request body
     // Don't include any query parameters

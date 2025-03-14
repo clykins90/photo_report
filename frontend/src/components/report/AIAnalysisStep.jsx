@@ -171,20 +171,34 @@ const AIAnalysisStep = ({
                 if (result.success && result.fileId) {
                   // Find the photo that matches this result
                   const photoToUpdate = batch.find(photo => {
-                    // Use the simplified ID extraction logic that matches the backend
+                    // First check for MongoDB ObjectID match (most reliable)
+                    if (photo._id && photo._id === result.fileId) {
+                      return true;
+                    }
+                    
+                    // Then check other ID fields
                     const photoId = 
+                      photo._id || 
+                      photo.id || 
+                      photo.fileId || 
                       photo.uploadedData?.gridfs?.original || 
                       photo.uploadedData?.gridfs?.optimized || 
-                      photo.uploadedData?.gridfsId || 
-                      photo._id || 
-                      (photo.id && typeof photo.id === 'string' && /^[0-9a-fA-F]{24}$/.test(photo.id) ? photo.id : null);
+                      photo.uploadedData?.gridfsId;
                     
                     return photoId === result.fileId;
                   });
                   
                   if (photoToUpdate) {
                     // Update the photo with analysis results
-                    const photoIndex = updatedPhotos.findIndex(p => p.id === photoToUpdate.id);
+                    const photoIndex = updatedPhotos.findIndex(p => {
+                      // First try to match by MongoDB ObjectID
+                      if (p._id && p._id === photoToUpdate._id) {
+                        return true;
+                      }
+                      // Then try to match by id
+                      return p.id === photoToUpdate.id;
+                    });
+                    
                     if (photoIndex !== -1) {
                       updatedPhotos[photoIndex] = {
                         ...updatedPhotos[photoIndex],
@@ -192,6 +206,8 @@ const AIAnalysisStep = ({
                         status: 'analyzed'
                       };
                     }
+                  } else {
+                    console.warn(`Could not find photo matching result fileId: ${result.fileId}`);
                   }
                 }
               });

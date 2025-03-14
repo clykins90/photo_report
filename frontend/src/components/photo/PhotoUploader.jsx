@@ -174,6 +174,8 @@ const PhotoUploader = ({
         throw new Error(response.error || 'Upload failed');
       }
       
+      console.log('Upload response:', response);
+      
       // Update the status of uploaded files but KEEP the preview URLs
       setFiles(prev => {
         const updatedFiles = prev.map(file => {
@@ -181,25 +183,35 @@ const PhotoUploader = ({
           const matchingUploadedFile = response.photos?.find(uploaded => {
             // Match by name from the original file
             const fileName = file.originalFile ? file.originalFile.name : file.displayName;
-            return uploaded.filename === fileName;
+            return uploaded.originalName === fileName || uploaded.filename.includes(fileName);
           });
           
           if (matchingUploadedFile) {
+            console.log(`Matched file ${file.displayName} with server response:`, matchingUploadedFile);
+            
             // NEVER revoke the blob URL during the upload process
             // Return updated file with server data but keep the preview URL
             return {
               ...file,
               status: 'complete',
-              // Store the MongoDB ID
+              // Store the MongoDB ID - CRITICAL for analysis
               _id: matchingUploadedFile._id,
+              // Also set the id field to the MongoDB ID for consistency
+              id: matchingUploadedFile._id,
+              // Store the fileId if available
+              fileId: matchingUploadedFile.fileId || matchingUploadedFile._id,
               // Store the filename
               filename: matchingUploadedFile.filename,
+              // Store the original name
+              originalName: matchingUploadedFile.originalName,
               // ALWAYS keep the preview URL
               preview: file.preview,
               // Store the displayName
-              displayName: file.displayName || matchingUploadedFile.filename,
+              displayName: file.displayName || matchingUploadedFile.originalName || matchingUploadedFile.filename,
               // Store the section if available
-              section: matchingUploadedFile.section || file.section || 'Uncategorized'
+              section: matchingUploadedFile.section || file.section || 'Uncategorized',
+              // Store the path
+              path: matchingUploadedFile.path
             };
           }
           return file;
@@ -207,6 +219,37 @@ const PhotoUploader = ({
         
         return updatedFiles;
       });
+      
+      // Call onUploadComplete with the updated files
+      if (onUploadComplete) {
+        // Get the updated files with server IDs
+        const updatedFiles = files.map(file => {
+          // Find the matching uploaded file
+          const matchingUploadedFile = response.photos?.find(uploaded => {
+            const fileName = file.originalFile ? file.originalFile.name : file.displayName;
+            return uploaded.originalName === fileName || uploaded.filename.includes(fileName);
+          });
+          
+          if (matchingUploadedFile) {
+            return {
+              ...file,
+              status: 'complete',
+              _id: matchingUploadedFile._id,
+              id: matchingUploadedFile._id,
+              fileId: matchingUploadedFile.fileId || matchingUploadedFile._id,
+              filename: matchingUploadedFile.filename,
+              originalName: matchingUploadedFile.originalName,
+              preview: file.preview,
+              displayName: file.displayName || matchingUploadedFile.originalName || matchingUploadedFile.filename,
+              section: matchingUploadedFile.section || file.section || 'Uncategorized',
+              path: matchingUploadedFile.path
+            };
+          }
+          return file;
+        });
+        
+        onUploadComplete(updatedFiles);
+      }
     } catch (err) {
       console.error('Upload failed:', err.message);
       setError(err.message || 'Failed to upload photos');
