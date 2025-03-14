@@ -30,6 +30,9 @@ const PhotoUploader = ({
   
   // Track active blob URLs to prevent premature revocation
   const activeBlobUrls = useRef(new Set());
+  
+  // Store temporary URLs to avoid creating them during render
+  const tempUrlCache = useRef(new Map());
 
   // Helper to check if a blob URL is valid
   const isBlobUrlValid = (url) => {
@@ -43,10 +46,17 @@ const PhotoUploader = ({
   const createAndTrackBlobUrl = (file) => {
     if (!file) return null;
     
+    // Check if we already have a URL for this file
+    const fileId = file.name || file.path || Math.random().toString();
+    if (tempUrlCache.current.has(fileId)) {
+      return tempUrlCache.current.get(fileId);
+    }
+    
     try {
       const url = URL.createObjectURL(file);
       console.log('Created new blob URL:', url);
       activeBlobUrls.current.add(url);
+      tempUrlCache.current.set(fileId, url);
       return url;
     } catch (e) {
       console.error('Failed to create blob URL:', e);
@@ -105,6 +115,7 @@ const PhotoUploader = ({
   useEffect(() => {
     // Only notify parent if files have been initialized
     if (files.length > 0 && onUploadComplete) {
+      console.log('Processed photos:', files);
       onUploadComplete(files);
     }
   }, [files, onUploadComplete]);
@@ -429,6 +440,7 @@ const PhotoUploader = ({
         }
       });
       activeBlobUrls.current.clear();
+      tempUrlCache.current.clear();
     };
   }, []); // Empty dependency array means this only runs on mount/unmount
 
@@ -526,9 +538,15 @@ const PhotoUploader = ({
                       ? file.preview 
                       : file._id 
                         ? `/api/photos/${file._id}?size=thumbnail` 
-                        : file.originalFile 
-                          ? createAndTrackBlobUrl(file.originalFile) 
-                          : '/placeholder-image.png'}
+                        : file.originalFile && tempUrlCache.current.get(file.originalFile.name || file.id)
+                          ? tempUrlCache.current.get(file.originalFile.name || file.id)
+                          : file.originalFile
+                            ? (() => {
+                                // Create URL outside of render if needed
+                                const url = createAndTrackBlobUrl(file.originalFile);
+                                return url;
+                              })()
+                            : '/placeholder-image.png'}
                     alt={file.displayName || 'Uploaded photo'}
                     className="absolute inset-0 w-full h-full object-cover"
                     onError={(e) => {
@@ -563,19 +581,14 @@ const PhotoUploader = ({
                               safelyRevokeBlobUrl(file.preview);
                             }
                             
-                            // Create new blob URL
+                            // Don't update state here - just set the src directly
                             const newUrl = createAndTrackBlobUrl(file.originalFile);
-                            
                             if (newUrl) {
-                              // Update the file object with the new URL
-                              setFiles(prev => prev.map(f => 
-                                f.id === file.id ? { ...f, preview: newUrl } : f
-                              ));
-                              
-                              // Set the new URL as the image source
                               e.target.src = newUrl;
-                              return;
+                            } else {
+                              e.target.src = `/placeholder-image.png`;
                             }
+                            return;
                           } catch (err) {
                             console.error('Failed to recreate blob URL:', err);
                           }
