@@ -39,6 +39,12 @@ This application allows contractors to:
 - Context API for state management
 - LocalStorage for persistent authentication
 
+### Deployment
+- Vercel for hosting both frontend and backend
+- Custom Vercel configuration for monorepo structure
+- Static build process for frontend with optimized asset delivery
+- Serverless functions for backend API endpoints
+
 ## Features
 
 - **User Authentication**: Secure login and registration system with JWT
@@ -284,7 +290,7 @@ Authorization: Bearer [your-token]
 If you encounter a 404 NOT_FOUND error in your Vercel deployment, check the following:
 
 1. **Verify vercel.json Configuration**:
-   - Ensure the `distDir` in the frontend build configuration points to `frontend/dist` (not just `dist`)
+   - Ensure the `distDir` in the frontend build configuration points to `frontend/dist`
    - Check that the route order is correct (API routes first, then static assets, then the filesystem handler, and finally the catch-all route)
 
 2. **Check Frontend Build**:
@@ -302,6 +308,14 @@ If you encounter a 404 NOT_FOUND error in your Vercel deployment, check the foll
 5. **Deployment Logs**:
    - Review the Vercel deployment logs for any build or runtime errors
    - Look for issues with the build process or missing dependencies
+
+#### Simplified Build Process
+The application now uses a simplified build process for Vercel deployment:
+
+1. The root `package.json` build script directly builds the frontend
+2. The `vercel.json` configuration points directly to the frontend's dist directory
+3. No intermediate build script or file copying is needed
+4. This approach reduces complexity and potential points of failure
 
 ### Data Model Changes
 - **User Profile with Company Information**: Company information is now embedded directly in the user profile

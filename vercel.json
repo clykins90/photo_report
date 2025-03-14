@@ -9,7 +9,7 @@
       "src": "package.json",
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "public"
+        "distDir": "frontend/dist"
       }
     }
   ],
@@ -17,11 +17,6 @@
     {
       "src": "/api/(.*)",
       "dest": "backend/server.js"
-    },
-    {
-      "src": "/assets/index-yS2KU5Q9.js",
-      "headers": { "Content-Type": "application/javascript; charset=utf-8" },
-      "dest": "/assets/index-yS2KU5Q9.js"
     },
     {
       "src": "/assets/(.*\\.js)",
