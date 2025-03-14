@@ -186,159 +186,32 @@ If images aren't displaying in generated PDFs despite being stored in MongoDB:
 
 These fixes ensure that images stored in MongoDB GridFS are properly retrieved and embedded in PDF reports, even when there are mismatches between the IDs stored in the report and the actual file IDs in MongoDB, or when blob URLs are stored in the database instead of proper file references.
 
-## API Structure
-
-The application follows a consistent RESTful API structure with the following endpoints:
-
-### Authentication Endpoints
-- `POST /api/auth/register` - Register a new user
-- `POST /api/auth/login` - Login a user
-- `GET /api/auth/profile` - Get the current user's profile (protected)
-- `PUT /api/auth/password` - Change user password (protected)
-
-### Company Endpoints
-- `GET /api/company` - Get company information (protected)
-- `PUT /api/company` - Update company information (protected)
-- `POST /api/company/logo` - Upload company logo (protected)
-
-### Report Endpoints
-- `GET /api/reports` - Get all reports for the current user (protected)
-- `POST /api/reports` - Create a new report (protected)
-- `GET /api/reports/:id` - Get a report by ID (protected)
-- `PUT /api/reports/:id` - Update a report (protected)
-- `DELETE /api/reports/:id` - Delete a report (protected)
-- `POST /api/reports/:id/generate-pdf` - Generate a PDF for a report (protected)
-- `POST /api/reports/:id/share` - Generate a sharing link for a report (protected)
-- `GET /api/reports/shared/:token` - Get a shared report using a token (public)
-
-### Photo Endpoints
-- `POST /api/photos/batch` - Upload multiple photos (protected)
-- `POST /api/photos` - Upload a single photo (protected)
-- `DELETE /api/photos/:id` - Delete a photo (protected)
-- `POST /api/photos/:id/analyze` - Analyze a photo using AI (protected)
-- `GET /api/photos/:id` - Get a photo by ID (protected)
-
-All protected endpoints require a valid JWT token that must be included in the Authorization header as a Bearer token:
-```
-Authorization: Bearer [your-token]
-```
-
-### Authentication and User Experience
-- Secure login/registration system with JWT tokens
-- Persistent authentication that maintains user sessions across page refreshes
-- Direct landing on the login page for improved user flow
-- Automatic redirection to dashboard after successful login
-- Password hashing using bcrypt for secure storage of user credentials
-- User password change functionality integrated into the profile page
-
-## Recent Improvements
-
-### Code Architecture Improvements
-- **Modular PDF Generation Service**: Completely refactored the PDF generation system for better maintainability
-  - Split monolithic 1400+ line file into smaller, focused modules under 600 lines each
-  - Created dedicated modules for different responsibilities:
-    - `pdfGenerationService.js`: Main orchestration service
-    - `pdf/reportPrep.js`: Report data preparation and normalization
-    - `pdf/photoHandler.js`: Photo path resolution and embedding
-    - `pdf/pdfUtils.js`: Styling, headers, footers, and common utilities
-    - `pdf/pageRenderers.js`: Page-specific rendering logic
-  - Improved error handling with more specific error messages
-  - Enhanced code readability with consistent documentation
-  - Simplified maintenance by isolating concerns
-  - Reduced complexity through clear separation of responsibilities
-
-- **Optimized Batch Photo Analysis**: Improved the batch photo analysis process for better performance and clarity
-  - Eliminated redundant logging that was causing confusion in the logs
-  - Clarified the batch processing flow with more descriptive log messages
-  - Removed duplicate "Starting batch analysis" messages that appeared multiple times
-  - Added clearer distinction between frontend batches and backend chunks
-  - Fixed nested batch processing issue by removing redundant chunking in the backend
-  - Improved logging to better track the processing of photos through the system
-  - Maintained the same functionality while making the logs easier to understand
-  - Fixed issues with duplicate processing of photos
-
-### Performance and UX Improvements
-- **Simplified Photo Analysis System**: Refactored the photo analysis code for improved reliability and maintainability
-  - Implemented a consistent approach for photo ID extraction across the application
-  - Reduced complexity by using a clear priority order for identifying photos
-  - Eliminated redundant code and multiple fallback approaches
-  - Improved error handling with clearer error messages
-  - Simplified the backend controller for batch photo analysis
-  - Reduced debugging code and console logging for cleaner production code
-  - Maintained the same functionality while making the code more maintainable
-  - Improved reliability by using a more direct approach for finding files in GridFS
-
-- **Batch Photo Analysis with GPT-4o-mini**: Implemented a faster and more efficient photo analysis system
-  - Uses OpenAI's GPT-4o-mini model for quicker processing while maintaining quality
-  - Processes photos in batches of up to 20 at a time for improved speed
-  - Handles parallel processing of large photo sets more efficiently
-  - Reduces overall analysis time by 50-70% compared to the previous approach
-  - Maintains the same high-quality damage detection and description capabilities
-- **Marvel Superhero-Themed Loading Screen**: Added an engaging, fun loading experience
-  - Displays entertaining Marvel-inspired messages during photo analysis
-  - Provides real-time progress updates with a clean progress bar
-  - Creates a more enjoyable user experience during longer processing times
-  - Rotating messages maintain user engagement during waiting periods
-  - Visual design matches superhero aesthetic with animated elements
-
-- **Optimized Logging System for Photo Uploads**: Implemented a smarter logging system for photo uploads
-  - Reduced console noise by ~95% when uploading large batches of photos (40+ images)
-  - Created a configurable logging utility that respects verbosity settings
-  - Added environment variable `VITE_VERBOSE_PHOTO_LOGGING` to control logging detail
-  - Implemented localStorage option for temporary verbose logging during debugging
-  - Preserved all error logs regardless of verbosity settings
-  - Reduced API request/response logging for photo upload endpoints
-  - Maintained essential logs (start/completion of uploads) for tracking progress
-  - Improved developer experience by making logs more focused and relevant
-
-### Vercel Serverless Deployment Fixes
-- **Robust Serverless Environment Support**: Enhanced the application to work correctly in Vercel's serverless environment
-- Configured proper build settings using `@vercel/static-build` for the frontend
-- Added environment detection to prevent filesystem operations when running on Vercel
-- Implemented memory storage for file uploads in Vercel environment
-- Eliminated dependency on local filesystem, enabling better cloud deployment
-
-### Vercel Deployment Troubleshooting
-
-#### API Routing Issues
-- **404 Not Found for API routes**: If encountering 404 errors for API routes (e.g., `/api/auth/login`), check the following:
-  1. Verify the Vercel configuration in `vercel.json`:
-  ```json
-  {
-    "src": "/api/(.*)",
-    "dest": "backend/server.js"  // Note: No leading slash
-  }
-  ```
-  2. Check if your frontend API service is correctly handling API paths with double prefixes when the baseURL is already '/api':
-  ```javascript
-  // Correct implementation - prevents double /api prefix:
-  if (isRelativeBaseUrl && url.startsWith('/api/')) {
-    return url.substring(4); // Remove the leading /api prefix to prevent /api/api/
-  }
-  ```
-  3. Alternatively, you can add a routing rule in vercel.json to handle double prefixes:
-  ```json
-  {
-    "src": "/api/api/(.*)",
-    "dest": "/api/$1"
-  }
-  ```
-- **Production API URL**: The frontend uses `/api` as the base URL in production. Make sure `frontend/.env.production` contains `VITE_API_URL=/api` to enable proper routing on Vercel.
-
 #### Fixing 404 NOT_FOUND Errors
 If you encounter a 404 NOT_FOUND error in your Vercel deployment, check the following:
 
 1. **Verify vercel.json Configuration**:
-   - Ensure the `distDir` in the frontend build configuration points to `frontend/dist`
-   - Check that the route order is correct (API routes first, then static assets, then the filesystem handler, and finally the catch-all route)
+   - Ensure the `distDir` in the frontend build configuration points to `dist`
+   - Check that the route order is correct (filesystem handler first, then API routes, then the catch-all route)
+   - Make sure you're using the correct property names (`distDir` not `outputDirectory` in the build config)
 
 2. **Check Frontend Build**:
    - Run `cd frontend && npm run build` locally to verify the build process works
    - Ensure the `dist` directory is created with all necessary files
 
-3. **Server Configuration**:
-   - Make sure the server has a catch-all route for handling SPA routing in Vercel
-   - Verify that the server properly detects the Vercel environment with `process.env.VERCEL === '1'`
+3. **Correct Routes Structure**:
+   - Use `handle: "filesystem"` as the first route to serve static assets directly
+   - API routes should come before the catch-all route
+   - The catch-all route should point to `index.html` in the frontend build directory
+   - Example of a working configuration:
+   ```json
+   {
+     "routes": [
+       { "handle": "filesystem" },
+       { "src": "/api/(.*)", "dest": "/backend/server.js" },
+       { "src": "/(.*)", "dest": "/frontend/dist/index.html" }
+     ]
+   }
+   ```
 
 4. **Environment Variables**:
    - Confirm all required environment variables are set in the Vercel project settings

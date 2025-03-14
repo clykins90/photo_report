@@ -304,8 +304,14 @@ if (process.env.VERCEL === '1') {
 // Error handling middleware
 app.use(errorHandler);
 
-// Start server
-const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => {
-  logger.info(`Server running on port ${PORT}`);
-}); 
+// Only start the server when this file is run directly (not imported)
+if (require.main === module) {
+  // Start server
+  const PORT = process.env.PORT || 5001;
+  app.listen(PORT, () => {
+    logger.info(`Server running on port ${PORT}`);
+  });
+}
+
+// Export the Express app for serverless functions
+module.exports = app; 
