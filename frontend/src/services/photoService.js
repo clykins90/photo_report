@@ -52,13 +52,17 @@ export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
     return '/placeholder-image.png';
   }
   
-  // PRIORITY 1: Always use preview URL if available, regardless of status
-  // This ensures blob URLs are used when available
-  if (fileOrId.preview) {
+  // PRIORITY 1: Always use preview URL if available and it's a blob URL
+  if (fileOrId.preview && fileOrId.preview.startsWith('blob:')) {
     return fileOrId.preview;
   }
   
-  // PRIORITY 2: If we have a MongoDB ObjectId, validate and use that
+  // PRIORITY 2: Use URL property if it exists and is valid
+  if (fileOrId.url && (fileOrId.url.startsWith('http') || fileOrId.url.startsWith('/api/'))) {
+    return fileOrId.url;
+  }
+  
+  // PRIORITY 3: If we have a MongoDB ObjectId, validate and use that
   if (fileOrId._id) {
     // Basic validation for MongoDB ObjectId format
     if (typeof fileOrId._id === 'string' && /^[0-9a-fA-F]{24}$/.test(fileOrId._id)) {
@@ -68,14 +72,13 @@ export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
     }
   }
   
-  // PRIORITY 3: If we have a filename, use that
+  // PRIORITY 4: If we have a filename, use that
   if (fileOrId.filename) {
     return `/api/photos/${fileOrId.filename}?size=${size}`;
   }
   
-  // For local files that aren't uploaded yet, use the preview URL
-  // This now handles 'uploading' status as well
-  if (fileOrId.preview && (fileOrId.status === 'pending' || fileOrId.status === 'complete' || fileOrId.status === 'error' || fileOrId.status === 'uploading')) {
+  // PRIORITY 5: For local files that aren't uploaded yet, use the preview URL
+  if (fileOrId.preview) {
     return fileOrId.preview;
   }
   

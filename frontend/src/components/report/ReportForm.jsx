@@ -145,20 +145,41 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
   const handlePhotoUploadComplete = (photos) => {
     // Ensure all photos have the appropriate URL properties set
     const processedPhotos = photos.map(photo => {
+      // Create a new object to avoid modifying the original
+      const processedPhoto = { ...photo };
+      
       // Make sure we keep server-side URLs consistent
       if (photo.uploadedData) {
         // If uploaded but missing direct URLs, set them from uploadedData
-        if (!photo.thumbnailUrl && photo.uploadedData.thumbnailUrl) {
-          photo.thumbnailUrl = photo.uploadedData.thumbnailUrl;
+        if (!processedPhoto.thumbnailUrl && photo.uploadedData.thumbnailUrl) {
+          processedPhoto.thumbnailUrl = photo.uploadedData.thumbnailUrl;
         }
-        if (!photo.optimizedUrl && photo.uploadedData.optimizedUrl) {
-          photo.optimizedUrl = photo.uploadedData.optimizedUrl;
+        if (!processedPhoto.optimizedUrl && photo.uploadedData.optimizedUrl) {
+          processedPhoto.optimizedUrl = photo.uploadedData.optimizedUrl;
         }
-        if (!photo.originalUrl && photo.uploadedData.originalUrl) {
-          photo.originalUrl = photo.uploadedData.originalUrl;
+        if (!processedPhoto.originalUrl && photo.uploadedData.originalUrl) {
+          processedPhoto.originalUrl = photo.uploadedData.originalUrl;
         }
       }
-      return photo;
+      
+      // Ensure preview URL is preserved
+      if (photo.preview) {
+        processedPhoto.preview = photo.preview;
+      }
+      
+      // Ensure URL is set for server-side photos
+      if (photo._id && !processedPhoto.url) {
+        const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+        processedPhoto.url = `${baseApiUrl}/api/photos/${photo._id}`;
+      }
+      
+      // If we have a filename but no URL, construct one
+      if (photo.filename && !processedPhoto.url) {
+        const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+        processedPhoto.url = `${baseApiUrl}/api/photos/${photo.filename}`;
+      }
+      
+      return processedPhoto;
     });
     
     console.log('Processed photos:', processedPhotos);
@@ -272,22 +293,40 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       setError(null);
       
       // Prepare photos data to avoid circular references
-      const preparedPhotos = uploadedPhotos.map(photo => ({
-        id: photo.id,
-        name: photo.displayName || photo.name,
-        description: photo.description,
-        url: photo.url,
-        preview: photo.preview,
-        status: photo.status,
-        filename: photo.filename || photo.displayName || photo.name,
-        analysis: photo.analysis ? {
-          description: photo.analysis.description,
-          tags: photo.analysis.tags,
-          damageDetected: photo.analysis.damageDetected,
-          confidence: photo.analysis.confidence,
-          severity: photo.analysis.severity
-        } : null
-      }));
+      const preparedPhotos = uploadedPhotos.map(photo => {
+        // Get the best URL for the photo using the same logic as display
+        const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+        let photoUrl;
+        
+        // Prioritize server-side URLs for PDF generation
+        if (photo._id) {
+          photoUrl = `${baseApiUrl}/api/photos/${photo._id}`;
+        } else if (photo.filename) {
+          photoUrl = `${baseApiUrl}/api/photos/${photo.filename}`;
+        } else if (photo.url && photo.url.startsWith('http')) {
+          photoUrl = photo.url;
+        } else {
+          // For local files, we need to use the preview URL
+          photoUrl = photo.preview || '';
+        }
+        
+        return {
+          id: photo.id || photo._id,
+          name: photo.displayName || photo.name,
+          description: photo.description || '',
+          url: photoUrl,
+          preview: photoUrl,
+          status: photo.status || 'uploaded',
+          filename: photo.filename || photo.displayName || photo.name,
+          analysis: photo.analysis ? {
+            description: photo.analysis.description,
+            tags: photo.analysis.tags,
+            damageDetected: photo.analysis.damageDetected,
+            confidence: photo.analysis.confidence,
+            severity: photo.analysis.severity
+          } : null
+        };
+      });
       
       // Build a simpler report object
       const reportData = {
@@ -494,7 +533,11 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       console.log('Report created/updated with ID:', createdReportId);
       
       // Check if we have photos with original file references that need to be uploaded
-      const photosToUpload = uploadedPhotos.filter(photo => photo.originalFile && !photo._id);
+      const photosToUpload = uploadedPhotos.filter(photo => 
+        photo.originalFile && 
+        !photo._id && 
+        photo.status !== 'complete'
+      );
       
       if (photosToUpload.length > 0) {
         console.log(`Uploading ${photosToUpload.length} photos to the created report`);

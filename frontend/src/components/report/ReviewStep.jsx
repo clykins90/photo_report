@@ -26,7 +26,7 @@ const ReviewStep = ({
     setValidationErrors(errors);
   }, [formData]);
   
-  // Get the best available image URL for a photo (same function as in AIAnalysisStep)
+  // Get the best available image URL for a photo
   const getBestImageUrl = (photo) => {
     // Use the centralized photo URL handler from photoService
     // which properly handles path prefixes to avoid duplicates
@@ -47,6 +47,11 @@ const ReviewStep = ({
     prevStep();
     prevStep();
   };
+  
+  // Log photos for debugging
+  useEffect(() => {
+    console.log('ReviewStep received photos:', uploadedPhotos);
+  }, [uploadedPhotos]);
   
   return (
     <div>
