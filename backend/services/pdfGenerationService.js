@@ -200,13 +200,17 @@ const generatePdf = async (report, saveToGridFS = true) => {
       // Create page structure
       const pageStructure = await reportPrep.createPageStructure(preparedReport);
       
+      // Get style configuration
+      const { fonts, colors, companyInfo, companyLogo } = await pdfUtils.getStyleConfig(preparedReport);
+      
       // Render each page
-      for (const page of pageStructure) {
+      for (let i = 0; i < pageStructure.length; i++) {
+        const page = pageStructure[i];
         // Add a new page
         doc.addPage();
         
-        // Render the page content
-        await pageRenderers.renderPage(doc, page, preparedReport);
+        // Render the page content with all required parameters
+        await pageRenderers.renderPage(doc, page, colors, fonts, i + 1, companyInfo, companyLogo);
       }
       
       // Finalize the PDF
