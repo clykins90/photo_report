@@ -286,6 +286,29 @@ Authorization: Bearer [your-token]
 
 ### Vercel Deployment Troubleshooting
 
+#### API Routing Issues
+- **404 Not Found for API routes**: If encountering 404 errors for API routes (e.g., `/api/auth/login`), check the following:
+  1. Verify the Vercel configuration in `vercel.json`:
+  ```json
+  {
+    "src": "/api/(.*)",
+    "dest": "backend/server.js"  // Note: No leading slash
+  }
+  ```
+  2. Check if your frontend API service is correctly handling API paths. Do NOT modify API paths in production mode when the baseURL is already '/api':
+  ```javascript
+  // Incorrect implementation - causes 404 errors:
+  if (isRelativeBaseUrl && url.startsWith('/api/')) {
+    return url.substring(4); // Don't remove the /api prefix in production
+  }
+  
+  // Correct implementation - keeps original path:
+  if (isRelativeBaseUrl && url.startsWith('/api/')) {
+    return url; // Keep the /api prefix in production
+  }
+  ```
+- **Production API URL**: The frontend uses `/api` as the base URL in production. Make sure `frontend/.env.production` contains `VITE_API_URL=/api` to enable proper routing on Vercel.
+
 #### Fixing 404 NOT_FOUND Errors
 If you encounter a 404 NOT_FOUND error in your Vercel deployment, check the following:
 
