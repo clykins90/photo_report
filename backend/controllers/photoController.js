@@ -284,6 +284,12 @@ const analyzePhotos = async (req, res) => {
     
     for (const photo of photos) {
       try {
+        // Add a clear separator for each photo in the logs
+        console.log("\n===========================================================");
+        console.log(`[PHOTO ANALYSIS] STARTING ANALYSIS FOR PHOTO: ${photo._id}`);
+        console.log(`[PHOTO ANALYSIS] TIMESTAMP: ${new Date().toISOString()}`);
+        console.log("===========================================================\n");
+        
         logger.info(`[TIMING] Processing photo ${photo._id} - elapsed: ${(Date.now() - startTime)/1000}s`);
         
         // Create a temporary file in /tmp directory
@@ -304,9 +310,17 @@ const analyzePhotos = async (req, res) => {
         });
         logger.info(`[TIMING] File download complete - elapsed: ${(Date.now() - startTime)/1000}s`);
         
+        // Get file stats to log the file size
+        const fileStats = await fsPromises.stat(tempFilePath);
+        console.log(`[PHOTO ANALYSIS] Downloaded file size: ${Math.round(fileStats.size/1024)} KB (${Math.round(fileStats.size/1024/1024 * 100) / 100} MB)`);
+        
         // Analyze the photo
+        console.log(`[PHOTO ANALYSIS] Starting OpenAI analysis at ${new Date().toISOString()}`);
         logger.info(`[TIMING] Starting AI analysis - elapsed: ${(Date.now() - startTime)/1000}s`);
+        const analysisStartTime = Date.now();
         const analysisResult = await photoAnalysisService.analyzePhoto(tempFilePath);
+        const analysisTime = (Date.now() - analysisStartTime)/1000;
+        console.log(`[PHOTO ANALYSIS] Completed OpenAI analysis in ${analysisTime}s at ${new Date().toISOString()}`);
         logger.info(`[TIMING] AI analysis complete - elapsed: ${(Date.now() - startTime)/1000}s`);
         
         // Find the photo in the report and update it
@@ -318,6 +332,7 @@ const analyzePhotos = async (req, res) => {
         }
         
         // Save the updated report
+        console.log(`[PHOTO ANALYSIS] Saving analysis results to database at ${new Date().toISOString()}`);
         logger.info(`[TIMING] Saving report - elapsed: ${(Date.now() - startTime)/1000}s`);
         await report.save();
         logger.info(`[TIMING] Report saved - elapsed: ${(Date.now() - startTime)/1000}s`);
@@ -335,9 +350,17 @@ const analyzePhotos = async (req, res) => {
         } catch (unlinkError) {
           logger.warn(`Failed to delete temporary file ${tempFilePath}: ${unlinkError.message}`);
         }
+        
+        // Add a clear end separator for this photo
+        console.log("\n===========================================================");
+        console.log(`[PHOTO ANALYSIS] COMPLETED ANALYSIS FOR PHOTO: ${photo._id}`);
+        console.log(`[PHOTO ANALYSIS] TOTAL TIME: ${(Date.now() - analysisStartTime)/1000}s`);
+        console.log(`[PHOTO ANALYSIS] TIMESTAMP: ${new Date().toISOString()}`);
+        console.log("===========================================================\n");
       } catch (error) {
         logger.error(`Error analyzing photo ${photo._id}: ${error.message}`);
         logger.error(`[TIMING] Error occurred at elapsed time: ${(Date.now() - startTime)/1000}s`);
+        console.log(`[PHOTO ANALYSIS] ERROR analyzing photo ${photo._id}: ${error.message}`);
         results.push({
           photoId: photo._id,
           status: 'error',

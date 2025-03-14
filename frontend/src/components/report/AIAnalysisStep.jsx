@@ -244,7 +244,7 @@ const AIAnalysisStep = ({
       }
       
       // Step 2: Generate summary
-      await generateSummary();
+      await handleGenerateAISummary();
       
     } catch (error) {
       console.error('Error in build summarized report:', error);
