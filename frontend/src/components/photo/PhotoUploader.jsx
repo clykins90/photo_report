@@ -339,11 +339,14 @@ const PhotoUploader = ({
       
       console.log(`Starting analysis of ${totalToProcess} photos in batches`);
       
+      // Track failed photos for retry
+      const failedPhotos = [];
+      
       while (remainingPhotos.length > 0) {
         // Update status of current batch to analyzing
         setFiles(prev => {
           const updatedFiles = [...prev];
-          const currentBatchIds = remainingPhotos.map(file => file._id);
+          const currentBatchIds = remainingPhotos.slice(0, 1).map(file => file._id);
           
           for (let i = 0; i < updatedFiles.length; i++) {
             if (currentBatchIds.includes(updatedFiles[i]._id)) {
@@ -356,55 +359,123 @@ const PhotoUploader = ({
           return updatedFiles;
         });
         
-        // Call the analyze endpoint with the current batch
-        const response = await analyzeBatchPhotos(remainingPhotos, reportId);
-        
-        if (!response.success) {
-          throw new Error(response.error || 'Analysis failed');
+        try {
+          // Call the analyze endpoint with just one photo at a time to avoid timeouts
+          const currentBatch = remainingPhotos.slice(0, 1);
+          const response = await analyzeBatchPhotos(currentBatch, reportId);
+          
+          if (!response.success) {
+            console.error(`Batch analysis failed:`, response.error);
+            // Add to failed photos for retry
+            failedPhotos.push(...currentBatch);
+            throw new Error(response.error || 'Analysis failed');
+          }
+          
+          // Update the files with analysis results from this batch
+          setFiles(prev => {
+            const updatedFiles = [...prev];
+            
+            if (response.data && response.data.length > 0) {
+              for (const result of response.data) {
+                const fileIndex = updatedFiles.findIndex(file => file._id === result.fileId);
+                if (fileIndex !== -1) {
+                  updatedFiles[fileIndex] = {
+                    ...updatedFiles[fileIndex],
+                    status: 'complete',
+                    analysis: result.data,
+                  };
+                }
+              }
+            }
+            
+            return updatedFiles;
+          });
+          
+          // Update progress
+          processedCount += response.data.length;
+          const progress = Math.round((processedCount / totalToProcess) * 100);
+          setAnalysisProgress(progress);
+          
+          console.log(`Processed batch: ${response.data.length} photos. Progress: ${progress}%`);
+          
+          // Remove processed photos from remaining list
+          remainingPhotos = remainingPhotos.slice(1);
+        } catch (batchError) {
+          console.error(`Error processing batch:`, batchError);
+          // Skip this batch and continue with the next one
+          remainingPhotos = remainingPhotos.slice(1);
         }
         
-        // Update the files with analysis results from this batch
-        setFiles(prev => {
-          const updatedFiles = [...prev];
-          
-          if (response.data && response.data.length > 0) {
-            for (const result of response.data) {
-              const fileIndex = updatedFiles.findIndex(file => file._id === result.fileId);
+        // Add a small delay between batches to avoid overwhelming the server
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      // Try to retry failed photos once
+      if (failedPhotos.length > 0) {
+        console.log(`Retrying ${failedPhotos.length} failed photos...`);
+        
+        for (const photo of failedPhotos) {
+          try {
+            // Update status to retrying
+            setFiles(prev => {
+              const updatedFiles = [...prev];
+              const fileIndex = updatedFiles.findIndex(file => file._id === photo._id);
               if (fileIndex !== -1) {
                 updatedFiles[fileIndex] = {
                   ...updatedFiles[fileIndex],
-                  status: 'complete',
-                  analysis: result.data,
+                  status: 'analyzing',
                 };
               }
+              return updatedFiles;
+            });
+            
+            // Try to analyze this photo again
+            const response = await analyzeBatchPhotos([photo], reportId);
+            
+            if (response.success && response.data && response.data.length > 0) {
+              // Update the file with analysis results
+              setFiles(prev => {
+                const updatedFiles = [...prev];
+                const result = response.data[0];
+                const fileIndex = updatedFiles.findIndex(file => file._id === result.fileId);
+                if (fileIndex !== -1) {
+                  updatedFiles[fileIndex] = {
+                    ...updatedFiles[fileIndex],
+                    status: 'complete',
+                    analysis: result.data,
+                  };
+                }
+                return updatedFiles;
+              });
+              
+              // Update progress
+              processedCount += 1;
+              const progress = Math.round((processedCount / totalToProcess) * 100);
+              setAnalysisProgress(progress);
             }
+          } catch (retryError) {
+            console.error(`Retry failed for photo ${photo._id}:`, retryError);
+            // Mark as error in the UI
+            setFiles(prev => {
+              const updatedFiles = [...prev];
+              const fileIndex = updatedFiles.findIndex(file => file._id === photo._id);
+              if (fileIndex !== -1) {
+                updatedFiles[fileIndex] = {
+                  ...updatedFiles[fileIndex],
+                  status: 'error',
+                  error: 'Analysis failed after retry',
+                };
+              }
+              return updatedFiles;
+            });
           }
           
-          return updatedFiles;
-        });
-        
-        // Update progress
-        processedCount += response.data.length;
-        const progress = Math.round((processedCount / totalToProcess) * 100);
-        setAnalysisProgress(progress);
-        
-        console.log(`Processed batch: ${response.data.length} photos. Progress: ${progress}%`);
-        
-        // Remove processed photos from remaining list
-        if (response.processedIds && response.processedIds.length > 0) {
-          remainingPhotos = remainingPhotos.filter(photo => !response.processedIds.includes(photo._id));
-        } else {
-          // If no processedIds returned, just remove the first batch
-          remainingPhotos = remainingPhotos.slice(response.data.length);
-        }
-        
-        // If there are more photos to process, add a small delay to avoid overwhelming the server
-        if (remainingPhotos.length > 0) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          // Add a small delay between retries
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
       
-      console.log(`AI analysis completed for all ${totalToProcess} photos`);
+      console.log(`AI analysis completed for ${processedCount} out of ${totalToProcess} photos`);
       setAnalysisProgress(100);
     } catch (error) {
       console.error('Error analyzing photos:', error);

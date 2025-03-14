@@ -248,10 +248,10 @@ const analyzePhotos = async (req, res) => {
       photos = report.photos.filter(p => req.body.photoIds.includes(p._id.toString()));
       console.log(`Found ${photos.length} photos matching the provided photoIds`);
       
-      // Limit to 2 photos per batch to avoid timeouts
-      const batchSize = 2;
+      // Limit to 1 photo per batch to avoid timeouts on Vercel
+      const batchSize = 1;
       if (photos.length > batchSize) {
-        logger.info(`Limiting analysis to ${batchSize} photos per batch to avoid timeouts`);
+        logger.info(`Limiting analysis to ${batchSize} photo per batch to avoid timeouts`);
         photos = photos.slice(0, batchSize);
       }
     } 
@@ -260,10 +260,10 @@ const analyzePhotos = async (req, res) => {
       photos = report.photos.filter(p => !p.aiAnalysis || !p.aiAnalysis.description);
       console.log(`Found ${photos.length} unanalyzed photos`);
       
-      // Limit to 2 photos per batch to avoid timeouts
-      const batchSize = 2;
+      // Limit to 1 photo per batch to avoid timeouts on Vercel
+      const batchSize = 1;
       if (photos.length > batchSize) {
-        logger.info(`Limiting analysis to ${batchSize} photos per batch to avoid timeouts`);
+        logger.info(`Limiting analysis to ${batchSize} photo per batch to avoid timeouts`);
         photos = photos.slice(0, batchSize);
       }
     }
