@@ -100,10 +100,25 @@ const PhotoUploader = ({
           );
           
           if (matchingUploadedFile) {
+            // Revoke the blob URL to prevent memory leaks
+            if (file.preview) {
+              URL.revokeObjectURL(file.preview);
+            }
+            
+            // Return updated file with server data and proper URLs
             return {
               ...file,
               status: 'complete',
-              uploadedData: matchingUploadedFile
+              // Store all the server data
+              uploadedData: matchingUploadedFile,
+              // Replace the blob preview with the server URL
+              preview: null, // Clear the blob preview
+              // Add direct URLs from server
+              thumbnailUrl: matchingUploadedFile.thumbnailUrl,
+              optimizedUrl: matchingUploadedFile.optimizedUrl,
+              originalUrl: matchingUploadedFile.originalUrl,
+              // Add server-generated ID
+              _id: matchingUploadedFile._id
             };
           }
           return file;

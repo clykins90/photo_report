@@ -270,6 +270,8 @@ If you encounter a 404 NOT_FOUND error in your Vercel deployment, check the foll
   - Enhanced URL normalization to ensure correct paths in both development and production
   - Eliminated 404 errors caused by malformed URLs with duplicate /api segments
   - Improved debug logging to help identify URL-related issues
+  - Fixed path normalization to only remove true duplicates (/api/api/) while preserving essential /api prefixes
+  - Enhanced URL construction to ensure consistency across different API endpoints
 - **Optimized GridFS Queries**: Implemented caching for frequently used GridFS operations
   - Added caching for empty queries to reduce database load
   - Implemented cache invalidation when files are added or deleted

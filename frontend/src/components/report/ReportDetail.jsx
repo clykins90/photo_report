@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { generateReportPdf } from '../../services/reportService';
+import { getPhotoUrl } from '../../services/photoService';
 
 const ReportDetail = ({ report, onDelete }) => {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
@@ -163,86 +164,26 @@ const ReportDetail = ({ report, onDelete }) => {
             <h3 className="text-lg font-medium text-foreground">Photos ({report.photos.length})</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2">
               {report.photos.map((photo, index) => {
-                // Base API URL from environment or default
-                const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+                // Use the getPhotoUrl helper to get the correct URL
+                const photoUrl = getPhotoUrl(photo);
                 
-                // Get filename or extract from path
-                const originalFilename = photo.filename || 
-                  (photo.path ? photo.path.split('/').pop() : `photo-${index}`);
-                
-                // Try to determine thumbnail filename - check if it already has thumb suffix
-                const isThumbnail = originalFilename.includes('_thumb');
-                
-                // Generate thumbnail filename if it's not already a thumbnail
-                const thumbnailFilename = isThumbnail ? 
-                  originalFilename : 
-                  originalFilename.replace(/\.(\w+)$/, '_thumb.$1');
-                
-                // Also try optimized version as a fallback
-                const optimizedFilename = originalFilename.replace(/\.(\w+)$/, '_optimized.$1');
-                
-                // Build URLs with proper error handling
-                const photoThumbUrl = `${baseApiUrl}/api/photos/${thumbnailFilename}`;
-                const photoOptimizedUrl = `${baseApiUrl}/api/photos/${optimizedFilename}`;
-                const photoOriginalUrl = `${baseApiUrl}/api/photos/${originalFilename}`;
-                
-                // Direct temp folder URLs as fallbacks
-                const directThumbUrl = `${baseApiUrl}/temp/${thumbnailFilename}`;
-                const directOptimizedUrl = `${baseApiUrl}/temp/${optimizedFilename}`;
-                const directOriginalUrl = `${baseApiUrl}/temp/${originalFilename}`;
-                
-                // Add debugging
+                // Log for debugging
                 console.log(`Photo ${index}:`, { 
-                  originalFilename, 
-                  thumbnailFilename,
-                  optimizedFilename,
-                  path: photo.path,
-                  photoThumbUrl,
-                  directThumbUrl,
+                  photo,
+                  photoUrl,
                   aiAnalysis: photo.aiAnalysis // Log aiAnalysis to verify we have it
                 });
                 
                 return (
                   <div key={index} className="border rounded-lg overflow-hidden">
                     <img 
-                      src={photoThumbUrl}
+                      src={photoUrl}
                       alt={`Property photo ${index + 1}`}
                       className="w-full h-48 object-cover"
                       onError={(e) => {
-                        // First fallback: Try direct temp URL for thumbnail
-                        console.error(`Failed to load thumbnail: ${photoThumbUrl}`);
-                        console.log(`Attempting to load from direct thumbnail URL: ${directThumbUrl}`);
-                        e.target.onerror = (e2) => {
-                          // Second fallback: Try optimized version from API
-                          console.error(`Failed to load from direct thumbnail URL: ${directThumbUrl}`);
-                          console.log(`Attempting to load optimized version: ${photoOptimizedUrl}`);
-                          e2.target.onerror = (e3) => {
-                            // Third fallback: Try direct optimized URL
-                            console.error(`Failed to load optimized version: ${photoOptimizedUrl}`);
-                            console.log(`Attempting to load from direct optimized URL: ${directOptimizedUrl}`);
-                            e3.target.onerror = (e4) => {
-                              // Fourth fallback: Try original version from API
-                              console.error(`Failed to load from direct optimized URL: ${directOptimizedUrl}`);
-                              console.log(`Attempting to load original version: ${photoOriginalUrl}`);
-                              e4.target.onerror = (e5) => {
-                                // Fifth fallback: Try direct original URL
-                                console.error(`Failed to load original version: ${photoOriginalUrl}`);
-                                console.log(`Attempting to load from direct original URL: ${directOriginalUrl}`);
-                                e5.target.onerror = (e6) => {
-                                  // Final fallback: Use placeholder
-                                  console.error(`Failed to load from direct original URL: ${directOriginalUrl}`);
-                                  e6.target.onerror = null;
-                                  e6.target.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==';
-                                };
-                                e5.target.src = directOriginalUrl;
-                              };
-                              e4.target.src = photoOriginalUrl;
-                            };
-                            e3.target.src = directOptimizedUrl;
-                          };
-                          e2.target.src = photoOptimizedUrl;
-                        };
-                        e.target.src = directThumbUrl;
+                        console.error(`Failed to load photo: ${photoUrl}`);
+                        // Fallback to placeholder
+                        e.target.src = '/placeholder-image.png';
                       }}
                     />
                     <div className="p-3">
@@ -276,10 +217,7 @@ const ReportDetail = ({ report, onDelete }) => {
                         </div>
                       )}
                       
-                      <p className="text-xs text-foreground mt-1">Filename: {originalFilename}</p>
-                      <div className="mt-1 text-xs text-blue-500">
-                        <a href={directThumbUrl} target="_blank" rel="noopener noreferrer">Direct Link</a>
-                      </div>
+                      <p className="text-xs text-foreground mt-1">Filename: {photo.filename || 'Unknown'}</p>
                     </div>
                   </div>
                 );

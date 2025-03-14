@@ -70,12 +70,21 @@ export const getPhotoUrl = (fileOrFilename) => {
     return '/placeholder-image.png';
   }
   
-  // For local files that aren't uploaded yet, use the preview URL
-  if (fileOrFilename.status === 'pending' && fileOrFilename.preview) {
-    return fileOrFilename.preview;
+  // First, prioritize direct URLs from the server (these are absolute URLs)
+  // These are the most reliable as they come directly from the server
+  if (fileOrFilename.thumbnailUrl) {
+    return fileOrFilename.thumbnailUrl;
   }
   
-  // For uploaded files, use server URLs
+  if (fileOrFilename.optimizedUrl) {
+    return fileOrFilename.optimizedUrl;
+  }
+  
+  if (fileOrFilename.originalUrl) {
+    return fileOrFilename.originalUrl;
+  }
+  
+  // For uploaded files, use server URLs from uploadedData
   if (fileOrFilename.uploadedData) {
     // First prioritize direct URLs if they exist
     if (fileOrFilename.uploadedData.thumbnailUrl) {
@@ -84,6 +93,10 @@ export const getPhotoUrl = (fileOrFilename) => {
     
     if (fileOrFilename.uploadedData.optimizedUrl) {
       return fileOrFilename.uploadedData.optimizedUrl;
+    }
+    
+    if (fileOrFilename.uploadedData.originalUrl) {
+      return fileOrFilename.uploadedData.originalUrl;
     }
     
     // Fallback to filename-based URLs
@@ -100,17 +113,10 @@ export const getPhotoUrl = (fileOrFilename) => {
     }
   }
   
-  // Direct URLs on the file object (some APIs might structure data this way)
-  if (fileOrFilename.thumbnailUrl) {
-    return fileOrFilename.thumbnailUrl;
-  }
-  
-  if (fileOrFilename.optimizedUrl) {
-    return fileOrFilename.optimizedUrl;
-  }
-  
-  if (fileOrFilename.url) {
-    return fileOrFilename.url;
+  // For local files that aren't uploaded yet, use the preview URL
+  // This should be a last resort as blob URLs are temporary
+  if (fileOrFilename.status === 'pending' && fileOrFilename.preview) {
+    return fileOrFilename.preview;
   }
   
   // Check if we have an ID that might be used directly in the URL
@@ -120,11 +126,11 @@ export const getPhotoUrl = (fileOrFilename) => {
     const baseEndsWithApi = apiBase.endsWith('/api');
     
     if (isApiBase) {
-      return `/api/files/${fileOrFilename._id}`;
+      return `/api/photos/${fileOrFilename._id}`;
     } else if (baseEndsWithApi) {
-      return `${apiBase}/files/${fileOrFilename._id}`;
+      return `${apiBase}/photos/${fileOrFilename._id}`;
     } else {
-      return `${apiBase}/api/files/${fileOrFilename._id}`;
+      return `${apiBase}/api/photos/${fileOrFilename._id}`;
     }
   }
   
