@@ -22,8 +22,6 @@ const connectDB = async () => {
       retryReads: true,
       // Add heartbeat to keep connection alive
       heartbeatFrequencyMS: 10000,
-      // Add auto_reconnect option
-      auto_reconnect: true,
     };
 
     // Connect to MongoDB
