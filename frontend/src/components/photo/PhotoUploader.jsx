@@ -27,6 +27,44 @@ const PhotoUploader = ({
   
   // Track image loading attempts to prevent infinite retries
   const imageRetryCounters = useRef({});
+  
+  // Track active blob URLs to prevent premature revocation
+  const activeBlobUrls = useRef(new Set());
+
+  // Helper to check if a blob URL is valid
+  const isBlobUrlValid = (url) => {
+    if (!url || !url.startsWith('blob:')) return false;
+    
+    // Check if the URL is in our active set
+    return activeBlobUrls.current.has(url);
+  };
+
+  // Helper to safely create blob URLs
+  const createAndTrackBlobUrl = (file) => {
+    if (!file) return null;
+    
+    try {
+      const url = URL.createObjectURL(file);
+      console.log('Created new blob URL:', url);
+      activeBlobUrls.current.add(url);
+      return url;
+    } catch (e) {
+      console.error('Failed to create blob URL:', e);
+      return null;
+    }
+  };
+
+  // Helper to safely revoke blob URLs
+  const safelyRevokeBlobUrl = (url) => {
+    if (url && url.startsWith('blob:') && activeBlobUrls.current.has(url)) {
+      try {
+        URL.revokeObjectURL(url);
+        activeBlobUrls.current.delete(url);
+      } catch (e) {
+        console.warn('Failed to revoke blob URL:', e);
+      }
+    }
+  };
 
   // Initialize with any provided photos
   useEffect(() => {
@@ -63,6 +101,14 @@ const PhotoUploader = ({
     }
   }, [initialPhotos]);
 
+  // Use useEffect to notify parent of changes to files
+  useEffect(() => {
+    // Only notify parent if files have been initialized
+    if (files.length > 0 && onUploadComplete) {
+      onUploadComplete(files);
+    }
+  }, [files, onUploadComplete]);
+
   const onDrop = useCallback(async (acceptedFiles) => {
     if (!showUploadControls) return; // Don't allow new files if in analyze-only mode
     
@@ -74,8 +120,8 @@ const PhotoUploader = ({
         originalFile: file,
         // Use a prefix to ensure this is never confused with a MongoDB ObjectId
         id: `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-        // Create a blob URL for preview
-        preview: URL.createObjectURL(file),
+        // Create a blob URL for preview and track it
+        preview: createAndTrackBlobUrl(file),
         // Set initial status
         status: 'complete', // Mark as complete for local storage
         analysis: null,
@@ -88,16 +134,11 @@ const PhotoUploader = ({
     const updatedFiles = [...files, ...newFiles];
     setFiles(updatedFiles);
     
-    // Notify parent component
-    if (onUploadComplete) {
-      onUploadComplete(updatedFiles);
-    }
-    
     // If reportId is available, upload to server
     if (reportId && newFiles.length > 0) {
       uploadFilesToServer(newFiles);
     }
-  }, [files, onUploadComplete, reportId, showUploadControls]);
+  }, [files, reportId, showUploadControls]);
 
   // Separate function to upload files to server when reportId is available
   const uploadFilesToServer = async (filesToUpload) => {
@@ -109,7 +150,7 @@ const PhotoUploader = ({
       // Get original file objects
       const originalFiles = filesToUpload.map(file => file.originalFile);
       
-      // Update files to 'uploading' status
+      // Update files to 'uploading' status but preserve all other properties
       setFiles(prev => prev.map(file => {
         if (filesToUpload.some(newFile => newFile.id === file.id)) {
           return {
@@ -133,7 +174,7 @@ const PhotoUploader = ({
         throw new Error(response.error || 'Upload failed');
       }
       
-      // Update the status of uploaded files and then notify parent
+      // Update the status of uploaded files but KEEP the preview URLs
       setFiles(prev => {
         const updatedFiles = prev.map(file => {
           // Check if this file was part of the uploaded batch
@@ -144,12 +185,8 @@ const PhotoUploader = ({
           });
           
           if (matchingUploadedFile) {
-            // Only revoke the blob URL if we have a valid server-side ID
-            if (file.preview && matchingUploadedFile._id) {
-              URL.revokeObjectURL(file.preview);
-            }
-            
-            // Return updated file with server data
+            // NEVER revoke the blob URL during the upload process
+            // Return updated file with server data but keep the preview URL
             return {
               ...file,
               status: 'complete',
@@ -157,8 +194,8 @@ const PhotoUploader = ({
               _id: matchingUploadedFile._id,
               // Store the filename
               filename: matchingUploadedFile.filename,
-              // Only clear the preview if we have a valid server-side ID
-              preview: matchingUploadedFile._id ? null : file.preview,
+              // ALWAYS keep the preview URL
+              preview: file.preview,
               // Store the displayName
               displayName: file.displayName || matchingUploadedFile.filename,
               // Store the section if available
@@ -167,11 +204,6 @@ const PhotoUploader = ({
           }
           return file;
         });
-        
-        // Notify parent component with the updated files
-        if (onUploadComplete) {
-          onUploadComplete(updatedFiles);
-        }
         
         return updatedFiles;
       });
@@ -191,11 +223,6 @@ const PhotoUploader = ({
           }
           return file;
         });
-        
-        // Notify parent component of the error state
-        if (onUploadComplete) {
-          onUploadComplete(updatedFiles);
-        }
         
         return updatedFiles;
       });
@@ -261,11 +288,6 @@ const PhotoUploader = ({
           return file;
         });
         
-        // Notify parent component with the analyzed files
-        if (onUploadComplete) {
-          onUploadComplete(updatedFiles);
-        }
-        
         return updatedFiles;
       });
       
@@ -295,31 +317,30 @@ const PhotoUploader = ({
   const handleRemoveFile = (id) => {
     if (!showUploadControls) return; // Don't allow file removal in analyze-only mode
     
-    const newFiles = [...files];
+    // Find the file to remove without modifying the state yet
+    const fileToRemove = files.find(file => file.id === id);
+    if (!fileToRemove) return;
     
-    // Find the file to remove
-    const fileIndex = newFiles.findIndex(file => file.id === id);
-    if (fileIndex !== -1) {
-      // Revoke the preview URL to avoid memory leaks
-      if (newFiles[fileIndex].preview) {
-        URL.revokeObjectURL(newFiles[fileIndex].preview);
+    // Create a new array without the removed file
+    const newFiles = files.filter(file => file.id !== id);
+    
+    // Update the state first
+    setFiles(newFiles);
+    
+    // Only after the state is updated, clean up resources
+    // This ensures we don't revoke URLs that might still be in use
+    setTimeout(() => {
+      // If the file has been uploaded to the server, log it
+      if (fileToRemove._id) {
+        console.log(`File ${fileToRemove._id} should be deleted from the server`);
       }
       
-      // If the file has been uploaded to the server, delete it
-      if (newFiles[fileIndex]._id) {
-        // Note: We could call deletePhoto here, but that would require updating the Report model
-        // For now, we'll just remove it from the local state
-        console.log(`File ${newFiles[fileIndex]._id} should be deleted from the server`);
+      // Only revoke the blob URL if we're sure it's not needed anymore
+      if (fileToRemove.preview && fileToRemove.preview.startsWith('blob:')) {
+        console.log('Revoking blob URL for removed file:', fileToRemove.preview);
+        safelyRevokeBlobUrl(fileToRemove.preview);
       }
-      
-      newFiles.splice(fileIndex, 1);
-      setFiles(newFiles);
-      
-      // Notify parent component
-      if (onUploadComplete) {
-        onUploadComplete(newFiles);
-      }
-    }
+    }, 500); // Small delay to ensure the state update has completed
   };
 
   const updatePhotoAnalysis = (photoId, updatedAnalysis) => {
@@ -330,25 +351,25 @@ const PhotoUploader = ({
           : file
       )
     );
-    
-    // If the files have already been processed and sent to the parent,
-    // update the parent with the new analysis
-    if (onUploadComplete && files.every(file => file.status === 'complete' || file.status === 'error')) {
-      onUploadComplete(files);
-    }
   };
 
-  // Clean up all created object URLs on unmount
+  // Clean up all created object URLs on unmount ONLY
   useEffect(() => {
+    // This effect should only run on unmount
     return () => {
-      // Only revoke URLs for non-uploaded (pending) files
-      files.forEach(file => {
-        if (file.preview) {
-          URL.revokeObjectURL(file.preview);
+      console.log('Component unmounting, cleaning up blob URLs');
+      // We'll only clean up when the component is fully unmounted
+      activeBlobUrls.current.forEach(url => {
+        try {
+          URL.revokeObjectURL(url);
+          console.log('Revoked blob URL on unmount:', url);
+        } catch (e) {
+          console.warn('Failed to revoke blob URL during cleanup:', e);
         }
       });
+      activeBlobUrls.current.clear();
     };
-  }, [files]);
+  }, []); // Empty dependency array means this only runs on mount/unmount
 
   return (
     <div className="space-y-4">
@@ -430,14 +451,70 @@ const PhotoUploader = ({
               <div key={file.id} className="relative">
                 <div className="relative pb-[100%] overflow-hidden rounded-lg border border-gray-200">
                   <img
-                    src={getPhotoUrl(file)}
+                    src={file.preview && isBlobUrlValid(file.preview) 
+                      ? file.preview 
+                      : file._id 
+                        ? `/api/photos/${file._id}?size=thumbnail` 
+                        : file.originalFile 
+                          ? createAndTrackBlobUrl(file.originalFile) 
+                          : '/placeholder-image.png'}
                     alt={file.displayName || 'Uploaded photo'}
                     className="absolute inset-0 w-full h-full object-cover"
                     onError={(e) => {
-                      // Simple fallback - try with size=original parameter or use placeholder
-                      if (!e.target.src.includes('size=original') && file._id) {
-                        e.target.src = `/api/photos/${file._id}?size=original`;
+                      // Track error count to prevent infinite retries
+                      const imgId = file.id || file._id;
+                      if (!imgId) {
+                        e.target.src = `/placeholder-image.png`;
+                        return;
+                      }
+                      
+                      // Initialize retry counter if needed
+                      if (!imageRetryCounters.current[imgId]) {
+                        imageRetryCounters.current[imgId] = 0;
+                      }
+                      
+                      // Increment retry counter
+                      imageRetryCounters.current[imgId]++;
+                      
+                      // Only retry a few times to avoid infinite loops
+                      if (imageRetryCounters.current[imgId] <= 2) {
+                        console.log(`Retrying image load for ${imgId}, attempt ${imageRetryCounters.current[imgId]}`);
+                        
+                        // Try different fallback strategies
+                        if (file._id && !e.target.src.includes('size=original')) {
+                          // Try with original size
+                          e.target.src = `/api/photos/${file._id}?size=original`;
+                        } else if (file.originalFile) {
+                          // If we have the original file, try recreating the blob URL
+                          try {
+                            // Revoke old URL if it exists and is invalid
+                            if (file.preview && !isBlobUrlValid(file.preview)) {
+                              safelyRevokeBlobUrl(file.preview);
+                            }
+                            
+                            // Create new blob URL
+                            const newUrl = createAndTrackBlobUrl(file.originalFile);
+                            
+                            if (newUrl) {
+                              // Update the file object with the new URL
+                              setFiles(prev => prev.map(f => 
+                                f.id === file.id ? { ...f, preview: newUrl } : f
+                              ));
+                              
+                              // Set the new URL as the image source
+                              e.target.src = newUrl;
+                              return;
+                            }
+                          } catch (err) {
+                            console.error('Failed to recreate blob URL:', err);
+                          }
+                        }
+                        
+                        // Default fallback
+                        e.target.src = `/placeholder-image.png`;
                       } else {
+                        // Too many retries, use placeholder
+                        console.warn(`Too many retries for image ${imgId}, using placeholder`);
                         e.target.src = `/placeholder-image.png`;
                       }
                     }}

@@ -46,12 +46,18 @@ export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
     return '/placeholder-image.png';
   }
   
-  // If we have a MongoDB ObjectId, use that
+  // PRIORITY 1: Always use preview URL if available, regardless of status
+  // This ensures blob URLs are used when available
+  if (fileOrId.preview) {
+    return fileOrId.preview;
+  }
+  
+  // PRIORITY 2: If we have a MongoDB ObjectId, use that
   if (fileOrId._id) {
     return `/api/photos/${fileOrId._id}?size=${size}`;
   }
   
-  // If we have a filename, use that
+  // PRIORITY 3: If we have a filename, use that
   if (fileOrId.filename) {
     return `/api/photos/${fileOrId.filename}?size=${size}`;
   }
