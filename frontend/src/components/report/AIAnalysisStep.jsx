@@ -113,138 +113,121 @@ const AIAnalysisStep = ({
     setError(null);
     setBatchProgress(0);
     
-    const unanalyzedPhotos = uploadedPhotos.filter(photo => !photo.analysis);
+    let unanalyzedPhotos = uploadedPhotos.filter(photo => !photo.analysis);
     
     try {
       const updatedPhotos = [...uploadedPhotos];
       
       // Skip analysis if all photos are already analyzed
       if (unanalyzedPhotos.length > 0) {
-        // Process in batches of 5 photos
-        const BATCH_SIZE = 5;
-        const batches = [];
-        
-        // Split unanalyzed photos into batches
-        for (let i = 0; i < unanalyzedPhotos.length; i += BATCH_SIZE) {
-          batches.push(unanalyzedPhotos.slice(i, i + BATCH_SIZE));
-        }
-        
-        console.log(`Processing ${unanalyzedPhotos.length} unanalyzed photos in ${batches.length} batches of up to ${BATCH_SIZE} each`);
-        
         // Track overall photo completion
         let photosCompleted = uploadedPhotos.filter(p => p.analysis).length;
         const totalPhotos = uploadedPhotos.length;
         
-        // Process each batch
-        for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-          const batch = batches[batchIndex];
-          console.log(`Processing frontend batch ${batchIndex + 1}/${batches.length} with ${batch.length} photos`);
+        // Process photos one by one until all are analyzed
+        // This approach is more reliable with the backend's 1-photo-at-a-time limitation
+        while (unanalyzedPhotos.length > 0) {
+          // Take just one photo at a time since backend only processes one
+          const currentPhoto = unanalyzedPhotos[0];
+          console.log(`Processing photo: ${currentPhoto.id || currentPhoto._id}`);
           
-          // Mark all photos in this batch as analyzing
-          batch.forEach(photo => {
-            const photoIndex = updatedPhotos.findIndex(p => p.id === photo.id);
-            if (photoIndex !== -1) {
-              updatedPhotos[photoIndex] = {
-                ...updatedPhotos[photoIndex],
-                status: 'analyzing'
-              };
-            }
-          });
+          // Mark the photo as analyzing
+          const photoIndex = updatedPhotos.findIndex(p => 
+            (p.id && p.id === currentPhoto.id) || 
+            (p._id && p._id === currentPhoto._id)
+          );
           
-          // Update photos state to show "analyzing" status
-          handlePhotoUploadComplete(updatedPhotos);
+          if (photoIndex !== -1) {
+            updatedPhotos[photoIndex] = {
+              ...updatedPhotos[photoIndex],
+              status: 'analyzing'
+            };
+            
+            // Update photos state to show "analyzing" status
+            handlePhotoUploadComplete(updatedPhotos);
+          }
           
           try {
-            // Add a delay between batches to avoid rate limiting (except for the first batch)
-            if (batchIndex > 0) {
-              console.log(`Adding delay between frontend batches to avoid rate limiting...`);
-              // Wait for 5 seconds between batches to avoid hitting rate limits
-              await new Promise(resolve => setTimeout(resolve, 5000));
-            }
+            // Analyze the photo
+            const batchResult = await analyzeBatchPhotos([currentPhoto], reportId);
             
-            // Process this batch in smaller sub-batches to avoid timeouts
-            let remainingBatchPhotos = [...batch];
-            
-            while (remainingBatchPhotos.length > 0) {
-              // Take up to 2 photos at a time to avoid timeouts
-              const subBatch = remainingBatchPhotos.slice(0, 2);
-              console.log(`Processing sub-batch of ${subBatch.length} photos to avoid timeouts`);
+            if (!batchResult.success) {
+              console.error(`Analysis failed for photo:`, batchResult.error);
               
-              // Analyze the sub-batch
-              const batchResult = await analyzeBatchPhotos(subBatch, reportId);
-              
-              if (!batchResult.success) {
-                throw new Error(batchResult.error || 'Failed to analyze photos');
-              }
-              
-              // Process results and update photos
-              if (batchResult.data && batchResult.data.length > 0) {
-                batchResult.data.forEach(result => {
-                  if (result.success) {
-                    // Find the photo in our list
-                    const photoIndex = updatedPhotos.findIndex(p => p.id === result.fileId || p._id === result.fileId);
-                    
-                    if (photoIndex !== -1) {
-                      // Update the photo with analysis results
-                      updatedPhotos[photoIndex] = {
-                        ...updatedPhotos[photoIndex],
-                        status: 'complete',
-                        analysis: result.data
-                      };
-                      
-                      photosCompleted++;
-                    }
-                  } else {
-                    console.error(`Analysis failed for photo: ${result.fileId}`, result.error);
-                  }
-                });
-                
-                // Update the UI with the latest photo statuses
-                handlePhotoUploadComplete(updatedPhotos);
-                
-                // Update progress
-                const progress = Math.round((photosCompleted / totalPhotos) * 100);
-                setBatchProgress(progress);
-              }
-              
-              // Remove processed photos from the remaining batch
-              if (batchResult.processedIds && batchResult.processedIds.length > 0) {
-                remainingBatchPhotos = remainingBatchPhotos.filter(
-                  photo => !batchResult.processedIds.includes(photo.id) && !batchResult.processedIds.includes(photo._id)
-                );
-              } else {
-                // If no processedIds returned, just remove the processed sub-batch
-                remainingBatchPhotos = remainingBatchPhotos.slice(subBatch.length);
-              }
-              
-              // Add a small delay between sub-batches
-              if (remainingBatchPhotos.length > 0) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
-              }
-            }
-          } catch (error) {
-            console.error(`Error processing batch ${batchIndex + 1}:`, error);
-            
-            // Mark failed photos as error but continue with other batches
-            batch.forEach(photo => {
-              const photoIndex = updatedPhotos.findIndex(p => p.id === photo.id);
-              if (photoIndex !== -1 && updatedPhotos[photoIndex].status === 'analyzing') {
+              // Mark as error but continue with other photos
+              if (photoIndex !== -1) {
                 updatedPhotos[photoIndex] = {
                   ...updatedPhotos[photoIndex],
                   status: 'error',
-                  error: error.message || 'Analysis failed'
+                  error: batchResult.error || 'Analysis failed'
                 };
               }
-            });
+            } else if (batchResult.data && batchResult.data.length > 0) {
+              // Process results
+              batchResult.data.forEach(result => {
+                if (result.success) {
+                  // Find the photo in our list
+                  const resultPhotoIndex = updatedPhotos.findIndex(p => 
+                    (p.id && p.id === result.fileId) || 
+                    (p._id && p._id === result.fileId)
+                  );
+                  
+                  if (resultPhotoIndex !== -1) {
+                    // Update the photo with analysis results
+                    updatedPhotos[resultPhotoIndex] = {
+                      ...updatedPhotos[resultPhotoIndex],
+                      status: 'complete',
+                      analysis: result.data
+                    };
+                    
+                    photosCompleted++;
+                  }
+                }
+              });
+            }
             
-            // Update the UI with the error statuses
+            // Update the UI with the latest photo statuses
             handlePhotoUploadComplete(updatedPhotos);
+            
+            // Update progress
+            const progress = Math.round((photosCompleted / totalPhotos) * 100);
+            setBatchProgress(progress);
+            
+          } catch (error) {
+            console.error(`Error processing photo:`, error);
+            
+            // Mark as error but continue with other photos
+            if (photoIndex !== -1) {
+              updatedPhotos[photoIndex] = {
+                ...updatedPhotos[photoIndex],
+                status: 'error',
+                error: error.message || 'Analysis failed'
+              };
+              
+              // Update the UI with the error status
+              handlePhotoUploadComplete(updatedPhotos);
+            }
+          }
+          
+          // Remove the processed photo from the unanalyzed list
+          unanalyzedPhotos = unanalyzedPhotos.slice(1);
+          
+          // Add a small delay between photos to avoid rate limiting
+          if (unanalyzedPhotos.length > 0) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
           }
         }
       }
       
       // Step 2: Generate summary
-      await handleGenerateAISummary();
+      // Only generate summary if at least some photos have been analyzed
+      const analyzedPhotosCount = updatedPhotos.filter(photo => photo.analysis).length;
+      if (analyzedPhotosCount > 0) {
+        await handleGenerateAISummary();
+      } else {
+        console.log('No photos were successfully analyzed. Skipping summary generation.');
+        setError('No photos could be analyzed. Please try again.');
+      }
       
     } catch (error) {
       console.error('Error in build summarized report:', error);
@@ -391,6 +374,9 @@ const AIAnalysisStep = ({
 
   return (
     <div>
+      {/* Hero loading screen */}
+      {(analyzing || localGeneratingSummary) && renderHeroLoadingScreen()}
+      
       <h3 className="text-xl font-semibold mb-4">AI Analysis</h3>
       
       {error && (
@@ -403,27 +389,6 @@ const AIAnalysisStep = ({
             </div>
             <div className="ml-3">
               <p className="text-sm text-red-700">{error}</p>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Loading state */}
-      {(analyzing || localGeneratingSummary) && (
-        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 animate-pulse">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm text-blue-700">
-                {heroLoadingMessage}
-              </p>
-              <p className="text-xs text-blue-600 mt-1">
-                {analyzing ? `Analyzing photos: ${batchProgress}% complete` : 'Generating summary...'}
-              </p>
             </div>
           </div>
         </div>
