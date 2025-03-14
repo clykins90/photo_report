@@ -64,6 +64,16 @@ router.get('/:fileId', async (req, res) => {
     
     logger.info(`Streaming file with ID ${fileId} from GridFS`);
     
+    // Ensure GridFS is initialized
+    const bucket = await gridfs.initGridFS();
+    if (!bucket) {
+      logger.error('GridFS not initialized, database connection may be missing');
+      return res.status(500).json({
+        success: false,
+        message: 'Database connection error'
+      });
+    }
+    
     // Stream file to response
     await gridfs.streamToResponse(fileId, res);
   } catch (error) {

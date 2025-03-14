@@ -5,6 +5,9 @@ const path = require('path');
 const logger = require('./logger');
 
 let gridFSBucket;
+let initializationInProgress = false;
+let lastInitAttempt = 0;
+const INIT_COOLDOWN = 1000; // 1 second cooldown between init attempts
 
 // Cache for empty queries to avoid repeated database calls
 let cachedAllFiles = null;
@@ -13,22 +16,121 @@ const CACHE_TTL = 60000; // 1 minute cache TTL
 
 /**
  * Initialize the GridFS bucket
+ * @param {boolean} force - Force reinitialization even if already initialized
  * @returns {GridFSBucket} The GridFS bucket instance
  */
-const initGridFS = () => {
+const initGridFS = async (force = false) => {
   try {
-    if (!gridFSBucket && mongoose.connection.readyState === 1) {
-      logger.info('Initializing GridFS bucket...');
+    // If initialization is already in progress, wait a bit and return current bucket
+    if (initializationInProgress) {
+      logger.info('GridFS initialization already in progress, waiting...');
+      await new Promise(r => setTimeout(r, 100));
+      return gridFSBucket;
+    }
+    
+    // If bucket already exists and we're not forcing reinitialization, return it
+    if (gridFSBucket && !force) {
+      return gridFSBucket;
+    }
+    
+    // Check if we've tried to initialize too recently
+    const now = Date.now();
+    if (!force && lastInitAttempt && (now - lastInitAttempt < INIT_COOLDOWN)) {
+      logger.debug(`Skipping GridFS init, last attempt was ${now - lastInitAttempt}ms ago`);
+      return gridFSBucket;
+    }
+    
+    // Set initialization flag and timestamp
+    initializationInProgress = true;
+    lastInitAttempt = now;
+    
+    // Check MongoDB connection state
+    const dbState = mongoose.connection.readyState;
+    const dbStateText = {
+      0: 'disconnected',
+      1: 'connected',
+      2: 'connecting',
+      3: 'disconnecting'
+    }[dbState] || 'unknown';
+    
+    logger.info(`MongoDB connection state before GridFS init: ${dbStateText} (${dbState})`);
+    
+    // If not connected, try to connect
+    if (dbState !== 1) {
+      try {
+        logger.info('MongoDB not connected, attempting to connect...');
+        await mongoose.connect(process.env.MONGODB_URI);
+        logger.info(`MongoDB connected: ${mongoose.connection.host}`);
+      } catch (connError) {
+        logger.error(`Failed to connect to MongoDB: ${connError.message}`);
+        initializationInProgress = false;
+        return null;
+      }
+    }
+    
+    // Wait for connection to be fully established
+    if (mongoose.connection.readyState !== 1) {
+      logger.info('Waiting for MongoDB connection to be fully established...');
+      
+      try {
+        // Wait for connection to be ready
+        await new Promise((resolve, reject) => {
+          // If already connected, resolve immediately
+          if (mongoose.connection.readyState === 1) {
+            return resolve();
+          }
+          
+          // Otherwise wait for the connected event
+          const connectedHandler = () => {
+            logger.info('MongoDB connection established');
+            resolve();
+          };
+          
+          mongoose.connection.once('connected', connectedHandler);
+          
+          // Add a timeout to prevent hanging
+          const timeoutId = setTimeout(() => {
+            mongoose.connection.removeListener('connected', connectedHandler);
+            logger.warn('MongoDB connection timeout - proceeding anyway');
+            resolve();
+          }, 5000);
+          
+          // Also listen for error events
+          const errorHandler = (err) => {
+            clearTimeout(timeoutId);
+            mongoose.connection.removeListener('connected', connectedHandler);
+            logger.error(`MongoDB connection error: ${err.message}`);
+            reject(err);
+          };
+          
+          mongoose.connection.once('error', errorHandler);
+        });
+      } catch (waitError) {
+        logger.error(`Error waiting for MongoDB connection: ${waitError.message}`);
+        initializationInProgress = false;
+        return null;
+      }
+    }
+    
+    // Now initialize GridFS bucket
+    logger.info('Initializing GridFS bucket...');
+    
+    try {
       gridFSBucket = new GridFSBucket(mongoose.connection.db, {
         bucketName: 'files'
       });
       logger.info('GridFS bucket initialized successfully');
-    } else if (!gridFSBucket) {
-      logger.warn(`Cannot initialize GridFS: MongoDB connection not ready (state: ${mongoose.connection.readyState})`);
+    } catch (bucketError) {
+      logger.error(`Error creating GridFS bucket: ${bucketError.message}`);
+      gridFSBucket = null;
     }
+    
+    // Reset initialization flag
+    initializationInProgress = false;
     return gridFSBucket;
   } catch (error) {
     logger.error(`Error initializing GridFS bucket: ${error.message}`, error);
+    initializationInProgress = false;
     return null;
   }
 };
@@ -298,14 +400,45 @@ const getFileInfo = async (fileId) => {
  * @param {Object} res - Express response object
  * @returns {Promise<void>}
  */
-const streamToResponse = (fileId, res) => {
-  return new Promise((resolve, reject) => {
+const streamToResponse = async (fileId, res) => {
+  return new Promise(async (resolve, reject) => {
     try {
-      const bucket = initGridFS();
+      // Try to initialize GridFS up to 3 times
+      let bucket = null;
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      while (!bucket && retryCount < maxRetries) {
+        try {
+          bucket = await initGridFS(retryCount > 0); // Force reinitialization on retry
+          
+          if (!bucket) {
+            retryCount++;
+            logger.warn(`GridFS not initialized, attempt ${retryCount}/${maxRetries}`);
+            
+            // Wait a bit before retrying
+            if (retryCount < maxRetries) {
+              logger.info(`Waiting before retry ${retryCount}...`);
+              await new Promise(r => setTimeout(r, 500 * retryCount));
+            }
+          }
+        } catch (initError) {
+          logger.error(`Error initializing GridFS: ${initError.message}`);
+          retryCount++;
+          
+          if (retryCount < maxRetries) {
+            await new Promise(r => setTimeout(r, 500 * retryCount));
+          }
+        }
+      }
+      
       if (!bucket) {
-        logger.error('GridFS not initialized, database connection may be missing');
+        logger.error('GridFS not initialized after multiple attempts, database connection may be missing');
         if (!res.headersSent) {
-          res.status(500).json({ error: 'Database connection error' });
+          res.status(500).json({ 
+            error: 'Database connection error',
+            message: 'Could not initialize GridFS after multiple attempts'
+          });
         }
         return reject(new Error('GridFS not initialized, database connection may be missing'));
       }
@@ -314,6 +447,7 @@ const streamToResponse = (fileId, res) => {
       let id;
       try {
         id = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
+        logger.info(`Streaming file with ID: ${id}`);
       } catch (idError) {
         logger.error(`Invalid ObjectId format: ${fileId}`);
         if (!res.headersSent) {
@@ -323,39 +457,67 @@ const streamToResponse = (fileId, res) => {
       }
       
       // Get file info first to set appropriate headers
-      getFileInfo(id)
-        .then(fileInfo => {
-          // Set response headers
-          res.set('Content-Type', fileInfo.contentType || 'application/octet-stream');
-          res.set('Content-Disposition', `inline; filename="${fileInfo.filename}"`);
-          res.set('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+      try {
+        const fileInfo = await getFileInfo(id);
+        
+        // Set response headers
+        res.set('Content-Type', fileInfo.contentType || 'application/octet-stream');
+        res.set('Content-Disposition', `inline; filename="${fileInfo.filename}"`);
+        res.set('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+        
+        // Create download stream
+        const downloadStream = bucket.openDownloadStream(id);
+        
+        downloadStream.on('error', (error) => {
+          logger.error(`Error streaming file from GridFS: ${error.message}`);
+          if (!res.headersSent) {
+            res.status(404).json({ error: 'File not found or error streaming file' });
+          }
+          reject(error);
+        });
+        
+        downloadStream.on('end', () => {
+          logger.info(`Completed streaming file: ${fileInfo.filename}`);
+          resolve();
+        });
+        
+        // Pipe to response
+        downloadStream.pipe(res);
+      } catch (error) {
+        logger.error(`Error getting file info for streaming: ${error.message}`);
+        
+        // Try a direct stream as a fallback
+        try {
+          logger.info(`Attempting direct stream for file ID: ${id}`);
+          const directStream = bucket.openDownloadStream(id);
           
-          // Create download stream
-          const downloadStream = bucket.openDownloadStream(id);
-          
-          downloadStream.on('error', (error) => {
-            logger.error(`Error streaming file from GridFS: ${error.message}`);
+          directStream.on('error', (streamError) => {
+            logger.error(`Error in direct stream fallback: ${streamError.message}`);
             if (!res.headersSent) {
-              res.status(404).json({ error: 'File not found or error streaming file' });
+              res.status(404).json({ error: 'File not found' });
             }
-            reject(error);
+            reject(streamError);
           });
           
-          downloadStream.on('end', () => {
-            logger.info(`Completed streaming file: ${fileInfo.filename}`);
+          directStream.on('end', () => {
+            logger.info(`Completed direct stream for file ID: ${id}`);
             resolve();
           });
           
+          // Set basic headers for direct stream
+          res.set('Content-Type', 'application/octet-stream');
+          res.set('Cache-Control', 'public, max-age=86400');
+          
           // Pipe to response
-          downloadStream.pipe(res);
-        })
-        .catch(error => {
-          logger.error(`Error getting file info for streaming: ${error.message}`);
+          directStream.pipe(res);
+        } catch (directError) {
+          logger.error(`Direct stream fallback failed: ${directError.message}`);
           if (!res.headersSent) {
             res.status(404).json({ error: 'File not found' });
           }
           reject(error);
-        });
+        }
+      }
     } catch (error) {
       logger.error(`Error in GridFS streaming: ${error.message}`);
       if (!res.headersSent) {
