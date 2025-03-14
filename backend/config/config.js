@@ -4,35 +4,17 @@ const path = require('path');
 
 dotenv.config();
 
-// Check if we're running in Vercel environment
-const isVercel = process.env.VERCEL === '1';
-
-// Define temp upload directory - use /tmp in Vercel environment
-const tempUploadDir = isVercel 
-  ? '/tmp' 
-  : (process.env.TEMP_UPLOAD_DIR || path.join(__dirname, '../temp'));
-
-// Define permanent upload directory - use /tmp/uploads in Vercel environment
-const uploadDir = isVercel 
-  ? '/tmp/uploads' 
-  : (process.env.UPLOAD_DIR || path.join(__dirname, '../uploads'));
+// Always use /tmp for temporary files to be compatible with Vercel
+const tempUploadDir = '/tmp';
+const uploadDir = '/tmp/uploads';
 
 // Log the directories being used
-console.log(`Using temp directory: ${tempUploadDir} (Vercel: ${isVercel})`);
-console.log(`Using uploads directory: ${uploadDir} (Vercel: ${isVercel})`);
+console.log(`Using temp directory: ${tempUploadDir}`);
+console.log(`Using uploads directory: ${uploadDir}`);
 
-// Only create directories in non-Vercel environments
-if (!isVercel) {
-  // Ensure temp directory exists
-  if (!fs.existsSync(tempUploadDir)) {
-    try {
-      fs.mkdirSync(tempUploadDir, { recursive: true });
-      console.log(`Created temporary upload directory: ${tempUploadDir}`);
-    } catch (error) {
-      console.warn(`Warning: Could not create temp directory: ${error.message}`);
-    }
-  }
-
+// Ensure uploads directory exists in non-Vercel environments
+// In Vercel, we can't create directories outside of /tmp
+if (process.env.VERCEL !== '1') {
   // Ensure uploads directory exists
   if (!fs.existsSync(uploadDir)) {
     try {
@@ -42,11 +24,6 @@ if (!isVercel) {
       console.warn(`Warning: Could not create uploads directory: ${error.message}`);
     }
   }
-} else {
-  // In Vercel, we can't create directories, but we can use /tmp
-  // Make sure GridFS is enabled
-  process.env.USE_GRIDFS = 'true';
-  console.log('Running in Vercel environment, forcing GridFS usage');
 }
 
 module.exports = {
@@ -57,9 +34,9 @@ module.exports = {
   jwtExpiration: '1d',
   tempUploadDir,
   uploadDir,
-  maxFileSize: 15 * 1024 * 1024, // Increased to 15MB
+  maxFileSize: 15 * 1024 * 1024, // 15MB
   serverTimeout: 300000, // 5 minutes for long uploads
   maxRequestSize: 150 * 1024 * 1024, // 150MB total request size
   allowedFileTypes: ['image/jpeg', 'image/png', 'image/jpg', 'image/heic'],
-  isVercel, // Export isVercel flag for use in other modules
+  isVercel: process.env.VERCEL === '1', // For backward compatibility
 }; 

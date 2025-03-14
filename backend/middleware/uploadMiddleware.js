@@ -4,28 +4,12 @@ const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const logger = require('../utils/logger');
 
-// Create temp directory if it doesn't exist
-const uploadDir = './temp';
-if (!fs.existsSync(uploadDir)) {
-  try {
-    fs.mkdirSync(uploadDir, { recursive: true });
-    logger.info(`Created temporary upload directory: ${uploadDir}`);
-  } catch (error) {
-    logger.warn(`Could not create temp directory: ${error.message}`);
-  }
-}
+// Always use /tmp directory for temporary files
+const uploadDir = '/tmp';
 
-// Configure storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Generate a unique filename with original extension
-    const uniqueFilename = `${uuidv4()}${path.extname(file.originalname)}`;
-    cb(null, uniqueFilename);
-  }
-});
+// Always use memory storage for file uploads
+const storage = multer.memoryStorage();
+logger.info('Using memory storage for file uploads');
 
 // Define allowed file types
 const allowedFileTypes = [
@@ -53,6 +37,31 @@ const upload = multer({
   }
 });
 
+// Process uploaded files to write to /tmp if needed
+const processUpload = (req, res, next) => {
+  if (!req.files) {
+    return next();
+  }
+  
+  // Handle the in-memory files
+  req.files.forEach(file => {
+    // Add additional properties that would normally be set by disk storage
+    file.path = `${uploadDir}/${uuidv4()}${path.extname(file.originalname)}`;
+    
+    // Write to /tmp directory
+    if (file.buffer) {
+      try {
+        fs.writeFileSync(file.path, file.buffer);
+        logger.info(`Wrote file to temporary location: ${file.path}`);
+      } catch (error) {
+        logger.error(`Failed to write file to ${uploadDir}: ${error.message}`);
+      }
+    }
+  });
+  
+  next();
+};
+
 // Export configured upload middleware
 module.exports = {
   // Multiple files upload
@@ -65,11 +74,11 @@ module.exports = {
       
       if (req.files && req.files.length > 0) {
         logger.info(`Successfully uploaded ${req.files.length} files`);
+        processUpload(req, res, next);
       } else {
         logger.warn('No files were uploaded');
+        next();
       }
-      
-      next();
     });
   },
   
@@ -82,7 +91,19 @@ module.exports = {
       }
       
       if (req.file) {
-        logger.info(`Successfully uploaded company logo: ${req.file.filename}`);
+        logger.info(`Successfully uploaded company logo: ${req.file.originalname}`);
+        
+        // Process file
+        if (req.file.buffer) {
+          const filePath = `${uploadDir}/${uuidv4()}${path.extname(req.file.originalname)}`;
+          try {
+            fs.writeFileSync(filePath, req.file.buffer);
+            req.file.path = filePath;
+            logger.info(`Wrote logo to temporary location: ${filePath}`);
+          } catch (error) {
+            logger.error(`Failed to write logo to ${uploadDir}: ${error.message}`);
+          }
+        }
       } else {
         logger.warn('No logo file was uploaded');
       }

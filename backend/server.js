@@ -63,57 +63,32 @@ app.use((req, res, next) => {
 // Set server timeout for large uploads
 app.timeout = config.serverTimeout || 300000; // 5 minutes default
 
-// Create temp directory if it doesn't exist
-const tempDir = process.env.TEMP_UPLOAD_DIR || './temp';
-const isVercel = process.env.VERCEL === '1';
 // Define publicDir at the top level so it's available throughout the file
 const publicDir = path.join(process.cwd(), 'public');
 
 // Only try to create directories in non-Vercel environments
-if (!isVercel) {
+if (process.env.VERCEL !== '1') {
   try {
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-      console.log(`Created directory: ${tempDir}`);
-    } else {
-      console.log(`Directory already exists: ${tempDir}`);
+    // Create temp directory if needed
+    if (!fs.existsSync(config.tempUploadDir)) {
+      fs.mkdirSync(config.tempUploadDir, { recursive: true });
+      console.log(`Created directory: ${config.tempUploadDir}`);
     }
     
-    // Create PDF directory
-    const pdfDir = path.join(tempDir, 'pdfs');
-    if (!fs.existsSync(pdfDir)) {
-      fs.mkdirSync(pdfDir, { recursive: true });
-      console.log(`Created directory: ${pdfDir}`);
-    } else {
-      console.log(`Directory already exists: ${pdfDir}`);
+    // Create uploads directory if needed
+    if (!fs.existsSync(config.uploadDir)) {
+      fs.mkdirSync(config.uploadDir, { recursive: true });
+      console.log(`Created directory: ${config.uploadDir}`);
     }
     
-    // Create uploads directory
-    const uploadsDir = path.resolve(config.uploadDir);
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-      console.log(`Created directory: ${uploadsDir}`);
-    } else {
-      console.log(`Directory already exists: ${uploadsDir}`);
-    }
-    
-    // Create public directory if it doesn't exist
+    // Create public directory if needed
     if (!fs.existsSync(publicDir)) {
       fs.mkdirSync(publicDir, { recursive: true });
-      
-      // Create logos subdirectory
-      const logosDir = path.join(publicDir, 'logos');
-      if (!fs.existsSync(logosDir)) {
-        fs.mkdirSync(logosDir, { recursive: true });
-      }
-      
-      logger.info(`Created public directories: ${publicDir}, ${logosDir}`);
+      console.log(`Created directory: ${publicDir}`);
     }
-  } catch (error) {
-    logger.warn(`Warning: Could not create directories: ${error.message}`);
+  } catch (err) {
+    console.error(`Error creating directories: ${err.message}`);
   }
-} else {
-  logger.info('Running in Vercel environment, skipping directory creation');
 }
 
 // Set security headers using Helmet
@@ -221,49 +196,37 @@ app.get('/', (req, res) => {
   res.json({ message: 'Welcome to the Photo Report API' });
 });
 
-// Serve PDF files from temp/pdfs directory or GridFS in Vercel
+// Serve PDF files from GridFS
 app.use('/pdfs', (req, res, next) => {
-  const isVercel = process.env.VERCEL === '1';
+  const pdfFilename = req.path.replace('/', ''); // Remove leading slash
   
-  if (isVercel) {
-    // In Vercel, we should check GridFS for PDFs
-    const pdfFilename = req.path.replace('/', ''); // Remove leading slash
-    
-    // If there's no filename, return 404
-    if (!pdfFilename) {
-      return res.status(404).json({ success: false, message: 'PDF not found' });
-    }
-    
-    // Try to find the PDF in GridFS
-    const gridfs = require('./utils/gridfs');
-    gridfs.findFiles({ filename: pdfFilename })
-      .then(files => {
-        if (files && files.length > 0) {
-          // Found the PDF in GridFS, stream it to the response
-          gridfs.streamToResponse(files[0]._id, res, {
-            contentType: 'application/pdf',
-            disposition: 'inline',
-            filename: pdfFilename
-          });
-        } else {
-          // PDF not found in GridFS
-          res.status(404).json({ success: false, message: 'PDF not found in GridFS' });
-        }
-      })
-      .catch(err => {
-        logger.error(`Error serving PDF from GridFS: ${err.message}`);
-        res.status(500).json({ success: false, message: 'Error serving PDF' });
-      });
-  } else {
-    // In non-Vercel, use filesystem
-    const pdfPath = path.join(__dirname, 'temp/pdfs', req.path);
-    if (fs.existsSync(pdfPath) && !fs.statSync(pdfPath).isDirectory()) {
-      next();
-    } else {
-      res.status(404).json({ success: false, message: 'PDF not found' });
-    }
+  // If there's no filename, return 404
+  if (!pdfFilename) {
+    return res.status(404).json({ success: false, message: 'PDF not found' });
   }
-}, express.static(path.join(__dirname, 'temp/pdfs')));
+  
+  // Try to find the PDF in GridFS
+  const gridfs = require('./utils/gridfs');
+  gridfs.findFiles({ filename: pdfFilename })
+    .then(files => {
+      if (files && files.length > 0) {
+        // Stream the PDF from GridFS
+        return gridfs.streamToResponse(files[0]._id, res);
+      } else {
+        // If not in GridFS, check if it exists in the filesystem (for backward compatibility)
+        const pdfPath = path.join(config.uploadDir, 'pdfs', pdfFilename);
+        if (fs.existsSync(pdfPath)) {
+          return res.sendFile(pdfPath);
+        } else {
+          return res.status(404).json({ success: false, message: 'PDF not found' });
+        }
+      }
+    })
+    .catch(err => {
+      console.error(`Error serving PDF: ${err.message}`);
+      return res.status(500).json({ success: false, message: 'Error serving PDF', error: err.message });
+    });
+});
 
 // Add a catch-all route for Vercel to serve the frontend SPA
 if (process.env.VERCEL === '1') {

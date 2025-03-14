@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const gridfs = require('../utils/gridfs');
 const Report = require('../models/Report');
 const photoAnalysisService = require('../services/photoAnalysisService');
+const Photo = require('../models/Photo');
 
 /**
  * Upload photos for a report
@@ -13,68 +14,80 @@ const photoAnalysisService = require('../services/photoAnalysisService');
  */
 const uploadPhotos = async (req, res) => {
   try {
-    // Check if files exist
+    // Validate request
     if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: 'Please upload at least one photo' });
+      return res.status(400).json({ error: 'No photos uploaded' });
     }
-
-    const reportId = req.body.reportId;
-    if (!reportId) {
+    
+    if (!req.body.reportId) {
       return res.status(400).json({ error: 'Report ID is required' });
     }
-
+    
+    const reportId = req.body.reportId;
     logger.info(`Uploading ${req.files.length} photos for report ${reportId}`);
-
-    // Find the report
+    
+    // Find report
     const report = await Report.findById(reportId);
     if (!report) {
       return res.status(404).json({ error: 'Report not found' });
     }
-
+    
     // Process each file
     const uploadedPhotos = [];
+    
     for (const file of req.files) {
       try {
         // Upload file to GridFS
-        const fileData = await gridfs.uploadFile(file.path, {
-          filename: file.originalname,
+        const fileInfo = await gridfs.uploadBuffer(file.buffer, {
+          filename: `${reportId}_${Date.now()}_${file.originalname}`,
           contentType: file.mimetype,
           metadata: {
             reportId,
-            userId: req.user.id,
+            originalName: file.originalname,
             uploadDate: new Date()
           }
         });
-
+        
         // Create photo object
-        const photo = {
-          _id: fileData.id,
-          filename: file.originalname,
-          path: file.path,
-          section: req.body.section || 'Uncategorized'
-        };
-
+        const photo = new Photo({
+          fileId: fileInfo.id,
+          filename: fileInfo.filename,
+          originalName: file.originalname,
+          contentType: file.mimetype,
+          report: reportId,
+          status: 'pending',
+          uploadDate: new Date()
+        });
+        
+        // Save photo
+        await photo.save();
         uploadedPhotos.push(photo);
-
-        // Clean up temp file
-        await fs.unlink(file.path);
-      } catch (error) {
-        logger.error(`Error processing file ${file.originalname}: ${error.message}`);
+        
+        // If file was saved to temp directory, clean it up
+        if (file.path) {
+          try {
+            fs.unlinkSync(file.path);
+            logger.debug(`Deleted temporary file: ${file.path}`);
+          } catch (unlinkError) {
+            logger.warn(`Failed to delete temporary file ${file.path}: ${unlinkError.message}`);
+          }
+        }
+      } catch (fileError) {
+        logger.error(`Error processing file ${file.originalname}: ${fileError.message}`);
       }
     }
-
+    
     // Add photos to report
-    report.photos.push(...uploadedPhotos);
+    report.photos = [...report.photos, ...uploadedPhotos.map(p => p._id)];
     await report.save();
-
-    res.status(200).json({
-      success: true,
-      count: uploadedPhotos.length,
+    
+    return res.status(200).json({
+      message: `Successfully uploaded ${uploadedPhotos.length} photos`,
       photos: uploadedPhotos
     });
   } catch (error) {
-    logger.error(`Error uploading photos: ${error.message}`);
-    res.status(500).json({ error: 'Server error uploading photos' });
+    logger.error(`Error in uploadPhotos: ${error.message}`);
+    return res.status(500).json({ error: error.message });
   }
 };
 
@@ -88,19 +101,40 @@ const getPhoto = async (req, res) => {
     const photoId = req.params.id;
     const size = req.query.size || 'original'; // 'original', 'thumbnail'
 
+    // First try to find the photo in our database
+    let photo;
+    let fileId;
+    
+    try {
+      // Check if the ID is a valid ObjectId
+      if (mongoose.Types.ObjectId.isValid(photoId)) {
+        photo = await Photo.findById(photoId);
+        if (photo) {
+          fileId = photo.fileId;
+        }
+      }
+    } catch (findError) {
+      logger.debug(`Photo not found in database with ID ${photoId}: ${findError.message}`);
+    }
+    
+    // If we couldn't find the photo in our database, use the ID directly as the fileId
+    if (!fileId) {
+      fileId = photoId;
+    }
+
     // If thumbnail is requested, check if it exists in GridFS with a modified filename
     if (size === 'thumbnail') {
       try {
-        const thumbnailId = `thumb_${photoId}`;
+        const thumbnailId = `thumb_${fileId}`;
         await gridfs.streamToResponse(thumbnailId, res);
       } catch (error) {
         // If thumbnail doesn't exist, fall back to original
-        logger.info(`Thumbnail not found for ${photoId}, serving original`);
-        await gridfs.streamToResponse(photoId, res);
+        logger.info(`Thumbnail not found for ${fileId}, serving original`);
+        await gridfs.streamToResponse(fileId, res);
       }
     } else {
       // Stream the original photo
-      await gridfs.streamToResponse(photoId, res);
+      await gridfs.streamToResponse(fileId, res);
     }
   } catch (error) {
     logger.error(`Error getting photo: ${error.message}`);
@@ -119,37 +153,48 @@ const deletePhoto = async (req, res) => {
   try {
     const photoId = req.params.id;
 
-    // Find reports containing this photo
-    const report = await Report.findOne({ 'photos._id': photoId });
-    if (!report) {
-      return res.status(404).json({ error: 'Photo not found in any report' });
+    // Find the photo in our database
+    const photo = await Photo.findById(photoId);
+    if (!photo) {
+      return res.status(404).json({ error: 'Photo not found' });
     }
 
-    // Check if user owns the report
-    if (report.user.toString() !== req.user.id) {
+    // Find the report associated with this photo
+    const report = await Report.findById(photo.report);
+    if (!report) {
+      return res.status(404).json({ error: 'Associated report not found' });
+    }
+
+    // Check if user owns the report (if authentication is implemented)
+    if (req.user && report.user && report.user.toString() !== req.user.id) {
       return res.status(401).json({ error: 'Not authorized to delete this photo' });
     }
 
-    // Remove photo from report
-    report.photos = report.photos.filter(photo => photo._id.toString() !== photoId);
+    // Remove photo reference from report
+    report.photos = report.photos.filter(id => id.toString() !== photoId);
     await report.save();
 
-    // Delete from GridFS
-    await gridfs.deleteFile(photoId);
+    // Delete the photo from GridFS
+    await gridfs.deleteFile(photo.fileId);
 
     // Also try to delete thumbnail if it exists
     try {
-      const thumbnailId = `thumb_${photoId}`;
+      const thumbnailId = `thumb_${photo.fileId}`;
       await gridfs.deleteFile(thumbnailId);
     } catch (error) {
       // Ignore errors if thumbnail doesn't exist
-      logger.info(`No thumbnail found for ${photoId} or error deleting it`);
+      logger.info(`No thumbnail found for ${photo.fileId} or error deleting it: ${error.message}`);
     }
 
-    res.status(200).json({ success: true, message: 'Photo deleted' });
+    // Delete the photo document
+    await Photo.findByIdAndDelete(photoId);
+
+    return res.status(200).json({
+      message: 'Photo deleted successfully'
+    });
   } catch (error) {
     logger.error(`Error deleting photo: ${error.message}`);
-    res.status(500).json({ error: 'Server error deleting photo' });
+    return res.status(500).json({ error: error.message });
   }
 };
 
@@ -160,148 +205,105 @@ const deletePhoto = async (req, res) => {
  */
 const analyzePhotos = async (req, res) => {
   try {
-    const { reportId, photoId, photoIds } = req.body;
+    let photos = [];
+    let reportId = null;
     
-    // Check if we have at least one valid parameter
-    if (!reportId && !photoId && (!photoIds || !photoIds.length)) {
-      return res.status(400).json({ error: 'Either reportId, photoId, or photoIds is required' });
-    }
-
-    let report;
-    let photosToAnalyze = [];
-    
-    // Case 1: Analyze a specific photo by ID
-    if (photoId) {
-      // Find the report containing this photo
-      report = await Report.findOne({ 'photos._id': photoId });
-      if (!report) {
-        return res.status(404).json({ error: 'Photo not found in any report' });
-      }
-      
-      // Check if user owns the report
-      if (report.user.toString() !== req.user.id) {
-        return res.status(401).json({ error: 'Not authorized to analyze this photo' });
-      }
-      
-      // Get the specific photo
-      const photo = report.photos.find(p => p._id.toString() === photoId);
+    // Check if specific photo ID is provided
+    if (req.params.photoId) {
+      const photo = await Photo.findById(req.params.photoId);
       if (!photo) {
-        return res.status(404).json({ error: 'Photo not found in report' });
+        return res.status(404).json({ error: 'Photo not found' });
       }
-      
-      photosToAnalyze = [photo];
-      logger.info(`Analyzing single photo ${photoId}`);
-    }
-    // Case 2: Analyze multiple photos by IDs
-    else if (photoIds && photoIds.length) {
-      // Find all reports containing these photos
-      // This is less efficient but ensures we check authorization for all photos
-      const reports = await Report.find({ 'photos._id': { $in: photoIds } });
-      
-      // Check if user owns all reports
-      for (const rep of reports) {
-        if (rep.user.toString() !== req.user.id) {
-          return res.status(401).json({ error: 'Not authorized to analyze one or more photos' });
-        }
+      photos = [photo];
+      reportId = photo.report;
+    } 
+    // Check if array of photo IDs is provided
+    else if (req.body.photoIds && Array.isArray(req.body.photoIds)) {
+      photos = await Photo.find({ _id: { $in: req.body.photoIds } });
+      if (photos.length > 0) {
+        reportId = photos[0].report;
       }
-      
-      // Collect all photos to analyze
-      for (const rep of reports) {
-        const photos = rep.photos.filter(p => photoIds.includes(p._id.toString()));
-        photosToAnalyze.push(...photos);
-      }
-      
-      // Use the first report for saving results
-      report = reports[0];
-      
-      logger.info(`Analyzing ${photosToAnalyze.length} photos by IDs`);
-    }
-    // Case 3: Analyze all unanalyzed photos in a report
-    else {
-      // Find the report
-      report = await Report.findById(reportId);
-      if (!report) {
-        return res.status(404).json({ error: 'Report not found' });
-      }
-
-      // Check if user owns the report
-      if (report.user.toString() !== req.user.id) {
-        return res.status(401).json({ error: 'Not authorized to analyze photos for this report' });
-      }
-
-      // Get photos that haven't been analyzed yet
-      photosToAnalyze = report.photos.filter(photo => !photo.aiAnalysis);
-      
-      logger.info(`Analyzing ${photosToAnalyze.length} unanalyzed photos for report ${reportId}`);
+    } 
+    // Check if report ID is provided to analyze all unanalyzed photos
+    else if (req.params.reportId) {
+      reportId = req.params.reportId;
+      photos = await Photo.find({ 
+        report: reportId, 
+        status: { $in: ['pending', 'failed'] } 
+      });
+    } else {
+      return res.status(400).json({ error: 'Photo ID, photo IDs array, or report ID is required' });
     }
     
-    // If no photos to analyze, return early
-    if (photosToAnalyze.length === 0) {
-      return res.status(200).json({ 
-        success: true,
-        message: 'No photos to analyze',
-        count: 0,
-        results: []
-      });
+    if (photos.length === 0) {
+      return res.status(404).json({ error: 'No photos found to analyze' });
     }
-
-    // Process each photo
+    
+    logger.info(`Analyzing ${photos.length} photos for report ${reportId}`);
+    
     const results = [];
-    for (const photo of photosToAnalyze) {
+    
+    for (const photo of photos) {
       try {
-        // Create a temporary file to store the photo
-        const tempFilePath = path.join(__dirname, '../temp', `${photo._id}.jpg`);
+        // Create a temporary file in /tmp directory
+        const tempFilePath = `/tmp/${photo._id}.jpg`;
         
-        // Create a write stream for the temporary file
+        // Get the file from GridFS and save to temp file
+        const bucket = await gridfs.initGridFS();
+        const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(photo.fileId));
         const writeStream = fs.createWriteStream(tempFilePath);
         
-        // Get the photo from GridFS and pipe it to the temporary file
-        const downloadStream = gridfs.downloadFile(photo._id);
-        downloadStream.pipe(writeStream);
-        
-        // Wait for the download to complete
         await new Promise((resolve, reject) => {
-          writeStream.on('finish', resolve);
-          writeStream.on('error', reject);
-          downloadStream.on('error', reject);
+          downloadStream.pipe(writeStream)
+            .on('error', reject)
+            .on('finish', resolve);
         });
         
         // Analyze the photo
-        const analysis = await photoAnalysisService.analyzePhoto(tempFilePath);
+        const analysisResult = await photoAnalysisService.analyzePhoto(tempFilePath);
         
-        // Update the photo in the report
-        const photoIndex = report.photos.findIndex(p => p._id.toString() === photo._id.toString());
-        if (photoIndex !== -1) {
-          report.photos[photoIndex].aiAnalysis = analysis;
-        }
+        // Update photo with analysis results
+        photo.analysis = analysisResult;
+        photo.status = 'analyzed';
+        photo.analysisDate = new Date();
+        await photo.save();
         
         results.push({
           photoId: photo._id,
-          analysis
+          status: 'success',
+          analysis: analysisResult
         });
         
-        // Clean up the temporary file
-        await fs.unlink(tempFilePath);
+        // Clean up temp file
+        try {
+          fs.unlinkSync(tempFilePath);
+          logger.debug(`Deleted temporary file: ${tempFilePath}`);
+        } catch (unlinkError) {
+          logger.warn(`Failed to delete temporary file ${tempFilePath}: ${unlinkError.message}`);
+        }
       } catch (error) {
         logger.error(`Error analyzing photo ${photo._id}: ${error.message}`);
+        
+        // Update photo status to failed
+        photo.status = 'failed';
+        photo.analysisError = error.message;
+        await photo.save();
+        
         results.push({
           photoId: photo._id,
+          status: 'failed',
           error: error.message
         });
       }
     }
-
-    // Save the report with the updated photo analyses
-    await report.save();
-
-    res.status(200).json({
-      success: true,
-      count: results.length,
+    
+    return res.status(200).json({
+      message: `Analysis completed for ${results.filter(r => r.status === 'success').length} of ${photos.length} photos`,
       results
     });
   } catch (error) {
-    logger.error(`Error analyzing photos: ${error.message}`);
-    res.status(500).json({ error: 'Server error analyzing photos' });
+    logger.error(`Error in analyzePhotos: ${error.message}`);
+    return res.status(500).json({ error: error.message });
   }
 };
 

@@ -508,7 +508,10 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
             fileObjects,
             createdReportId,
             (progress) => {
-              console.log(`Photo upload progress: ${progress}%`);
+              // Only log every 10% to reduce noise
+              if (progress % 10 === 0) {
+                console.log(`Photo upload progress: ${progress}%`);
+              }
             }
           );
           
@@ -520,7 +523,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
             console.log('Photos uploaded successfully:', uploadResponse.photos?.length || 0);
           }
         } catch (uploadErr) {
-          console.error('Error during photo upload:', uploadErr);
+          console.error('Error during photo upload:', uploadErr.message);
           // Continue with navigation even if photo upload fails
         }
       }

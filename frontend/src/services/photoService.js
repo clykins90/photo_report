@@ -57,12 +57,15 @@ export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
   }
   
   // For local files that aren't uploaded yet, use the preview URL
-  if (fileOrId.status === 'pending' && fileOrId.preview) {
+  // This now handles both 'pending' and 'complete' status for local files
+  if (fileOrId.preview && (fileOrId.status === 'pending' || fileOrId.status === 'complete' || fileOrId.status === 'error')) {
     return fileOrId.preview;
   }
   
-  // Fallback to placeholder
-  photoLogger('Unable to determine photo URL from object:', fileOrId, true);
+  // Fallback to placeholder - only log in development to reduce noise
+  if (process.env.NODE_ENV === 'development') {
+    photoLogger('Unable to determine photo URL from object:', fileOrId, true);
+  }
   return '/placeholder-image.png';
 };
 

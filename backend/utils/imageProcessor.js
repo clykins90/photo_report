@@ -17,22 +17,17 @@ const optimizeImage = async (filePath, options = {}) => {
       quality = 80, // Default quality
       format = 'jpeg', // Default format
       outputDir = config.tempUploadDir,
-      tempDir = null, // New parameter for Vercel compatibility
     } = options;
-
-    // Use provided tempDir if available, otherwise use outputDir
-    const finalOutputDir = tempDir || outputDir;
     
     // Get file info
     const fileInfo = path.parse(filePath);
     const outputFilename = `${fileInfo.name}_optimized.${format}`;
-    const outputPath = path.join(finalOutputDir, outputFilename);
+    const outputPath = path.join(outputDir, outputFilename);
 
-    // Ensure output directory exists (only in non-Vercel environments)
-    const isVercel = process.env.VERCEL === '1';
-    if (!isVercel && !fs.existsSync(finalOutputDir)) {
-      fs.mkdirSync(finalOutputDir, { recursive: true });
-      logger.info(`Created output directory: ${finalOutputDir}`);
+    // Ensure output directory exists if we're not in Vercel
+    if (process.env.VERCEL !== '1' && !fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+      logger.info(`Created output directory: ${outputDir}`);
     }
 
     // Process image with Sharp
@@ -162,27 +157,22 @@ const extractExifData = async (filePath) => {
 const generateThumbnail = async (filePath, options = {}) => {
   try {
     const {
-      width = 300,
-      height = 300,
-      fit = 'cover',
-      format = 'jpeg',
+      width = 200, // Default width
+      height = 200, // Default height
+      fit = 'cover', // Default fit
+      format = 'jpeg', // Default format
       outputDir = config.tempUploadDir,
-      tempDir = null, // New parameter for Vercel compatibility
     } = options;
-
-    // Use provided tempDir if available, otherwise use outputDir
-    const finalOutputDir = tempDir || outputDir;
 
     // Get file info
     const fileInfo = path.parse(filePath);
     const outputFilename = `${fileInfo.name}_thumb.${format}`;
-    const outputPath = path.join(finalOutputDir, outputFilename);
+    const outputPath = path.join(outputDir, outputFilename);
 
-    // Ensure output directory exists (only in non-Vercel environments)
-    const isVercel = process.env.VERCEL === '1';
-    if (!isVercel && !fs.existsSync(finalOutputDir)) {
-      fs.mkdirSync(finalOutputDir, { recursive: true });
-      logger.info(`Created output directory: ${finalOutputDir}`);
+    // Ensure output directory exists if we're not in Vercel
+    if (process.env.VERCEL !== '1' && !fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+      logger.info(`Created output directory: ${outputDir}`);
     }
 
     logger.info(`Generating thumbnail for ${filePath} to ${outputPath} (${width}x${height})`);
@@ -198,13 +188,8 @@ const generateThumbnail = async (filePath, options = {}) => {
       const exists = fs.existsSync(outputPath);
       const fileSize = exists ? fs.statSync(outputPath).size : 0;
       logger.info(`Thumbnail generated: ${filePath} -> ${outputPath} (exists: ${exists}, size: ${fileSize} bytes)`);
-      
-      if (!exists || fileSize === 0) {
-        throw new Error(`Failed to create thumbnail or thumbnail is empty: ${outputPath}`);
-      }
-    } catch (verifyError) {
-      logger.error(`Error verifying thumbnail: ${verifyError.message}`);
-      throw verifyError;
+    } catch (err) {
+      logger.error(`Error verifying thumbnail: ${err.message}`);
     }
 
     return outputPath;

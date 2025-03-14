@@ -45,9 +45,12 @@ This application allows contractors to:
 - Static build process for frontend with optimized asset delivery
 - Serverless functions for backend API endpoints
 - Configured with vercel.json for proper path rewrites and build settings
+- Optimized for Vercel's serverless environment using `/tmp` directory for temporary file storage
 
 ### Photo Storage and Processing
 - Photos are stored directly in MongoDB using GridFS
+- Memory-based file uploads for improved performance and compatibility with serverless environments
+- Temporary files are stored in the `/tmp` directory for processing
 - Original photos are stored for PDF generation and detailed viewing
 - Thumbnails are generated for report previews
 - AI analysis is performed using OpenAI's Vision API
@@ -58,16 +61,19 @@ This application allows contractors to:
 The photo service has been simplified to focus on the core functionality:
 
 1. **Upload**: Photos are uploaded directly to MongoDB GridFS storage
+   - Files are processed in memory without writing to disk
+   - When temporary storage is needed, the `/tmp` directory is used (compatible with Vercel)
    - Photos are associated with a specific report
-   - Temporary files are cleaned up after upload
+   - Temporary files are automatically cleaned up after processing
 
 2. **Retrieval**: Photos can be retrieved in two formats:
    - Original: Full-resolution image for detailed viewing and PDF generation
    - Thumbnail: Smaller version for report previews and editing interface
 
 3. **Analysis**: Photos are analyzed using OpenAI's Vision API
+   - Memory-based processing is used whenever possible
    - AI generates descriptions, tags, and damage assessments
-   - Analysis results are stored with the photo in the report document
+   - Analysis results are stored with the photo in the database
    - Analysis can be performed on individual photos, specific photo sets, or all photos in a report
 
 4. **Deletion**: Photos can be deleted from both the report and GridFS storage
@@ -521,6 +527,36 @@ The application now uses a consistent approach for image URL handling across all
    - Removed complex cascading fallback logic in favor of a single, predictable approach
 
 This unified approach ensures that images display properly throughout the entire report creation workflow, regardless of which stage the user is viewing.
+
+### Vercel Deployment Optimizations
+
+The application has been optimized for deployment in Vercel's serverless environment:
+
+1. **Simplified Architecture**: The application now uses a single, consistent approach for file handling regardless of environment:
+   - Memory-based file processing using Multer's memory storage
+   - Direct uploads to GridFS from memory buffers
+   - Temporary file storage in `/tmp` directory when needed
+   - Automatic cleanup of temporary files
+
+2. **Consistent Configuration**: The configuration has been simplified to use the same paths and settings in all environments:
+   - All temporary files are stored in `/tmp` directory
+   - All uploads use memory storage to avoid disk I/O
+   - Directory creation is skipped in Vercel environment
+   - GridFS is used for all file storage
+
+3. **Improved Reliability**: The simplified architecture improves reliability by:
+   - Eliminating environment-specific code paths
+   - Reducing the number of file system operations
+   - Using consistent file handling logic across all environments
+   - Providing clear error messages for troubleshooting
+
+4. **Enhanced Performance**: The memory-based approach improves performance by:
+   - Eliminating disk I/O for most operations
+   - Reducing the number of file system operations
+   - Streamlining the file upload process
+   - Minimizing the time spent in serverless functions
+
+These optimizations ensure that the application runs reliably and efficiently in Vercel's serverless environment while maintaining compatibility with traditional hosting environments.
 
 ## Getting Started
 

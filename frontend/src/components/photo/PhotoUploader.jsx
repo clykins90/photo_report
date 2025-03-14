@@ -172,10 +172,10 @@ const PhotoUploader = ({
         onUploadComplete(files);
       }
     } catch (err) {
-      console.error('Upload failed:', err);
+      console.error('Upload failed:', err.message);
       setError(err.message || 'Failed to upload photos');
       
-      // Update status of failed files
+      // Update status of failed files but keep the preview URLs
       setFiles(prev => prev.map(file => {
         if (filesToUpload.some(newFile => newFile.id === file.id)) {
           return {

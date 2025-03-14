@@ -92,6 +92,58 @@ const uploadFile = async (filePath, options = {}) => {
 };
 
 /**
+ * Upload a file buffer to GridFS
+ * @param {Buffer} buffer - File buffer
+ * @param {Object} options - Upload options
+ * @returns {Promise<Object>} File information
+ */
+const uploadBuffer = async (buffer, options = {}) => {
+  try {
+    const bucket = await initGridFS();
+    if (!bucket) {
+      throw new Error('GridFS not initialized');
+    }
+
+    const filename = options.filename || `file_${Date.now()}`;
+    const contentType = options.contentType || 'application/octet-stream';
+    
+    return new Promise((resolve, reject) => {
+      // Create upload stream
+      const uploadStream = bucket.openUploadStream(filename, {
+        contentType,
+        metadata: options.metadata || {}
+      });
+
+      // Create readable stream from buffer
+      const { Readable } = require('stream');
+      const readStream = new Readable();
+      readStream.push(buffer);
+      readStream.push(null); // Mark end of stream
+      
+      // Handle errors
+      readStream.on('error', reject);
+      uploadStream.on('error', reject);
+      
+      // On finish, resolve with file info
+      uploadStream.on('finish', () => {
+        resolve({
+          id: uploadStream.id,
+          filename,
+          contentType,
+          metadata: options.metadata
+        });
+      });
+      
+      // Pipe read stream to upload stream
+      readStream.pipe(uploadStream);
+    });
+  } catch (error) {
+    logger.error(`Error in GridFS buffer upload: ${error.message}`);
+    throw error;
+  }
+};
+
+/**
  * Stream a file from GridFS to response
  * @param {string} fileId - ID of the file to stream
  * @param {Object} res - Express response object
@@ -181,6 +233,7 @@ const findFiles = async (query = {}) => {
 module.exports = {
   initGridFS,
   uploadFile,
+  uploadBuffer,
   streamToResponse,
   deleteFile,
   findFiles
