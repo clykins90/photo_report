@@ -4,13 +4,24 @@ const path = require('path');
 
 dotenv.config();
 
-// Define temp upload directory
-const tempUploadDir = process.env.TEMP_UPLOAD_DIR || path.join(__dirname, '../temp');
-// Define permanent upload directory
-const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, '../uploads');
-
-// Only create directories in non-production environments or if specifically configured
+// Check if we're running in Vercel environment
 const isVercel = process.env.VERCEL === '1';
+
+// Define temp upload directory - use /tmp in Vercel environment
+const tempUploadDir = isVercel 
+  ? '/tmp' 
+  : (process.env.TEMP_UPLOAD_DIR || path.join(__dirname, '../temp'));
+
+// Define permanent upload directory - use /tmp/uploads in Vercel environment
+const uploadDir = isVercel 
+  ? '/tmp/uploads' 
+  : (process.env.UPLOAD_DIR || path.join(__dirname, '../uploads'));
+
+// Log the directories being used
+console.log(`Using temp directory: ${tempUploadDir} (Vercel: ${isVercel})`);
+console.log(`Using uploads directory: ${uploadDir} (Vercel: ${isVercel})`);
+
+// Only create directories in non-Vercel environments
 if (!isVercel) {
   // Ensure temp directory exists
   if (!fs.existsSync(tempUploadDir)) {
@@ -31,6 +42,11 @@ if (!isVercel) {
       console.warn(`Warning: Could not create uploads directory: ${error.message}`);
     }
   }
+} else {
+  // In Vercel, we can't create directories, but we can use /tmp
+  // Make sure GridFS is enabled
+  process.env.USE_GRIDFS = 'true';
+  console.log('Running in Vercel environment, forcing GridFS usage');
 }
 
 module.exports = {
@@ -45,4 +61,5 @@ module.exports = {
   serverTimeout: 300000, // 5 minutes for long uploads
   maxRequestSize: 150 * 1024 * 1024, // 150MB total request size
   allowedFileTypes: ['image/jpeg', 'image/png', 'image/jpg', 'image/heic'],
+  isVercel, // Export isVercel flag for use in other modules
 }; 

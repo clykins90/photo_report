@@ -17,12 +17,23 @@ const optimizeImage = async (filePath, options = {}) => {
       quality = 80, // Default quality
       format = 'jpeg', // Default format
       outputDir = config.tempUploadDir,
+      tempDir = null, // New parameter for Vercel compatibility
     } = options;
 
+    // Use provided tempDir if available, otherwise use outputDir
+    const finalOutputDir = tempDir || outputDir;
+    
     // Get file info
     const fileInfo = path.parse(filePath);
     const outputFilename = `${fileInfo.name}_optimized.${format}`;
-    const outputPath = path.join(outputDir, outputFilename);
+    const outputPath = path.join(finalOutputDir, outputFilename);
+
+    // Ensure output directory exists (only in non-Vercel environments)
+    const isVercel = process.env.VERCEL === '1';
+    if (!isVercel && !fs.existsSync(finalOutputDir)) {
+      fs.mkdirSync(finalOutputDir, { recursive: true });
+      logger.info(`Created output directory: ${finalOutputDir}`);
+    }
 
     // Process image with Sharp
     await sharp(filePath)
@@ -143,7 +154,7 @@ const extractExifData = async (filePath) => {
 };
 
 /**
- * Generate a thumbnail from an image
+ * Generate a thumbnail for an image
  * @param {string} filePath - Path to the original image
  * @param {Object} options - Thumbnail options
  * @returns {Promise<string>} - Path to the thumbnail
@@ -156,12 +167,23 @@ const generateThumbnail = async (filePath, options = {}) => {
       fit = 'cover',
       format = 'jpeg',
       outputDir = config.tempUploadDir,
+      tempDir = null, // New parameter for Vercel compatibility
     } = options;
+
+    // Use provided tempDir if available, otherwise use outputDir
+    const finalOutputDir = tempDir || outputDir;
 
     // Get file info
     const fileInfo = path.parse(filePath);
     const outputFilename = `${fileInfo.name}_thumb.${format}`;
-    const outputPath = path.join(outputDir, outputFilename);
+    const outputPath = path.join(finalOutputDir, outputFilename);
+
+    // Ensure output directory exists (only in non-Vercel environments)
+    const isVercel = process.env.VERCEL === '1';
+    if (!isVercel && !fs.existsSync(finalOutputDir)) {
+      fs.mkdirSync(finalOutputDir, { recursive: true });
+      logger.info(`Created output directory: ${finalOutputDir}`);
+    }
 
     logger.info(`Generating thumbnail for ${filePath} to ${outputPath} (${width}x${height})`);
 

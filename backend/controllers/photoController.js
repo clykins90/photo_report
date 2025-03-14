@@ -199,7 +199,7 @@ const uploadPhotos = async (req, res, next) => {
         const optimizedFilename = path.basename(optimizedPath);
         const thumbnailFilename = path.basename(thumbnailPath);
         
-        // Prepare response object
+        // Prepare response object with fallback URLs
         const fileInfo = {
           _id: uniqueId,
           originalname: file.originalname,
@@ -213,24 +213,31 @@ const uploadPhotos = async (req, res, next) => {
           user: req.user._id,
           reportId: reportId || null,
           metadata,
-          path: useGridFS ? null : originalPath,
-          thumbnailPath: useGridFS ? null : thumbnailPath,
-          optimizedPath: useGridFS ? null : optimizedPath,
-          originalUrl: useGridFS 
-            ? `${baseUrl}/api/files/${gridfsInfo.original}` 
-            : `${baseUrl}/api/photos/${file.filename || path.basename(originalPath)}`,
-          optimizedUrl: useGridFS 
-            ? `${baseUrl}/api/files/${gridfsInfo.optimized}` 
-            : `${baseUrl}/api/photos/${optimizedFilename}`,
-          thumbnailUrl: useGridFS 
-            ? `${baseUrl}/api/files/${gridfsInfo.thumbnail}` 
-            : `${baseUrl}/api/photos/${thumbnailFilename}`,
         };
         
-        // If using GridFS, add GridFS IDs
-        if (useGridFS) {
+        // Add URLs based on whether GridFS was successful
+        if (useGridFS && gridfsInfo.original) {
+          // GridFS was successful, use GridFS URLs
+          fileInfo.path = null;
+          fileInfo.thumbnailPath = null;
+          fileInfo.optimizedPath = null;
+          fileInfo.originalUrl = `${baseUrl}/api/files/${gridfsInfo.original}`;
+          fileInfo.optimizedUrl = gridfsInfo.optimized ? `${baseUrl}/api/files/${gridfsInfo.optimized}` : fileInfo.originalUrl;
+          fileInfo.thumbnailUrl = gridfsInfo.thumbnail ? `${baseUrl}/api/files/${gridfsInfo.thumbnail}` : fileInfo.originalUrl;
           fileInfo.gridfsId = uniqueId.toString();
           fileInfo.gridfs = gridfsInfo;
+          
+          logger.info(`Using GridFS URLs for ${file.originalname}`);
+        } else {
+          // GridFS failed or was disabled, use filesystem URLs
+          fileInfo.path = originalPath;
+          fileInfo.thumbnailPath = thumbnailPath;
+          fileInfo.optimizedPath = optimizedPath;
+          fileInfo.originalUrl = `${baseUrl}/api/photos/${file.filename || path.basename(originalPath)}`;
+          fileInfo.optimizedUrl = `${baseUrl}/api/photos/${optimizedFilename}`;
+          fileInfo.thumbnailUrl = `${baseUrl}/api/photos/${thumbnailFilename}`;
+          
+          logger.info(`Using filesystem URLs for ${file.originalname}`);
         }
         
         // If a report ID was provided, add this photo to the report
@@ -1023,6 +1030,14 @@ const processImageForWebDisplay = async (file) => {
   try {
     let filePath;
     
+    // Check if we're running in Vercel environment
+    const isVercel = process.env.VERCEL === '1';
+    
+    // Use /tmp directory in Vercel environment
+    const tempDir = isVercel ? '/tmp' : config.tempUploadDir;
+    
+    logger.info(`Using temp directory: ${tempDir} (Vercel: ${isVercel})`);
+    
     // Handle both disk storage and memory storage
     if (file.destination && file.filename) {
       // For disk storage
@@ -1031,11 +1046,15 @@ const processImageForWebDisplay = async (file) => {
     } else if (file.buffer) {
       // For memory storage, save buffer to temporary file
       const tempFileName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-      filePath = path.join(config.tempUploadDir, tempFileName);
+      filePath = path.join(tempDir, tempFileName);
       
       // Ensure temp directory exists
-      if (!fsSync.existsSync(config.tempUploadDir)) {
-        fsSync.mkdirSync(config.tempUploadDir, { recursive: true });
+      if (!isVercel) {
+        // Only try to create directories in non-Vercel environments
+        if (!fsSync.existsSync(tempDir)) {
+          fsSync.mkdirSync(tempDir, { recursive: true });
+          logger.info(`Created temp directory: ${tempDir}`);
+        }
       }
       
       // Write buffer to temp file
@@ -1050,12 +1069,14 @@ const processImageForWebDisplay = async (file) => {
       width: 1200,
       quality: 80,
       format: 'jpeg',
+      tempDir: tempDir // Pass the temp directory to the image processor
     });
     
     // Generate thumbnail
     const thumbnailPath = await imageProcessor.generateThumbnail(filePath, {
       width: 300,
       height: 300,
+      tempDir: tempDir // Pass the temp directory to the image processor
     });
     
     return { 
