@@ -259,10 +259,12 @@ const getReport = async (req, res, next) => {
     }
 
     // Check if user is authorized to access this report
-    if (
-      report.user._id.toString() !== req.user.id &&
-      req.user.role !== 'admin'
-    ) {
+    logger.info(`Checking authorization - Report user: ${report.user}, Request user: ${req.user.id}, User role: ${req.user.role}`);
+    
+    const reportUserId = typeof report.user === 'object' ? report.user._id.toString() : report.user.toString();
+    
+    if (reportUserId !== req.user.id && req.user.role !== 'admin') {
+      logger.error(`Authorization failed - Report user: ${reportUserId}, Request user: ${req.user.id}, User role: ${req.user.role}`);
       throw new ApiError(403, 'Not authorized to access this report');
     }
 
@@ -551,8 +553,15 @@ const generatePdf = async (req, res, next) => {
       throw new ApiError(404, 'Report not found');
     }
     
+    logger.info(`Found report: ${report._id}, User: ${typeof report.user === 'object' ? report.user._id : report.user}`);
+    
     // Check if user has permission to access this report
-    if (report.user.toString() !== req.user.id && req.user.role !== 'admin') {
+    logger.info(`Checking authorization - Report user: ${report.user}, Request user: ${req.user.id}, User role: ${req.user.role}`);
+    
+    const reportUserId = typeof report.user === 'object' ? report.user._id.toString() : report.user.toString();
+    
+    if (reportUserId !== req.user.id && req.user.role !== 'admin') {
+      logger.error(`Authorization failed - Report user: ${reportUserId}, Request user: ${req.user.id}, User role: ${req.user.role}`);
       throw new ApiError(403, 'Not authorized to access this report');
     }
     

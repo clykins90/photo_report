@@ -39,6 +39,6 @@ router.post('/:id/generate-pdf', protect, generatePdf);
 router.post('/generate-summary', protect, generateSummary);
 
 // PDF generation
-router.get('/:reportId/pdf', generatePdf);
+router.get('/:reportId/pdf', protect, generatePdf);
 
 module.exports = router; 
