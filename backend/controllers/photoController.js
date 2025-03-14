@@ -750,12 +750,15 @@ const deletePhoto = async (req, res, next) => {
  */
 const getPhoto = async (req, res, next) => {
   try {
-    const filename = req.params.filename;
+    let filename = req.params.filename;
     
     // Validate filename to prevent directory traversal
-    if (!filename || filename.includes('..') || filename.includes('/')) {
+    if (!filename || filename.includes('..')) {
       throw new ApiError(400, 'Invalid filename');
     }
+    
+    // Remove any leading ./ from the filename
+    filename = filename.replace(/^\.\//, '');
     
     logger.info(`Retrieving photo: ${filename}`);
     
@@ -841,7 +844,15 @@ const getPhoto = async (req, res, next) => {
       path.join('./backend/uploads', filename),
       
       // Public directory fallback
-      path.join(cwdPath, 'public', 'uploads', filename)
+      path.join(cwdPath, 'public', 'uploads', filename),
+      
+      // Try with leading ./ (for paths from the error logs)
+      path.join(tempDir, `./${filename}`),
+      path.join(uploadsDir, `./${filename}`),
+      
+      // Try with just the filename (no path)
+      path.join(tempDir, path.basename(filename)),
+      path.join(uploadsDir, path.basename(filename))
     ];
     
     // Find the first path that exists

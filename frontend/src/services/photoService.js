@@ -70,6 +70,22 @@ export const getPhotoUrl = (fileOrFilename) => {
     return '/placeholder-image.png';
   }
   
+  // Handle FileSystemFileHandle objects (from the error logs)
+  if (fileOrFilename.handle && fileOrFilename.handle.kind === 'file') {
+    // Extract the filename from the path or relativePath
+    const path = fileOrFilename.path || fileOrFilename.relativePath;
+    if (path) {
+      // Remove any leading ./ from the path
+      const cleanPath = path.replace(/^\.\//, '');
+      return createApiUrl(cleanPath);
+    }
+    
+    // If we have a name from the handle, use that
+    if (fileOrFilename.handle.name) {
+      return createApiUrl(fileOrFilename.handle.name);
+    }
+  }
+  
   // First, prioritize direct URLs from the server (these are absolute URLs)
   // These are the most reliable as they come directly from the server
   if (fileOrFilename.thumbnailUrl) {
@@ -113,6 +129,19 @@ export const getPhotoUrl = (fileOrFilename) => {
     }
   }
   
+  // Handle path or relativePath directly (from the error logs)
+  if (fileOrFilename.path) {
+    // Remove any leading ./ from the path
+    const cleanPath = fileOrFilename.path.replace(/^\.\//, '');
+    return createApiUrl(cleanPath);
+  }
+  
+  if (fileOrFilename.relativePath) {
+    // Remove any leading ./ from the path
+    const cleanPath = fileOrFilename.relativePath.replace(/^\.\//, '');
+    return createApiUrl(cleanPath);
+  }
+  
   // For local files that aren't uploaded yet, use the preview URL
   // This should be a last resort as blob URLs are temporary
   if (fileOrFilename.status === 'pending' && fileOrFilename.preview) {
@@ -132,6 +161,16 @@ export const getPhotoUrl = (fileOrFilename) => {
     } else {
       return `${apiBase}/api/photos/${fileOrFilename._id}`;
     }
+  }
+  
+  // If we have a name property, use that
+  if (fileOrFilename.name) {
+    return createApiUrl(fileOrFilename.name);
+  }
+  
+  // If we have a filename property, use that
+  if (fileOrFilename.filename) {
+    return createApiUrl(fileOrFilename.filename);
   }
   
   // Fallback to placeholder

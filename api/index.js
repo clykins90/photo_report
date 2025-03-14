@@ -15,6 +15,16 @@ module.exports = (req, res) => {
     console.log(`Modified URL to prevent duplicate /api path: ${req.url}`);
   }
   
+  // Handle special characters in URLs
+  // Decode URL components to handle paths with special characters
+  req.url = decodeURIComponent(req.url);
+  
+  // Remove any leading ./ from paths
+  if (req.url.includes('./')) {
+    req.url = req.url.replace(/\.\//g, '');
+    console.log(`Removed ./ from URL: ${req.url}`);
+  }
+  
   // Forward the request to the Express app
   return app(req, res);
 }; 

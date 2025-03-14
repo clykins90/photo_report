@@ -3,6 +3,16 @@ import { useDropzone } from 'react-dropzone';
 import { uploadBatchPhotos, analyzePhoto, getPhotoUrl } from '../../services/photoService';
 import AIDescriptionEditor from './AIDescriptionEditor';
 
+// Add a helper function to extract the filename from a file object
+const extractFilename = (file) => {
+  if (file.name) return file.name;
+  if (file.originalname) return file.originalname;
+  if (file.path) return file.path.split('/').pop();
+  if (file.relativePath) return file.relativePath.split('/').pop();
+  if (file.handle && file.handle.name) return file.handle.name;
+  return 'unknown-file';
+};
+
 const PhotoUploader = ({ 
   onUploadComplete, 
   initialPhotos = [], 
@@ -22,7 +32,26 @@ const PhotoUploader = ({
   // Initialize with any provided photos
   useEffect(() => {
     if (initialPhotos.length > 0) {
-      setFiles(initialPhotos);
+      // Ensure all initial photos have the necessary properties
+      const processedPhotos = initialPhotos.map(photo => {
+        // If the photo doesn't have a proper ID, generate one
+        if (!photo.id) {
+          photo.id = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        }
+        
+        // Ensure the photo has a name property
+        if (!photo.name && photo.handle && photo.handle.name) {
+          photo.name = photo.handle.name;
+        } else if (!photo.name && photo.path) {
+          photo.name = photo.path.split('/').pop();
+        } else if (!photo.name && photo.relativePath) {
+          photo.name = photo.relativePath.split('/').pop();
+        }
+        
+        return photo;
+      });
+      
+      setFiles(processedPhotos);
     }
   }, [initialPhotos]);
 
@@ -38,6 +67,8 @@ const PhotoUploader = ({
         status: 'pending', // pending, uploading, analyzing, complete, error
         analysis: null,
         originalFile: file, // Store the original File object
+        // Ensure we have a name property
+        name: file.name || extractFilename(file)
       })
     );
     
@@ -118,7 +149,12 @@ const PhotoUploader = ({
               optimizedUrl: matchingUploadedFile.optimizedUrl,
               originalUrl: matchingUploadedFile.originalUrl,
               // Add server-generated ID
-              _id: matchingUploadedFile._id
+              _id: matchingUploadedFile._id,
+              // Ensure we have a name property
+              name: file.name || matchingUploadedFile.originalname || extractFilename(file),
+              // Add path properties for URL generation
+              path: matchingUploadedFile.filename || file.path,
+              filename: matchingUploadedFile.filename || file.name
             };
           }
           return file;
@@ -451,7 +487,7 @@ const PhotoUploader = ({
               <div key={file.id} className="relative">
                 <div className="relative pb-[100%] overflow-hidden rounded-lg border border-gray-200">
                   <img
-                    src={file.preview || getPhotoUrl(file)}
+                    src={getPhotoUrl(file)}
                     alt={file.name || 'Uploaded photo'}
                     className="absolute inset-0 w-full h-full object-cover"
                     onLoad={() => {
@@ -471,8 +507,27 @@ const PhotoUploader = ({
                         // Increment retry counter
                         imageRetryCounters.current[file.id]++;
                         
-                        // Add a timestamp to bust cache
-                        e.target.src = `${getPhotoUrl(file)}?retry=${Date.now()}`;
+                        console.log(`Retrying image load for ${file.name || 'unknown'} (attempt ${imageRetryCounters.current[file.id]})`);
+                        
+                        // Try different URL strategies
+                        if (imageRetryCounters.current[file.id] === 1) {
+                          // First retry: Try with a cache-busting parameter
+                          e.target.src = `${getPhotoUrl(file)}?retry=${Date.now()}`;
+                        } else if (imageRetryCounters.current[file.id] === 2) {
+                          // Second retry: Try with the path directly if available
+                          if (file.path) {
+                            const cleanPath = file.path.replace(/^\.\//, '');
+                            e.target.src = `/api/photos/${cleanPath}?retry=${Date.now()}`;
+                          } else {
+                            e.target.src = `/placeholder-image.png`;
+                          }
+                        } else {
+                          // Final fallback
+                          e.target.src = `/placeholder-image.png`;
+                        }
+                      } else {
+                        // After max retries, use placeholder
+                        e.target.src = `/placeholder-image.png`;
                       }
                     }}
                   />
@@ -509,8 +564,15 @@ const PhotoUploader = ({
                 
                 {/* File name */}
                 <p className="mt-1 text-sm text-gray-500 truncate">
-                  {file.name || 'Unnamed photo'}
+                  {file.name || file.originalname || (file.path && file.path.split('/').pop()) || 'Unnamed photo'}
                 </p>
+                
+                {/* Debug info - only show in development */}
+                {import.meta.env.DEV && (
+                  <p className="mt-1 text-xs text-gray-400 truncate">
+                    Path: {file.path || 'N/A'}, ID: {file._id || file.id || 'N/A'}
+                  </p>
+                )}
                 
                 {/* Remove button */}
                 {showUploadControls && (

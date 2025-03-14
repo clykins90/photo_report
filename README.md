@@ -46,6 +46,13 @@ This application allows contractors to:
 - Serverless functions for backend API endpoints
 - Configured with vercel.json for proper path rewrites and build settings
 
+### Photo Storage and Processing
+- Photos are uploaded to the server and processed using Sharp
+- Original, optimized, and thumbnail versions are generated for each photo
+- Photos are stored in MongoDB GridFS for efficient retrieval
+- The frontend uses server-provided URLs to access photos, not temporary blob URLs
+- Proper URL handling ensures photos can be accessed across sessions and devices
+
 #### Vercel Configuration
 The application uses a specific Vercel configuration to handle both the frontend SPA and backend API:
 - Backend server runs as a serverless function
