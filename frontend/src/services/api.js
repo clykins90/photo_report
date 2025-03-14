@@ -37,11 +37,10 @@ const normalizeApiPath = (url) => {
   // Log the current baseURL and incoming URL for debugging
   console.log(`API Request - BaseURL: ${api.defaults.baseURL}, Path: ${url}`);
   
-  // If we're using /api as base and URL starts with /api
-  if (api.defaults.baseURL === '/api' && url.startsWith('/api/')) {
-    // Remove the duplicate /api prefix
-    const normalized = url.substring(4);
-    console.log(`Normalized API path from ${url} to ${normalized}`);
+  // Only normalize if we detect a true duplication, like /api/api/...
+  if (url.startsWith('/api/api/')) {
+    const normalized = url.replace('/api/api/', '/api/');
+    console.log(`Normalized duplicate API path from ${url} to ${normalized}`);
     return normalized;
   }
   

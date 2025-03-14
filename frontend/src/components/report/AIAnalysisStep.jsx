@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { analyzePhoto, analyzeBatchPhotos } from '../../services/photoService';
+import { analyzePhoto, analyzeBatchPhotos, getPhotoUrl } from '../../services/photoService';
 import AIDescriptionEditor from '../photo/AIDescriptionEditor';
 import DamageForm from './DamageForm';
 
@@ -325,50 +325,9 @@ const AIAnalysisStep = ({
 
   // Get the best available image URL for a photo
   const getBestImageUrl = (photo) => {
-    const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
-    
-    // If the photo has uploadedData with paths, use those first
-    if (photo.uploadedData) {
-      // First choice: direct thumbnail URL
-      if (photo.uploadedData.thumbnailUrl) {
-        return photo.uploadedData.thumbnailUrl;
-      }
-      
-      // Second choice: construct URL from thumbnailFilename
-      if (photo.uploadedData.thumbnailFilename) {
-        return `${baseApiUrl}/api/photos/${photo.uploadedData.thumbnailFilename}`;
-      }
-      
-      // Third choice: construct URL from thumbnailPath
-      if (photo.uploadedData.thumbnailPath) {
-        const thumbFilename = photo.uploadedData.thumbnailPath.split('/').pop();
-        return `${baseApiUrl}/api/photos/${thumbFilename}`;
-      }
-      
-      // Fourth choice: optimized URL
-      if (photo.uploadedData.optimizedUrl) {
-        return photo.uploadedData.optimizedUrl;
-      }
-      
-      // Fifth choice: construct URL from optimizedFilename
-      if (photo.uploadedData.optimizedFilename) {
-        return `${baseApiUrl}/api/photos/${photo.uploadedData.optimizedFilename}`;
-      }
-      
-      // Sixth choice: construct URL from optimizedPath
-      if (photo.uploadedData.optimizedPath) {
-        const optFilename = photo.uploadedData.optimizedPath.split('/').pop();
-        return `${baseApiUrl}/api/photos/${optFilename}`;
-      }
-      
-      // Last resort for uploaded files: original filename
-      if (photo.uploadedData.filename) {
-        return `${baseApiUrl}/api/photos/${photo.uploadedData.filename}`;
-      }
-    }
-    
-    // Fallback to preview or placeholder
-    return photo.preview || '/placeholder-image.png';
+    // Use the centralized photo URL handler from photoService
+    // which properly handles path prefixes to avoid duplicates
+    return getPhotoUrl(photo);
   };
 
   // Render the superhero loading screen

@@ -39,9 +39,30 @@ export const getPhotoUrl = (fileOrFilename) => {
   const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
   const apiBase = baseApiUrl.endsWith('/') ? baseApiUrl.slice(0, -1) : baseApiUrl;
   
+  // Function to create a proper API URL that avoids duplicate /api prefixes
+  const createApiUrl = (path) => {
+    // Check if baseApiUrl already ends with /api
+    const isApiBase = apiBase === '/api';
+    
+    // Check if base path contains "/api" at the end
+    const baseEndsWithApi = apiBase.endsWith('/api');
+    
+    // Create proper URL structure based on environment
+    if (isApiBase) {
+      // When base is exactly '/api', just append path segments
+      return `/api/photos/${path}`;
+    } else if (baseEndsWithApi) {
+      // When base ends with /api but isn't exactly '/api'
+      return `${apiBase}/photos/${path}`;
+    } else {
+      // Default case: full path with /api
+      return `${apiBase}/api/photos/${path}`;
+    }
+  };
+  
   // If given a string filename, use it directly
   if (typeof fileOrFilename === 'string') {
-    return `${apiBase}/api/photos/${fileOrFilename}`;
+    return createApiUrl(fileOrFilename);
   }
   
   // If file has no data, return placeholder
@@ -67,15 +88,15 @@ export const getPhotoUrl = (fileOrFilename) => {
     
     // Fallback to filename-based URLs
     if (fileOrFilename.uploadedData.thumbnailFilename) {
-      return `${apiBase}/api/photos/${fileOrFilename.uploadedData.thumbnailFilename}`;
+      return createApiUrl(fileOrFilename.uploadedData.thumbnailFilename);
     }
     
     if (fileOrFilename.uploadedData.optimizedFilename) {
-      return `${apiBase}/api/photos/${fileOrFilename.uploadedData.optimizedFilename}`;
+      return createApiUrl(fileOrFilename.uploadedData.optimizedFilename);
     }
     
     if (fileOrFilename.uploadedData.filename) {
-      return `${apiBase}/api/photos/${fileOrFilename.uploadedData.filename}`;
+      return createApiUrl(fileOrFilename.uploadedData.filename);
     }
   }
   
@@ -94,7 +115,17 @@ export const getPhotoUrl = (fileOrFilename) => {
   
   // Check if we have an ID that might be used directly in the URL
   if (fileOrFilename._id) {
-    return `${apiBase}/api/files/${fileOrFilename._id}`;
+    // Use the same URL structure as createApiUrl for consistency
+    const isApiBase = apiBase === '/api';
+    const baseEndsWithApi = apiBase.endsWith('/api');
+    
+    if (isApiBase) {
+      return `/api/files/${fileOrFilename._id}`;
+    } else if (baseEndsWithApi) {
+      return `${apiBase}/files/${fileOrFilename._id}`;
+    } else {
+      return `${apiBase}/api/files/${fileOrFilename._id}`;
+    }
   }
   
   // Fallback to placeholder

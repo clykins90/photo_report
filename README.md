@@ -203,7 +203,13 @@ If you encounter a 404 NOT_FOUND error in your Vercel deployment, check the foll
    - Make sure your Express app is properly exported from `backend/server.js`
    - Set up the proper `rewrites` in vercel.json to direct API requests to your serverless function
 
-4. **Example of a Working Configuration**:
+4. **Avoid Duplicate API Path Prefixes**:
+   - The API entry point (api/index.js) now strips the leading `/api` from URLs to prevent duplicate paths
+   - This fixes issues where URLs like `/api/api/photos/filename.jpeg` would return 404 errors
+   - All internal routes are still mounted with `/api` prefixes in the Express app
+   - The URL modification is handled transparently for all API requests
+
+5. **Example of a Working Configuration**:
    ```json
    {
      "version": 2,
@@ -221,16 +227,16 @@ If you encounter a 404 NOT_FOUND error in your Vercel deployment, check the foll
    }
    ```
 
-5. **Resolve Nested Directory Issues**:
+6. **Resolve Nested Directory Issues**:
    - If you have a nested directory structure (e.g., `frontend/frontend`), make sure your build path is correct
    - Check the actual output location of your build files
    - Use proper path references in your vercel.json configuration
 
-6. **Environment Variables**:
+7. **Environment Variables**:
    - Confirm all required environment variables are set in the Vercel project settings
    - Check that MongoDB connection string and other critical variables are properly configured
 
-7. **Deployment Logs**:
+8. **Deployment Logs**:
    - Review the Vercel deployment logs for any build or runtime errors
    - Look for issues with the build process or missing dependencies
 
@@ -256,6 +262,14 @@ If you encounter a 404 NOT_FOUND error in your Vercel deployment, check the foll
   - Implemented proper cleanup of files when no longer needed
   - Added dedicated API endpoints for file operations through GridFS
   - Improved error handling for file operations
+- **Fixed API Path Prefix Issues**: Resolved problems with duplicate /api prefixes in URLs
+  - Updated the API entry point to strip leading /api from incoming URLs to prevent routing issues
+  - Centralized image URL handling using a consistent getPhotoUrl utility function
+  - Fixed frontend components that were generating URLs with duplicate /api prefixes
+  - Added specific handling for different base URL configurations across environments
+  - Enhanced URL normalization to ensure correct paths in both development and production
+  - Eliminated 404 errors caused by malformed URLs with duplicate /api segments
+  - Improved debug logging to help identify URL-related issues
 - **Optimized GridFS Queries**: Implemented caching for frequently used GridFS operations
   - Added caching for empty queries to reduce database load
   - Implemented cache invalidation when files are added or deleted
