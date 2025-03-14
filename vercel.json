@@ -19,8 +19,23 @@
       "dest": "backend/server.js"
     },
     {
+      "src": "/assets/index-yS2KU5Q9.js",
+      "headers": { "Content-Type": "application/javascript; charset=utf-8" },
+      "dest": "/assets/index-yS2KU5Q9.js"
+    },
+    {
+      "src": "/assets/(.*\\.js)",
+      "headers": { "Content-Type": "application/javascript; charset=utf-8" },
+      "dest": "/assets/$1"
+    },
+    {
       "src": "/assets/(.*)",
       "dest": "/assets/$1"
+    },
+    {
+      "src": "/(.*\\.js)",
+      "headers": { "Content-Type": "application/javascript; charset=utf-8" },
+      "dest": "/$1"
     },
     {
       "src": "/(.*\\.[a-z0-9]+)$",
