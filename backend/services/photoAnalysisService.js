@@ -35,14 +35,20 @@ For tags, include 3-5 relevant keywords that describe the key elements visible i
  * @returns {Promise<Object>} Analysis results
  */
 const analyzePhoto = async (imagePath) => {
+  // Start timing the function execution
+  const startTime = Date.now();
   try {
-    logger.info(`Analyzing photo: ${imagePath}`);
+    logger.info(`[TIMING] Starting photo analysis for ${imagePath} at: ${new Date().toISOString()}`);
     
     // Read image as base64
+    logger.info(`[TIMING] Reading image file - elapsed: ${(Date.now() - startTime)/1000}s`);
     const imageBuffer = await fsPromises.readFile(imagePath);
     const base64Image = imageBuffer.toString('base64');
+    logger.info(`[TIMING] Image converted to base64 (${Math.round(base64Image.length/1024)} KB) - elapsed: ${(Date.now() - startTime)/1000}s`);
     
     // Call OpenAI Vision API
+    logger.info(`[TIMING] Starting OpenAI API call - elapsed: ${(Date.now() - startTime)/1000}s`);
+    const apiCallStartTime = Date.now();
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -66,6 +72,8 @@ const analyzePhoto = async (imagePath) => {
       max_tokens: 1000,
       response_format: { type: "json_object" }
     });
+    const apiCallDuration = (Date.now() - apiCallStartTime)/1000;
+    logger.info(`[TIMING] OpenAI API call completed in ${apiCallDuration}s - total elapsed: ${(Date.now() - startTime)/1000}s`);
     
     // Parse the response
     const content = response.choices[0].message.content;
@@ -73,6 +81,7 @@ const analyzePhoto = async (imagePath) => {
     
     try {
       // Extract JSON from the response
+      logger.info(`[TIMING] Parsing API response - elapsed: ${(Date.now() - startTime)/1000}s`);
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         analysisResult = JSON.parse(jsonMatch[0]);
@@ -91,10 +100,20 @@ const analyzePhoto = async (imagePath) => {
       };
     }
     
-    logger.info(`Analysis complete for ${imagePath}`);
+    const totalTime = (Date.now() - startTime)/1000;
+    logger.info(`[TIMING] Analysis complete for ${imagePath} - total time: ${totalTime}s (API call: ${apiCallDuration}s)`);
+    
+    // Add timing information to the result
+    analysisResult.processingTime = {
+      total: totalTime,
+      apiCall: apiCallDuration
+    };
+    
     return analysisResult;
   } catch (error) {
+    const errorTime = (Date.now() - startTime)/1000;
     logger.error(`Error analyzing photo: ${error.message}`);
+    logger.error(`[TIMING] Error occurred at elapsed time: ${errorTime}s`);
     throw error;
   }
 };

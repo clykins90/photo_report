@@ -301,6 +301,7 @@ export const analyzePhoto = async (photo, reportId) => {
  * @returns {Promise} - Promise resolving to the server response
  */
 export const analyzeBatchPhotos = async (photos, reportId) => {
+  const startTime = Date.now();
   try {
     if (!photos || !Array.isArray(photos) || photos.length === 0) {
       throw new Error('Valid array of photos is required for batch analysis');
@@ -310,6 +311,7 @@ export const analyzeBatchPhotos = async (photos, reportId) => {
       throw new Error('Report ID is required for batch photo analysis');
     }
 
+    photoLogger(`[TIMING] Starting batch analysis at ${new Date().toISOString()}`);
     photoLogger(`Analyzing batch of ${photos.length} photos for report: ${reportId}`);
 
     // Extract ONLY MongoDB ObjectIDs (24 hex chars)
@@ -323,14 +325,22 @@ export const analyzeBatchPhotos = async (photos, reportId) => {
     }
     
     photoLogger(`Extracted ${photoIds.length} MongoDB ObjectIDs for analysis:`, photoIds);
+    photoLogger(`[TIMING] Making API request - elapsed: ${(Date.now() - startTime)/1000}s`);
     
     // Use URL parameter for reportId and send photoIds in the request body
     // Don't include any query parameters
+    const apiCallStartTime = Date.now();
     const response = await api.post(`/photos/analyze/${reportId}`, { 
       photoIds: photoIds
     });
+    const apiCallDuration = (Date.now() - apiCallStartTime)/1000;
     
+    photoLogger(`[TIMING] API request completed in ${apiCallDuration}s - total elapsed: ${(Date.now() - startTime)/1000}s`);
     photoLogger(`Batch analysis complete for ${response.data.results?.length || 0} photos`);
+    
+    if (response.data.executionTime) {
+      photoLogger(`[TIMING] Server reported execution time: ${response.data.executionTime}s`);
+    }
     
     // Map the results to the expected format
     const results = response.data.results?.map(result => ({
@@ -343,18 +353,32 @@ export const analyzeBatchPhotos = async (photos, reportId) => {
     // Check if there are remaining photos to process
     const totalRemaining = response.data.totalPhotosRemaining || 0;
     
+    const totalTime = (Date.now() - startTime)/1000;
+    photoLogger(`[TIMING] Total client-side processing time: ${totalTime}s`);
+    
     return {
       success: true,
       data: results,
       complete: totalRemaining === 0,
       totalRemaining: totalRemaining,
-      processedIds: response.data.results?.map(r => r.photoId) || []
+      processedIds: response.data.results?.map(r => r.photoId) || [],
+      timing: {
+        total: totalTime,
+        apiCall: apiCallDuration,
+        serverExecution: response.data.executionTime || 'unknown'
+      }
     };
   } catch (error) {
+    const errorTime = (Date.now() - startTime)/1000;
+    photoLogger(`[TIMING] Error occurred at elapsed time: ${errorTime}s`);
     photoLogger('Error analyzing batch of photos:', error, true);
     return {
       success: false,
-      error: error.response?.data?.error || error.message || 'Failed to analyze photos'
+      error: error.response?.data?.error || error.message || 'Failed to analyze photos',
+      timing: {
+        total: errorTime,
+        error: true
+      }
     };
   }
 };

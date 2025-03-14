@@ -211,6 +211,10 @@ const deletePhoto = async (req, res) => {
  * @access Private
  */
 const analyzePhotos = async (req, res) => {
+  // Start timing the function execution
+  const startTime = Date.now();
+  logger.info(`[TIMING] Starting photo analysis at: ${new Date().toISOString()}`);
+  
   try {
     let photos = [];
     let reportId = req.params.reportId;
@@ -227,6 +231,7 @@ const analyzePhotos = async (req, res) => {
       return res.status(400).json({ error: 'Report ID is required' });
     }
     
+    logger.info(`[TIMING] Finding report - elapsed: ${(Date.now() - startTime)/1000}s`);
     report = await Report.findById(reportId);
     if (!report) {
       return res.status(404).json({ error: 'Report not found' });
@@ -234,6 +239,7 @@ const analyzePhotos = async (req, res) => {
     
     // Log the report photos for debugging
     console.log(`Found report with ${report.photos?.length || 0} photos`);
+    logger.info(`[TIMING] Found report - elapsed: ${(Date.now() - startTime)/1000}s`);
     
     // Check if specific photo ID is provided
     if (req.body.photoId) {
@@ -272,28 +278,36 @@ const analyzePhotos = async (req, res) => {
       return res.status(404).json({ error: 'No photos found to analyze' });
     }
     
-    logger.info(`Analyzing ${photos.length} photos for report ${reportId}`);
+    logger.info(`[TIMING] Starting analysis of ${photos.length} photos - elapsed: ${(Date.now() - startTime)/1000}s`);
     
     const results = [];
     
     for (const photo of photos) {
       try {
+        logger.info(`[TIMING] Processing photo ${photo._id} - elapsed: ${(Date.now() - startTime)/1000}s`);
+        
         // Create a temporary file in /tmp directory
         const tempFilePath = `/tmp/${photo._id}.jpg`;
         
         // Get the file from GridFS and save to temp file
         const bucket = await gridfs.initGridFS();
+        logger.info(`[TIMING] GridFS initialized - elapsed: ${(Date.now() - startTime)/1000}s`);
+        
         const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(photo._id));
         const writeStream = fs.createWriteStream(tempFilePath);
         
+        logger.info(`[TIMING] Starting file download - elapsed: ${(Date.now() - startTime)/1000}s`);
         await new Promise((resolve, reject) => {
           downloadStream.pipe(writeStream)
             .on('error', reject)
             .on('finish', resolve);
         });
+        logger.info(`[TIMING] File download complete - elapsed: ${(Date.now() - startTime)/1000}s`);
         
         // Analyze the photo
+        logger.info(`[TIMING] Starting AI analysis - elapsed: ${(Date.now() - startTime)/1000}s`);
         const analysisResult = await photoAnalysisService.analyzePhoto(tempFilePath);
+        logger.info(`[TIMING] AI analysis complete - elapsed: ${(Date.now() - startTime)/1000}s`);
         
         // Find the photo in the report and update it
         const photoIndex = report.photos.findIndex(p => p._id.toString() === photo._id.toString());
@@ -304,7 +318,9 @@ const analyzePhotos = async (req, res) => {
         }
         
         // Save the updated report
+        logger.info(`[TIMING] Saving report - elapsed: ${(Date.now() - startTime)/1000}s`);
         await report.save();
+        logger.info(`[TIMING] Report saved - elapsed: ${(Date.now() - startTime)/1000}s`);
         
         results.push({
           photoId: photo._id,
@@ -321,6 +337,7 @@ const analyzePhotos = async (req, res) => {
         }
       } catch (error) {
         logger.error(`Error analyzing photo ${photo._id}: ${error.message}`);
+        logger.error(`[TIMING] Error occurred at elapsed time: ${(Date.now() - startTime)/1000}s`);
         results.push({
           photoId: photo._id,
           status: 'error',
@@ -329,17 +346,26 @@ const analyzePhotos = async (req, res) => {
       }
     }
     
+    const totalTime = (Date.now() - startTime)/1000;
+    logger.info(`[TIMING] Total execution time: ${totalTime}s`);
+    
     return res.status(200).json({
-      message: `Analyzed ${results.length} photos`,
+      message: `Analyzed ${results.length} photos in ${totalTime}s`,
       results,
+      executionTime: totalTime,
       batchComplete: true,
       totalPhotosRemaining: req.body.photoIds ? 
         req.body.photoIds.length - photos.length : 
         report.photos.filter(p => !p.aiAnalysis || !p.aiAnalysis.description).length - photos.length
     });
   } catch (error) {
+    const errorTime = (Date.now() - startTime)/1000;
     logger.error(`Error in analyzePhotos: ${error.message}`);
-    return res.status(500).json({ error: error.message });
+    logger.error(`[TIMING] Error occurred at elapsed time: ${errorTime}s`);
+    return res.status(500).json({ 
+      error: error.message,
+      executionTime: errorTime
+    });
   }
 };
 
