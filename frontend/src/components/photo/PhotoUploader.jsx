@@ -315,9 +315,6 @@ const PhotoUploader = ({
           }
         });
         
-        // Update the state with the current files
-        setFiles(currentFiles);
-        
         // Add debugging to see what's being passed to the parent
         console.log('Calling onUploadComplete with files:', currentFiles);
         
