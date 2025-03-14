@@ -14,12 +14,14 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
-// Log all requests to photo routes
+// Log only non-GET photo API requests to reduce noise
 router.use((req, res, next) => {
-  logger.info(`Photo API request: ${req.method} ${req.originalUrl}`, {
-    contentType: req.headers['content-type'],
-    contentLength: req.headers['content-length']
-  });
+  if (req.method !== 'GET') {
+    logger.info(`Photo API request: ${req.method} ${req.originalUrl}`);
+  } else {
+    // For GET requests, only log at debug level
+    logger.debug(`Photo API request: ${req.method} ${req.originalUrl}`);
+  }
   next();
 });
 
@@ -35,7 +37,7 @@ router.use(protect);
 router.post(
   '/upload',
   (req, res, next) => {
-    logger.info('Starting photo upload process');
+    logger.debug('Starting photo upload process');
     next();
   },
   uploadMany('photos', 50),

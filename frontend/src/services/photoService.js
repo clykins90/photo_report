@@ -1,6 +1,36 @@
 import api from './api';
 
 /**
+ * Utility function to control logging verbosity
+ * @param {string} message - Message to log
+ * @param {any} data - Optional data to log
+ * @param {boolean} isError - Whether this is an error log
+ * @param {boolean} forceLog - Whether to force logging regardless of batch size
+ */
+const photoLogger = (message, data = null, isError = false, forceLog = false) => {
+  // Get environment variable or localStorage setting for verbose logging
+  const verboseLogging = import.meta.env.VITE_VERBOSE_PHOTO_LOGGING === 'true' || 
+                         localStorage.getItem('verbosePhotoLogging') === 'true';
+  
+  // Always log errors, or if verbose logging is enabled, or if forced
+  if (isError || verboseLogging || forceLog) {
+    if (isError) {
+      if (data) {
+        console.error(message, data);
+      } else {
+        console.error(message);
+      }
+    } else {
+      if (data) {
+        console.log(message, data);
+      } else {
+        console.log(message);
+      }
+    }
+  }
+};
+
+/**
  * Get the proper URL for a photo file
  * @param {string} filename - The filename or full object with uploadedData
  * @returns {string} - The URL to access the photo
@@ -68,7 +98,7 @@ export const getPhotoUrl = (fileOrFilename) => {
   }
   
   // Fallback to placeholder
-  console.warn('Unable to determine photo URL from object:', fileOrFilename);
+  photoLogger('Unable to determine photo URL from object:', fileOrFilename, true);
   return '/placeholder-image.png';
 };
 
@@ -85,6 +115,9 @@ export const uploadBatchPhotos = async (files, reportId = null, progressCallback
       throw new Error('No files provided for upload');
     }
 
+    // Log only basic info for batch uploads
+    photoLogger(`Starting batch upload of ${files.length} photos${reportId ? ' for report: ' + reportId : ''}`, null, false, true);
+
     const formData = new FormData();
     
     // Add each file to the form data
@@ -100,21 +133,36 @@ export const uploadBatchPhotos = async (files, reportId = null, progressCallback
     // Create config with progress tracking if callback provided
     const config = {};
     if (progressCallback) {
+      // Initialize progress to 0
+      progressCallback(0);
+      
       config.onUploadProgress = progressEvent => {
-        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        progressCallback(percentCompleted);
+        // Only update if we have total information
+        if (progressEvent.total) {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          // Limit progress to 99% until server processing completes
+          const cappedProgress = Math.min(percentCompleted, 99);
+          progressCallback(cappedProgress);
+        }
       };
     }
     
     // Send the upload request
     const response = await api.post('/api/photos/upload', formData, config);
     
+    // Set progress to 100% when complete
+    if (progressCallback) {
+      progressCallback(100);
+    }
+    
+    photoLogger(`Batch upload complete: ${response.data.files?.length || 0} files processed`, null, false, true);
+    
     return {
       success: true,
       files: response.data.files || []
     };
   } catch (error) {
-    console.error('Photo batch upload failed:', error);
+    photoLogger('Photo batch upload failed:', error, true, true);
     return {
       success: false,
       error: error.message || 'Failed to upload photos'
@@ -135,6 +183,8 @@ export const uploadSinglePhoto = async (file, reportId = null, progressCallback 
       throw new Error('No file provided for upload');
     }
     
+    photoLogger(`Uploading single photo${reportId ? ' for report: ' + reportId : ''}`, file.name);
+    
     const formData = new FormData();
     formData.append('photos', file); // Use 'photos' to match consolidated endpoint
     
@@ -146,14 +196,27 @@ export const uploadSinglePhoto = async (file, reportId = null, progressCallback 
     // Create config with progress tracking if callback provided
     const config = {};
     if (progressCallback) {
+      // Initialize progress to 0
+      progressCallback(0);
+      
       config.onUploadProgress = progressEvent => {
-        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        progressCallback(percentCompleted);
+        // Only update if we have total information
+        if (progressEvent.total) {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          // Limit progress to 99% until server processing completes
+          const cappedProgress = Math.min(percentCompleted, 99);
+          progressCallback(cappedProgress);
+        }
       };
     }
     
     // Send the upload request using the consolidated endpoint
     const response = await api.post('/api/photos/upload', formData, config);
+    
+    // Set progress to 100% when complete
+    if (progressCallback) {
+      progressCallback(100);
+    }
     
     // Return the first file from the response since we only uploaded one
     return {
@@ -163,7 +226,7 @@ export const uploadSinglePhoto = async (file, reportId = null, progressCallback 
         : null
     };
   } catch (error) {
-    console.error('Photo upload failed:', error);
+    photoLogger('Photo upload failed:', error, true);
     return {
       success: false,
       error: error.message || 'Failed to upload photo'
@@ -198,7 +261,7 @@ export const analyzePhoto = async (photo) => {
       data: response.data.data
     };
   } catch (error) {
-    console.error('Photo analysis failed:', error);
+    photoLogger('Photo analysis failed:', error, true);
     return {
       success: false,
       error: error.message || 'Failed to analyze photo'
@@ -258,7 +321,7 @@ export const analyzeBatchPhotos = async (photos) => {
       data: response.data.data
     };
   } catch (error) {
-    console.error('Batch photo analysis failed:', error);
+    photoLogger('Batch photo analysis failed:', error, true, true);
     return {
       success: false,
       error: error.message || 'Failed to analyze photos'
@@ -285,7 +348,7 @@ export const deletePhoto = async (photoId) => {
       message: response.data.message || 'Photo deleted successfully'
     };
   } catch (error) {
-    console.error('Photo deletion failed:', error);
+    photoLogger('Photo deletion failed:', error, true);
     return {
       success: false,
       error: error.message || 'Failed to delete photo'

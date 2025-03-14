@@ -624,135 +624,6 @@ const generatePdf = async (req, res, next) => {
 };
 
 /**
- * Generate a unique sharing link for a report
- * @route POST /api/reports/:id/share
- * @access Private
- */
-const generateShareLink = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    
-    // Find the report
-    const report = await Report.findById(id);
-    
-    if (!report) {
-      return res.status(404).json({
-        success: false,
-        message: 'Report not found',
-      });
-    }
-    
-    // Check if user is authorized to share this report
-    if (report.user.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to share this report',
-      });
-    }
-    
-    // Generate a unique sharing token if one doesn't exist
-    if (!report.shareToken) {
-      const shareToken = crypto.randomBytes(20).toString('hex');
-      report.shareToken = shareToken;
-      report.shareExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days from now
-      await report.save();
-    } else if (report.shareExpiry < new Date()) {
-      // If token is expired, generate a new one
-      const shareToken = crypto.randomBytes(20).toString('hex');
-      report.shareToken = shareToken;
-      report.shareExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days from now
-      await report.save();
-    }
-    
-    // Construct the sharing URL
-    const shareUrl = `${req.protocol}://${req.get('host')}/shared-report/${report.shareToken}`;
-    
-    res.status(200).json({
-      success: true,
-      data: {
-        shareUrl,
-        shareToken: report.shareToken,
-        shareExpiry: report.shareExpiry,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Get a shared report using a share token
- * @route GET /api/reports/shared/:token
- * @access Public
- */
-const getSharedReport = async (req, res, next) => {
-  try {
-    const { token } = req.params;
-    
-    // Find the report by share token
-    const report = await Report.findOne({
-      shareToken: token,
-      shareExpiry: { $gt: new Date() }, // Ensure token is not expired
-    }).populate('user', 'firstName lastName email company');
-    
-    if (!report) {
-      return res.status(404).json({
-        success: false,
-        message: 'Shared report not found or link has expired',
-      });
-    }
-    
-    res.status(200).json({
-      success: true,
-      data: report,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Revoke a sharing link for a report
- * @route DELETE /api/reports/:id/share
- * @access Private
- */
-const revokeShareLink = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    
-    // Find the report
-    const report = await Report.findById(id);
-    
-    if (!report) {
-      return res.status(404).json({
-        success: false,
-        message: 'Report not found',
-      });
-    }
-    
-    // Check if user is authorized to modify this report
-    if (report.user.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to modify this report',
-      });
-    }
-    
-    // Remove sharing token
-    report.shareToken = null;
-    report.shareExpiry = null;
-    await report.save();
-    
-    res.status(200).json({
-      success: true,
-      message: 'Sharing link revoked successfully',
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
  * Generate a comprehensive report summary from multiple photo analyses
  * @route   POST /api/reports/generate-summary
  * @access  Private
@@ -768,14 +639,26 @@ const generateSummary = async (req, res, next) => {
     // Log the request
     logger.info(`Generating summary for ${photos.length} photos`);
     
+    // Validate that photos have analysis data
+    const validPhotos = photos.filter(photo => photo.analysis && photo.analysis.description);
+    
+    if (validPhotos.length === 0) {
+      throw new ApiError(400, 'None of the provided photos contain valid analysis data');
+    }
+    
+    logger.info(`Found ${validPhotos.length} photos with valid analysis data`);
+    
     // Extract analyses from photos
-    const photoAnalyses = photos.map(photo => ({
+    const photoAnalyses = validPhotos.map(photo => ({
       analysis: photo.analysis,
-      filename: photo.uploadedData?.filename || 'unknown'
+      filename: photo.uploadedData?.filename || photo.name || 'unknown'
     }));
     
     // Generate the summary
     const summary = await reportAIService.generateReportSummary(photoAnalyses);
+    
+    // Log success
+    logger.info(`Successfully generated summary with ${summary.damages?.length || 0} damage items`);
     
     res.status(200).json({
       success: true,
@@ -795,8 +678,5 @@ module.exports = {
   deleteReport,
   addPhotos,
   generatePdf,
-  generateShareLink,
-  getSharedReport,
-  revokeShareLink,
   generateSummary
 }; 

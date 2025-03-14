@@ -249,8 +249,12 @@ const AIAnalysisStep = ({
         console.log(`Generating summary for ${analyzedPhotos.length} analyzed photos`);
         setLocalGeneratingSummary(true);
         try {
-          await handleGenerateAISummary();
-          console.log('Summary generation completed successfully');
+          // Make sure we're passing the updated photos to the summary generator
+          const result = await handleGenerateAISummary(analyzedPhotos);
+          console.log('Summary generation completed successfully:', result);
+          
+          // Show success message to user
+          setError(null);
         } catch (summaryError) {
           console.error('Error generating summary:', summaryError);
           setError(`Failed to generate summary: ${summaryError.message || 'Unknown error'}`);

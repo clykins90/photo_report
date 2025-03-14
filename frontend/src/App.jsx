@@ -9,7 +9,6 @@ import CreateReportPage from './pages/CreateReportPage';
 import EditReportPage from './pages/EditReportPage';
 import ProfilePage from './pages/ProfilePage';
 import AuthContext from './context/AuthContext';
-import SharedReportPage from './pages/SharedReportPage';
 import BackupRecoveryPage from './pages/BackupRecoveryPage';
 
 // Protected route component
@@ -96,7 +95,6 @@ function App() {
               </ProtectedRoute>
             } 
           />
-          <Route path="/shared-report/:token" element={<SharedReportPage />} />
           
           {/* 404 route */}
           <Route path="*" element={<NotFound />} />

@@ -54,14 +54,38 @@ const PhotoUploader = ({
         // Get files that need uploading
         const filesToUpload = newFiles.map(file => file.originalFile);
         
-        console.log(`Automatically uploading ${filesToUpload.length} files...`);
-        console.log(`Report ID for photo association: ${reportId}`);
+        // Update all new files to 'uploading' status
+        setFiles(prev => prev.map(file => {
+          if (newFiles.some(newFile => newFile.id === file.id)) {
+            return {
+              ...file,
+              status: 'uploading'
+            };
+          }
+          return file;
+        }));
         
         // Upload files in batch
         const response = await uploadBatchPhotos(
           filesToUpload, 
           reportId, // Pass the reportId if available
-          (progress) => setUploadProgress(progress)
+          (progress) => {
+            setUploadProgress(progress);
+            
+            // Update file status based on progress
+            if (progress < 100) {
+              // Files are still uploading
+              setFiles(prev => prev.map(file => {
+                if (newFiles.some(newFile => newFile.id === file.id) && file.status !== 'uploading') {
+                  return {
+                    ...file,
+                    status: 'uploading'
+                  };
+                }
+                return file;
+              }));
+            }
+          }
         );
         
         if (!response.success) {
@@ -151,8 +175,13 @@ const PhotoUploader = ({
         return;
       }
       
-      console.log(`Uploading ${filesToUpload.length} files...`);
-      console.log(`Report ID for photo association: ${reportId}`);
+      // Only log this information if verbose logging is enabled
+      const verboseLogging = import.meta.env.VITE_VERBOSE_PHOTO_LOGGING === 'true' || 
+                            localStorage.getItem('verbosePhotoLogging') === 'true';
+      if (verboseLogging) {
+        console.log(`Uploading ${filesToUpload.length} files...`);
+        console.log(`Report ID for photo association: ${reportId}`);
+      }
       
       // Upload files in batch
       const response = await uploadBatchPhotos(

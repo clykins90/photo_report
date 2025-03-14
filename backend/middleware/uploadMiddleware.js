@@ -102,17 +102,15 @@ const handleUploadErrors = (req, res, next) => {
 module.exports = {
   // Single file upload
   uploadSingle: (fieldName) => (req, res, next) => {
-    logger.info(`Starting single file upload for field: ${fieldName}`);
+    logger.debug(`Starting single file upload for field: ${fieldName}`);
     upload.single(fieldName)(req, res, handleUploadErrors(req, res, next));
   },
   
   // Multiple files upload - using the same name as in photoRoutes.js
   uploadMany: (fieldName, maxCount = 50) => (req, res, next) => {
-    logger.info(`Starting multiple file upload for field: ${fieldName}, max count: ${maxCount}`);
-    logger.info(`Request content type: ${req.headers['content-type']}`);
+    logger.debug(`Starting multiple file upload for field: ${fieldName}, max count: ${maxCount}`);
     
     const uploadMiddleware = upload.array(fieldName, maxCount);
-    logger.info(`Created multer middleware with field name: "${fieldName}"`);
     
     uploadMiddleware(req, res, (err) => {
       if (err) {
@@ -123,12 +121,15 @@ module.exports = {
         return handleUploadErrors(req, res, next)(err);
       }
       
-      // Log successful upload
+      // Log successful upload (only basic info)
       if (req.files && req.files.length > 0) {
         logger.info(`Successfully uploaded ${req.files.length} files`);
-        req.files.forEach((file, index) => {
-          logger.info(`File ${index + 1}: ${file.originalname}, ${file.mimetype}, ${file.size} bytes`);
-        });
+        // Only log detailed file info at debug level
+        if (logger.debug) {
+          req.files.forEach((file, index) => {
+            logger.debug(`File ${index + 1}: ${file.originalname}, ${file.size} bytes`);
+          });
+        }
       } else {
         logger.warn('No files were uploaded');
       }

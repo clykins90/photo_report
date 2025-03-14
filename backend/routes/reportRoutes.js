@@ -8,18 +8,12 @@ const {
   deleteReport, 
   addPhotos,
   generatePdf,
-  generateShareLink,
-  getSharedReport,
-  revokeShareLink,
   generateSummary
 } = require('../controllers/reportController');
 const { protect } = require('../middleware/auth');
 const { uploadMany } = require('../middleware/uploadMiddleware');
 
 const router = express.Router();
-
-// Public routes
-router.get('/shared/:token', getSharedReport);
 
 // Protected routes
 router.route('/')
@@ -40,10 +34,6 @@ router.post('/:id/photos', uploadMany('photos', 20), addPhotos);
 // @desc    Generate a PDF for a report
 // @access  Private
 router.post('/:id/generate-pdf', protect, generatePdf);
-
-// Sharing routes
-router.post('/:id/share', protect, generateShareLink);
-router.delete('/:id/share', protect, revokeShareLink);
 
 // Generate summary from photo analyses
 router.post('/generate-summary', protect, generateSummary);

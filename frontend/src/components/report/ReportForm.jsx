@@ -165,9 +165,12 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
   };
   
   // Generate AI summary based on analyzed photos
-  const handleGenerateAISummary = async () => {
+  const handleGenerateAISummary = async (photosToAnalyze) => {
+    // Use provided photos or fall back to uploadedPhotos
+    const photosToUse = photosToAnalyze || uploadedPhotos;
+    
     // Check if we have analyzed photos
-    const analyzedPhotos = uploadedPhotos.filter(photo => photo.analysis && photo.analysis.description);
+    const analyzedPhotos = photosToUse.filter(photo => photo.analysis && photo.analysis.description);
     
     if (analyzedPhotos.length === 0) {
       setError('Please analyze photos before generating a summary. Use the "Analyze All Photos with AI" button.');
@@ -191,7 +194,11 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
           tags: photo.analysis.tags,
           damageDetected: photo.analysis.damageDetected,
           confidence: photo.analysis.confidence,
-          severity: photo.analysis.severity
+          severity: photo.analysis.severity,
+          damageType: photo.analysis.damageType,
+          location: photo.analysis.location,
+          materials: photo.analysis.materials,
+          recommendedAction: photo.analysis.recommendedAction
         } : null
       }));
       
@@ -229,9 +236,13 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         }
       }
       
+      // Return the result so it can be used by the caller
+      return result;
+      
     } catch (err) {
       console.error('Failed to generate AI summary:', err);
       setError(err.message || 'Failed to generate AI summary. Please try again.');
+      throw err; // Re-throw to allow caller to handle the error
     } finally {
       setGeneratingSummary(false);
     }

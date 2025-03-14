@@ -31,28 +31,42 @@ api.interceptors.request.use(
       config.url = fixApiPath(config.url);
     }
     
-    console.log('API Request:', config.method.toUpperCase(), config.url);
+    // Only log non-FormData requests or enable with a debug flag
+    const isFormData = config.data instanceof FormData;
+    const isPhotoUpload = config.url.includes('/photos/upload');
+    
+    // Reduce logging for photo uploads which can be verbose
+    if (!isPhotoUpload || !isFormData) {
+      console.log('API Request:', config.method.toUpperCase(), config.url);
+    }
     
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
-      console.log('Auth token found and applied');
-    } else {
+      // Only log token application in non-photo upload requests
+      if (!isPhotoUpload) {
+        console.log('Auth token found and applied');
+      }
+    } else if (!isPhotoUpload) {
       console.log('No auth token found');
     }
     
     // Important: Let axios set the correct content-type for FormData
     // When FormData is detected, Axios will automatically set the correct Content-Type
     // with boundary parameter which is required for multipart/form-data
-    if (config.data instanceof FormData) {
+    if (isFormData) {
       // When using FormData, we need to delete the Content-Type so Axios can set it automatically
       // with the correct boundary
       delete config.headers['Content-Type'];
-      console.log('FormData detected, letting Axios set Content-Type automatically');
+      
+      // Only log this for non-photo uploads to reduce noise
+      if (!isPhotoUpload) {
+        console.log('FormData detected, letting Axios set Content-Type automatically');
+      }
     }
     
-    // Log request size for debugging large requests
-    if (config.data && typeof config.data === 'object' && !(config.data instanceof FormData)) {
+    // Log request size for debugging large requests, but skip for photo uploads
+    if (config.data && typeof config.data === 'object' && !isFormData && !isPhotoUpload) {
       try {
         const size = JSON.stringify(config.data).length;
         console.log(`Request payload size: ${size} bytes`);
@@ -75,7 +89,11 @@ api.interceptors.request.use(
 // Add a response interceptor to handle common error patterns
 api.interceptors.response.use(
   (response) => {
-    console.log('API Response Success:', response.status, response.config.url);
+    // Reduce logging for photo uploads
+    const isPhotoUpload = response.config.url.includes('/photos/upload');
+    if (!isPhotoUpload) {
+      console.log('API Response Success:', response.status, response.config.url);
+    }
     return response;
   },
   (error) => {

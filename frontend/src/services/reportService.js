@@ -404,36 +404,6 @@ export const generateReportPdf = async (id) => {
 };
 
 /**
- * Get a shared report using a share token
- * @param {string} token - The share token
- * @returns {Promise} - The response from the API
- */
-export const getSharedReport = async (token) => {
-  const response = await api.get(`/api/reports/shared/${token}`);
-  return response.data;
-};
-
-/**
- * Generate a sharing link for a report
- * @param {string} id - The report ID
- * @returns {Promise} - The response from the API
- */
-export const shareReport = async (id) => {
-  const response = await api.post(`/api/reports/${id}/share`);
-  return response.data;
-};
-
-/**
- * Revoke a sharing link for a report
- * @param {string} id - The report ID
- * @returns {Promise} - The response from the API
- */
-export const revokeReportShare = async (id) => {
-  const response = await api.delete(`/api/reports/${id}/share`);
-  return response.data;
-};
-
-/**
  * Add photos to a report
  * @param {string} id - The report ID
  * @param {Array<File>} files - Array of photo files to upload
@@ -474,11 +444,42 @@ export const generateAISummary = async (photos) => {
   const analyzedPhotos = photos.filter(photo => photo.analysis && photo.analysis.description);
   
   if (analyzedPhotos.length === 0) {
+    console.error('No analyzed photos found for summary generation');
     throw new Error('No analyzed photos found. Please analyze photos before generating a summary.');
   }
   
+  console.log(`Sending ${analyzedPhotos.length} analyzed photos for summary generation`);
+  
   try {
-    const response = await api.post('/api/reports/generate-summary', { photos: analyzedPhotos });
+    // Ensure we're sending all necessary analysis fields
+    const preparedPhotos = analyzedPhotos.map(photo => {
+      // Make sure we have all required fields for the analysis
+      const analysis = photo.analysis || {};
+      
+      return {
+        id: photo.id,
+        name: photo.name || 'Unnamed photo',
+        analysis: {
+          description: analysis.description || 'No description available',
+          tags: analysis.tags || [],
+          damageDetected: analysis.damageDetected || false,
+          damageType: analysis.damageType || null,
+          severity: analysis.severity || null,
+          location: analysis.location || 'Unknown location',
+          materials: analysis.materials || 'Not specified',
+          recommendedAction: analysis.recommendedAction || 'No recommendations provided',
+          confidenceScore: analysis.confidenceScore || 0
+        }
+      };
+    });
+    
+    const response = await api.post('/api/reports/generate-summary', { photos: preparedPhotos });
+    
+    if (!response.data || !response.data.success) {
+      throw new Error('Failed to generate summary: Invalid response from server');
+    }
+    
+    console.log('Summary generated successfully:', response.data);
     return response.data;
   } catch (error) {
     console.error('Error generating AI summary:', error);

@@ -139,15 +139,6 @@ const reportSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    shareToken: {
-      type: String,
-      trim: true,
-      unique: true,
-      sparse: true,
-    },
-    shareExpiry: {
-      type: Date,
-    },
     createdAt: {
       type: Date,
       default: Date.now,

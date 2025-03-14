@@ -47,6 +47,19 @@ const generateReportSummary = async (photoAnalyses) => {
   try {
     logger.info(`Generating report summary from ${photoAnalyses.length} photo analyses`);
     
+    // Validate input data
+    if (!photoAnalyses || !Array.isArray(photoAnalyses) || photoAnalyses.length === 0) {
+      logger.error('Invalid or empty photo analyses array provided');
+      throw new Error('No valid photo analyses provided for summary generation');
+    }
+    
+    // Log the first photo analysis to help with debugging
+    if (photoAnalyses[0] && photoAnalyses[0].analysis) {
+      logger.debug('First photo analysis sample:', JSON.stringify(photoAnalyses[0].analysis).substring(0, 200) + '...');
+    } else {
+      logger.warn('First photo analysis is missing or incomplete');
+    }
+    
     // Prepare the context from all photo analyses
     const analysisContext = photoAnalyses.map((photo, index) => {
       const analysis = photo.analysis || {};
@@ -64,7 +77,10 @@ Confidence: ${analysis.confidenceScore || 0}
 `;
     }).join('\n\n');
     
+    logger.debug(`Prepared analysis context with ${photoAnalyses.length} photos`);
+    
     // Call OpenAI API to generate summary
+    logger.info('Calling OpenAI API to generate summary');
     const response = await openai.chat.completions.create({
       model: "gpt-4-turbo",
       messages: [
@@ -83,10 +99,12 @@ Confidence: ${analysis.confidenceScore || 0}
     
     // Parse the JSON response
     const summaryText = response.choices[0].message.content;
+    logger.debug('Received response from OpenAI');
     let summary;
     
     try {
       summary = JSON.parse(summaryText);
+      logger.debug('Successfully parsed OpenAI response as JSON');
       
       // Ensure we have all expected fields
       summary = {
@@ -112,6 +130,7 @@ Confidence: ${analysis.confidenceScore || 0}
       
     } catch (parseError) {
       logger.error(`Failed to parse OpenAI response: ${parseError.message}`);
+      logger.error(`Response content: ${summaryText.substring(0, 200)}...`);
       
       // Create a default summary in case of parsing error
       summary = {
