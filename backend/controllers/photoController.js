@@ -99,6 +99,14 @@ const getPhoto = async (req, res) => {
   try {
     const photoId = req.params.id;
     const size = req.query.size || 'original'; // 'original', 'thumbnail'
+    
+    logger.info(`API Request: GET /${photoId} ${JSON.stringify(req.query)}`);
+    
+    // Validate that the ID is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(photoId)) {
+      logger.error(`Invalid ObjectId format: ${photoId}`);
+      return res.status(400).json({ error: 'Invalid photo ID format' });
+    }
 
     // First try to find the photo in a report
     let fileId = photoId;
@@ -107,10 +115,16 @@ const getPhoto = async (req, res) => {
     if (size === 'thumbnail') {
       try {
         const thumbnailId = `thumb_${fileId}`;
-        await gridfs.streamToResponse(thumbnailId, res);
+        // Only proceed if thumbnailId is a valid ObjectId
+        if (mongoose.Types.ObjectId.isValid(thumbnailId)) {
+          await gridfs.streamToResponse(thumbnailId, res);
+        } else {
+          // Fall back to original if thumbnail ID is not valid
+          await gridfs.streamToResponse(fileId, res);
+        }
       } catch (error) {
         // If thumbnail doesn't exist, fall back to original
-        logger.info(`Thumbnail not found for ${fileId}, serving original`);
+        logger.info(`Thumbnail not found for ${fileId}, serving original: ${error.message}`);
         await gridfs.streamToResponse(fileId, res);
       }
     } else {

@@ -156,7 +156,13 @@ const streamToResponse = async (fileId, res) => {
     }
 
     // Convert string ID to ObjectId if needed
-    const id = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
+    let id;
+    try {
+      id = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
+    } catch (error) {
+      logger.error(`Invalid ObjectId format: ${fileId}`);
+      throw new Error(`Invalid ObjectId format: ${fileId}`);
+    }
     
     // Get file info to set content type
     const files = await bucket.find({ _id: id }).toArray();
@@ -172,6 +178,7 @@ const streamToResponse = async (fileId, res) => {
     
     // Handle errors
     downloadStream.on('error', (error) => {
+      logger.error(`Error in download stream: ${error.message}`);
       if (!res.headersSent) {
         res.status(404).json({ error: `File not found: ${error.message}` });
       }

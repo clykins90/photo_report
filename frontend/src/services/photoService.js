@@ -36,9 +36,15 @@ const photoLogger = (message, data = null, isError = false) => {
  * @returns {string} - The URL to access the photo
  */
 export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
-  // If given a string ID, use it directly
+  // If given a string ID, validate it looks like a MongoDB ObjectId
   if (typeof fileOrId === 'string') {
-    return `/api/photos/${fileOrId}?size=${size}`;
+    // Basic validation for MongoDB ObjectId format (24 hex chars)
+    if (/^[0-9a-fA-F]{24}$/.test(fileOrId)) {
+      return `/api/photos/${fileOrId}?size=${size}`;
+    } else {
+      photoLogger(`Invalid photo ID format: ${fileOrId}`, null, true);
+      return '/placeholder-image.png';
+    }
   }
   
   // If file has no data, return placeholder
@@ -52,9 +58,14 @@ export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
     return fileOrId.preview;
   }
   
-  // PRIORITY 2: If we have a MongoDB ObjectId, use that
+  // PRIORITY 2: If we have a MongoDB ObjectId, validate and use that
   if (fileOrId._id) {
-    return `/api/photos/${fileOrId._id}?size=${size}`;
+    // Basic validation for MongoDB ObjectId format
+    if (typeof fileOrId._id === 'string' && /^[0-9a-fA-F]{24}$/.test(fileOrId._id)) {
+      return `/api/photos/${fileOrId._id}?size=${size}`;
+    } else {
+      photoLogger(`Invalid photo _id format: ${fileOrId._id}`, fileOrId, true);
+    }
   }
   
   // PRIORITY 3: If we have a filename, use that
