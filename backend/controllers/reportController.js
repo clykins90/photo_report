@@ -545,8 +545,7 @@ const generatePdf = async (req, res, next) => {
     
     // Find the report
     const report = await Report.findById(req.params.id)
-      .populate('user', 'name email')
-      .populate('company');
+      .populate('user', 'firstName lastName email company');
     
     if (!report) {
       throw new ApiError(404, 'Report not found');
