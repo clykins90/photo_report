@@ -46,6 +46,19 @@ This application allows contractors to:
 - Serverless functions for backend API endpoints
 - Configured with vercel.json for proper path rewrites and build settings
 
+#### Vercel Configuration
+The application uses a specific Vercel configuration to handle both the frontend SPA and backend API:
+- Backend server runs as a serverless function
+- Frontend is built as a static site
+- API routes are directed to the backend server
+- SPA routing is preserved for frontend navigation
+
+To troubleshoot deployment issues:
+1. Check that `/api/*` routes are correctly routed to the backend server
+2. Ensure static assets are properly served from the frontend build
+3. Verify that SPA routes fall back to index.html
+4. For 405 Method Not Allowed errors, check the routes configuration in vercel.json
+
 ## Features
 
 - **User Authentication**: Secure login and registration system with JWT
