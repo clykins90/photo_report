@@ -71,5 +71,23 @@ module.exports = {
       
       next();
     });
+  },
+  
+  // Company logo upload (single file)
+  uploadLogo: () => (req, res, next) => {
+    upload.single('logo')(req, res, (err) => {
+      if (err) {
+        logger.error(`Logo upload error: ${err.message}`);
+        return res.status(400).json({ error: err.message });
+      }
+      
+      if (req.file) {
+        logger.info(`Successfully uploaded company logo: ${req.file.filename}`);
+      } else {
+        logger.warn('No logo file was uploaded');
+      }
+      
+      next();
+    });
   }
 }; 

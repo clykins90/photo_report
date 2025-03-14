@@ -32,36 +32,16 @@ const api = axios.create({
   maxBodyLength: 20 * 1024 * 1024, // 20MB
 });
 
-// Normalize API paths to prevent prefix issues
-const normalizeApiPath = (url) => {
-  // Log the current baseURL and incoming URL for debugging
-  console.log(`API Request - BaseURL: ${api.defaults.baseURL}, Path: ${url}`);
-  
-  // Only normalize if we detect a true duplication, like /api/api/...
-  if (url.startsWith('/api/api/')) {
-    const normalized = url.replace('/api/api/', '/api/');
-    console.log(`Normalized duplicate API path from ${url} to ${normalized}`);
-    return normalized;
-  }
-  
-  return url;
-};
-
 // Add a request interceptor to include auth token in requests
 api.interceptors.request.use(
   (config) => {
-    // Normalize API path to prevent double prefix
-    if (config.url) {
-      config.url = normalizeApiPath(config.url);
-    }
-    
     // Only log non-FormData requests or enable with a debug flag
     const isFormData = config.data instanceof FormData;
-    const isPhotoUpload = config.url.includes('/photos/upload');
+    const isPhotoUpload = config.url && config.url.includes('/photos/upload');
     
     // Reduce logging for photo uploads which can be verbose
     if (!isPhotoUpload || !isFormData) {
-      console.log('API Request:', config.method.toUpperCase(), config.url, 'to', config.baseURL + config.url);
+      console.log('API Request:', config.method.toUpperCase(), config.url);
     }
     
     const token = localStorage.getItem('token');
@@ -76,11 +56,7 @@ api.interceptors.request.use(
     }
     
     // Important: Let axios set the correct content-type for FormData
-    // When FormData is detected, Axios will automatically set the correct Content-Type
-    // with boundary parameter which is required for multipart/form-data
     if (isFormData) {
-      // When using FormData, we need to delete the Content-Type so Axios can set it automatically
-      // with the correct boundary
       delete config.headers['Content-Type'];
       
       // Only log this for non-photo uploads to reduce noise
@@ -141,8 +117,8 @@ api.interceptors.response.use(
         // Only redirect to login if it's a token validation error
         // and not during a login/register request (which would also return 401 for invalid credentials)
         const isAuthEndpoint = 
-          error.config.url.includes('/api/auth/login') || 
-          error.config.url.includes('/api/auth/register');
+          error.config.url.includes('/auth/login') || 
+          error.config.url.includes('/auth/register');
         
         if (!isAuthEndpoint) {
           console.log('Authentication error, redirecting to login');

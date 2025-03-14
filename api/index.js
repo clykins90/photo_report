@@ -14,7 +14,7 @@ let dbInitialized = false;
 // Export a handler function that Vercel will use as the serverless function
 module.exports = async (req, res) => {
   // Log the incoming request for debugging
-  console.log(`API Request - BaseURL: ${req.headers.host}, Path: ${req.url}`);
+  console.log(`API Request - Host: ${req.headers.host}, Path: ${req.url}`);
   
   // Force set environment variables for Vercel
   process.env.VERCEL = '1';
@@ -24,7 +24,7 @@ module.exports = async (req, res) => {
   const isFileRequest = req.url.startsWith('/files/') || req.url.startsWith('/api/files/');
   
   if (isFileRequest) {
-    logger.info(`API Request: ${req.method} ${req.url}, Path: ${req.url.split('?')[0]}, BaseUrl: ${req.url.split('/')[1]}`);
+    logger.info(`File Request: ${req.method} ${req.url}`);
   }
   
   // Initialize database connection if not already done
@@ -96,27 +96,6 @@ module.exports = async (req, res) => {
         });
       }
     }
-  }
-  
-  // Remove duplicate /api prefix to prevent routing issues
-  if (req.url.startsWith('/api/')) {
-    req.url = req.url.replace('/api', '');
-    console.log(`Modified URL to prevent duplicate /api path: ${req.url}`);
-  }
-  
-  // Handle special characters in URLs
-  // Decode URL components to handle paths with special characters
-  req.url = decodeURIComponent(req.url);
-  
-  // Remove any leading ./ from paths
-  if (req.url.includes('./')) {
-    req.url = req.url.replace(/\.\//g, '');
-    console.log(`Removed ./ from URL: ${req.url}`);
-  }
-  
-  // Special handling for photo URLs with numeric filenames
-  if (req.url.match(/\/photos\/\d+\.\w+/)) {
-    console.log(`Detected numeric filename in photo URL: ${req.url}`);
   }
   
   // Special handling for file requests to ensure GridFS is initialized

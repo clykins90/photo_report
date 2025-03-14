@@ -204,37 +204,22 @@ connectDB().then(() => {
 });
 
 // Mount routes - add handler to detect and log path patterns
-// This will help us understand how Vercel is sending paths to our app
 const routeLogger = (req, res, next) => {
-  logger.info(`API Request: ${req.method} ${req.originalUrl}, Path: ${req.path}, BaseUrl: ${req.baseUrl}`);
+  logger.info(`API Request: ${req.method} ${req.path}`);
   next();
 };
 
-// Mount routes with proper prefixes - Vercel will handle the /api part
+// Mount routes with proper prefixes
 app.use('/api/auth', routeLogger, authRoutes);
 app.use('/api/company', routeLogger, companyRoutes);
 app.use('/api/reports', routeLogger, reportRoutes);
 app.use('/api/photos', routeLogger, photoRoutes);
-app.use('/api/files', routeLogger, gridfsRoutes); // New GridFS routes
-
-// Also mount routes without /api prefix as a fallback
-// This helps if Vercel ever strips the /api prefix
-app.use('/auth', routeLogger, authRoutes);
-app.use('/company', routeLogger, companyRoutes);
-app.use('/reports', routeLogger, reportRoutes);
-app.use('/photos', routeLogger, photoRoutes);
-app.use('/files', routeLogger, gridfsRoutes);
+app.use('/api/files', routeLogger, gridfsRoutes);
 
 // Root route
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to the Photo Report API' });
 });
-
-// REMOVE DUPLICATE STATIC DIRECTORIES - these were causing confusion
-// with multiple ways to access the same files
-// app.use('/temp', express.static(path.join(__dirname, 'temp')));
-// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-// app.use('/public/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
 
 // Serve PDF files from temp/pdfs directory or GridFS in Vercel
 app.use('/pdfs', (req, res, next) => {

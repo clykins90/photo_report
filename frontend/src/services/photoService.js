@@ -51,6 +51,11 @@ export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
     return `/api/photos/${fileOrId._id}?size=${size}`;
   }
   
+  // If we have a filename, use that
+  if (fileOrId.filename) {
+    return `/api/photos/${fileOrId.filename}?size=${size}`;
+  }
+  
   // For local files that aren't uploaded yet, use the preview URL
   if (fileOrId.status === 'pending' && fileOrId.preview) {
     return fileOrId.preview;
