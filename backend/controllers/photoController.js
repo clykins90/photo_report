@@ -5,7 +5,6 @@ const logger = require('../utils/logger');
 const gridfs = require('../utils/gridfs');
 const Report = require('../models/Report');
 const photoAnalysisService = require('../services/photoAnalysisService');
-const Photo = require('../models/Photo');
 
 /**
  * Upload photos for a report
@@ -48,25 +47,25 @@ const uploadPhotos = async (req, res) => {
           }
         });
         
-        // Create photo object
-        const photo = new Photo({
+        // Create photo object directly for the report
+        const photo = {
+          _id: fileInfo.id,
           fileId: fileInfo.id,
           filename: fileInfo.filename,
           originalName: file.originalname,
           contentType: file.mimetype,
-          report: reportId,
+          path: `/api/photos/${fileInfo.id}`,
           status: 'pending',
           uploadDate: new Date()
-        });
+        };
         
-        // Save photo
-        await photo.save();
+        // Add photo to uploadedPhotos array
         uploadedPhotos.push(photo);
         
         // If file was saved to temp directory, clean it up
         if (file.path) {
           try {
-            fs.unlinkSync(file.path);
+            await fs.unlink(file.path);
             logger.debug(`Deleted temporary file: ${file.path}`);
           } catch (unlinkError) {
             logger.warn(`Failed to delete temporary file ${file.path}: ${unlinkError.message}`);
@@ -78,7 +77,7 @@ const uploadPhotos = async (req, res) => {
     }
     
     // Add photos to report
-    report.photos = [...report.photos, ...uploadedPhotos.map(p => p._id)];
+    report.photos = [...report.photos, ...uploadedPhotos];
     await report.save();
     
     return res.status(200).json({
@@ -101,27 +100,9 @@ const getPhoto = async (req, res) => {
     const photoId = req.params.id;
     const size = req.query.size || 'original'; // 'original', 'thumbnail'
 
-    // First try to find the photo in our database
-    let photo;
-    let fileId;
+    // First try to find the photo in a report
+    let fileId = photoId;
     
-    try {
-      // Check if the ID is a valid ObjectId
-      if (mongoose.Types.ObjectId.isValid(photoId)) {
-        photo = await Photo.findById(photoId);
-        if (photo) {
-          fileId = photo.fileId;
-        }
-      }
-    } catch (findError) {
-      logger.debug(`Photo not found in database with ID ${photoId}: ${findError.message}`);
-    }
-    
-    // If we couldn't find the photo in our database, use the ID directly as the fileId
-    if (!fileId) {
-      fileId = photoId;
-    }
-
     // If thumbnail is requested, check if it exists in GridFS with a modified filename
     if (size === 'thumbnail') {
       try {
@@ -153,16 +134,10 @@ const deletePhoto = async (req, res) => {
   try {
     const photoId = req.params.id;
 
-    // Find the photo in our database
-    const photo = await Photo.findById(photoId);
-    if (!photo) {
-      return res.status(404).json({ error: 'Photo not found' });
-    }
-
-    // Find the report associated with this photo
-    const report = await Report.findById(photo.report);
+    // Find the report containing this photo
+    const report = await Report.findOne({ "photos._id": new mongoose.Types.ObjectId(photoId) });
     if (!report) {
-      return res.status(404).json({ error: 'Associated report not found' });
+      return res.status(404).json({ error: 'Photo not found in any report' });
     }
 
     // Check if user owns the report (if authentication is implemented)
@@ -171,23 +146,20 @@ const deletePhoto = async (req, res) => {
     }
 
     // Remove photo reference from report
-    report.photos = report.photos.filter(id => id.toString() !== photoId);
+    report.photos = report.photos.filter(photo => photo._id.toString() !== photoId);
     await report.save();
 
     // Delete the photo from GridFS
-    await gridfs.deleteFile(photo.fileId);
+    await gridfs.deleteFile(photoId);
 
     // Also try to delete thumbnail if it exists
     try {
-      const thumbnailId = `thumb_${photo.fileId}`;
+      const thumbnailId = `thumb_${photoId}`;
       await gridfs.deleteFile(thumbnailId);
     } catch (error) {
       // Ignore errors if thumbnail doesn't exist
-      logger.info(`No thumbnail found for ${photo.fileId} or error deleting it: ${error.message}`);
+      logger.info(`No thumbnail found for ${photoId} or error deleting it: ${error.message}`);
     }
-
-    // Delete the photo document
-    await Photo.findByIdAndDelete(photoId);
 
     return res.status(200).json({
       message: 'Photo deleted successfully'
@@ -207,30 +179,52 @@ const analyzePhotos = async (req, res) => {
   try {
     let photos = [];
     let reportId = null;
+    let report = null;
     
     // Check if specific photo ID is provided
     if (req.params.photoId) {
-      const photo = await Photo.findById(req.params.photoId);
-      if (!photo) {
-        return res.status(404).json({ error: 'Photo not found' });
+      reportId = req.body.reportId;
+      if (!reportId) {
+        return res.status(400).json({ error: 'Report ID is required when analyzing a specific photo' });
       }
+      
+      report = await Report.findById(reportId);
+      if (!report) {
+        return res.status(404).json({ error: 'Report not found' });
+      }
+      
+      const photo = report.photos.find(p => p._id.toString() === req.params.photoId);
+      if (!photo) {
+        return res.status(404).json({ error: 'Photo not found in report' });
+      }
+      
       photos = [photo];
-      reportId = photo.report;
     } 
     // Check if array of photo IDs is provided
     else if (req.body.photoIds && Array.isArray(req.body.photoIds)) {
-      photos = await Photo.find({ _id: { $in: req.body.photoIds } });
-      if (photos.length > 0) {
-        reportId = photos[0].report;
+      reportId = req.body.reportId;
+      if (!reportId) {
+        return res.status(400).json({ error: 'Report ID is required when analyzing specific photos' });
       }
+      
+      report = await Report.findById(reportId);
+      if (!report) {
+        return res.status(404).json({ error: 'Report not found' });
+      }
+      
+      photos = report.photos.filter(p => req.body.photoIds.includes(p._id.toString()));
     } 
     // Check if report ID is provided to analyze all unanalyzed photos
-    else if (req.params.reportId) {
-      reportId = req.params.reportId;
-      photos = await Photo.find({ 
-        report: reportId, 
-        status: { $in: ['pending', 'failed'] } 
-      });
+    else if (req.params.reportId || req.body.reportId) {
+      reportId = req.params.reportId || req.body.reportId;
+      
+      report = await Report.findById(reportId);
+      if (!report) {
+        return res.status(404).json({ error: 'Report not found' });
+      }
+      
+      // Get all photos that haven't been analyzed yet
+      photos = report.photos.filter(p => !p.aiAnalysis || !p.aiAnalysis.description);
     } else {
       return res.status(400).json({ error: 'Photo ID, photo IDs array, or report ID is required' });
     }
@@ -250,7 +244,7 @@ const analyzePhotos = async (req, res) => {
         
         // Get the file from GridFS and save to temp file
         const bucket = await gridfs.initGridFS();
-        const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(photo.fileId));
+        const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(photo._id));
         const writeStream = fs.createWriteStream(tempFilePath);
         
         await new Promise((resolve, reject) => {
@@ -262,11 +256,16 @@ const analyzePhotos = async (req, res) => {
         // Analyze the photo
         const analysisResult = await photoAnalysisService.analyzePhoto(tempFilePath);
         
-        // Update photo with analysis results
-        photo.analysis = analysisResult;
-        photo.status = 'analyzed';
-        photo.analysisDate = new Date();
-        await photo.save();
+        // Find the photo in the report and update it
+        const photoIndex = report.photos.findIndex(p => p._id.toString() === photo._id.toString());
+        if (photoIndex !== -1) {
+          report.photos[photoIndex].aiAnalysis = analysisResult;
+          report.photos[photoIndex].status = 'analyzed';
+          report.photos[photoIndex].analysisDate = new Date();
+        }
+        
+        // Save the updated report
+        await report.save();
         
         results.push({
           photoId: photo._id,
@@ -276,7 +275,7 @@ const analyzePhotos = async (req, res) => {
         
         // Clean up temp file
         try {
-          fs.unlinkSync(tempFilePath);
+          await fs.unlink(tempFilePath);
           logger.debug(`Deleted temporary file: ${tempFilePath}`);
         } catch (unlinkError) {
           logger.warn(`Failed to delete temporary file ${tempFilePath}: ${unlinkError.message}`);
@@ -284,10 +283,15 @@ const analyzePhotos = async (req, res) => {
       } catch (error) {
         logger.error(`Error analyzing photo ${photo._id}: ${error.message}`);
         
-        // Update photo status to failed
-        photo.status = 'failed';
-        photo.analysisError = error.message;
-        await photo.save();
+        // Find the photo in the report and update its status
+        const photoIndex = report.photos.findIndex(p => p._id.toString() === photo._id.toString());
+        if (photoIndex !== -1) {
+          report.photos[photoIndex].status = 'failed';
+          report.photos[photoIndex].analysisError = error.message;
+        }
+        
+        // Save the updated report
+        await report.save();
         
         results.push({
           photoId: photo._id,
