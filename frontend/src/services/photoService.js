@@ -262,7 +262,7 @@ export const analyzeBatchPhotos = async (photos, reportId) => {
       throw new Error('No valid photo IDs found in the batch');
     }
     
-    // Use URL parameter for reportId
+    // Use URL parameter for reportId and send photoIds in the request body
     const response = await api.post(`/photos/analyze/${reportId}`, { 
       photoIds: photoIds
     });
