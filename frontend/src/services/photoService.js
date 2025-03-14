@@ -104,6 +104,9 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
     }
 
     photoLogger(`Uploading ${files.length} photos for report: ${reportId}`);
+    
+    // Log file names for debugging
+    photoLogger('Files being uploaded:', files.map(f => f.name));
 
     const formData = new FormData();
     
@@ -127,7 +130,17 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
     // Send the request
     const response = await api.post('/photos/upload', formData, config);
     
+    // Log the full response for debugging
+    photoLogger('Full server response:', response.data);
+    
+    // Validate the response structure
+    if (!response.data.photos || !Array.isArray(response.data.photos)) {
+      photoLogger('Invalid response format - missing photos array:', response.data, true);
+      throw new Error('Server returned invalid response format');
+    }
+    
     photoLogger(`Upload complete: ${response.data.count} photos uploaded`);
+    photoLogger('Uploaded photo details:', response.data.photos);
     
     return {
       success: true,

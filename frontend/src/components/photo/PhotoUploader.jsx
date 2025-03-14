@@ -54,7 +54,6 @@ const PhotoUploader = ({
     
     try {
       const url = URL.createObjectURL(file);
-      console.log('Created new blob URL:', url);
       activeBlobUrls.current.add(url);
       tempUrlCache.current.set(fileId, url);
       return url;
@@ -115,24 +114,48 @@ const PhotoUploader = ({
   useEffect(() => {
     // Only notify parent if files have been initialized
     if (files.length > 0 && onUploadComplete) {
-      console.log('Processed photos:', files);
       onUploadComplete(files);
     }
   }, [files, onUploadComplete]);
+
+  // Prepare image URLs in advance to avoid creating them during render
+  useEffect(() => {
+    // Pre-create and cache blob URLs for all files that need them
+    files.forEach(file => {
+      if (file.originalFile && !file.preview && !tempUrlCache.current.has(file.originalFile.name || file.id)) {
+        const url = createAndTrackBlobUrl(file.originalFile);
+        if (url) {
+          // Update the file with the preview URL without triggering a full state update
+          file.preview = url;
+        }
+      }
+    });
+  }, [files]);
 
   const onDrop = useCallback(async (acceptedFiles) => {
     if (!showUploadControls) return; // Don't allow new files if in analyze-only mode
     
     // Add preview to each file
     const newFiles = acceptedFiles.map(file => {
+      // First check if we already have a URL for this file
+      const fileId = file.name || file.path || Math.random().toString();
+      let previewUrl = null;
+      
+      if (tempUrlCache.current.has(fileId)) {
+        previewUrl = tempUrlCache.current.get(fileId);
+      } else {
+        // Only create a new blob URL if we don't have one cached
+        previewUrl = createAndTrackBlobUrl(file);
+      }
+      
       // Create a new object with the file properties we need
       return {
         // Original file reference
         originalFile: file,
         // Use a prefix to ensure this is never confused with a MongoDB ObjectId
         id: `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-        // Create a blob URL for preview and track it
-        preview: createAndTrackBlobUrl(file),
+        // Use the cached or newly created blob URL
+        preview: previewUrl,
         // Set initial status
         status: 'pending', // Mark as pending until uploaded to server
         analysis: null,
@@ -187,14 +210,42 @@ const PhotoUploader = ({
       
       console.log('Upload response:', response);
       
+      // Check if we have photos in the response
+      if (!response.photos || !Array.isArray(response.photos) || response.photos.length === 0) {
+        console.error('No photos returned in upload response:', response);
+        throw new Error('Server did not return photo information');
+      }
+      
+      // Log the file names we're trying to match
+      console.log('Files to match:', filesToUpload.map(f => ({
+        id: f.id,
+        name: f.originalFile?.name || f.displayName
+      })));
+      
+      console.log('Server response photos:', response.photos);
+      
       // Update the status of uploaded files but KEEP the preview URLs
       setFiles(prev => {
         const updatedFiles = prev.map(file => {
           // Check if this file was part of the uploaded batch
           const matchingUploadedFile = response.photos?.find(uploaded => {
-            // Match by name from the original file
             const fileName = file.originalFile ? file.originalFile.name : file.displayName;
-            return uploaded.originalName === fileName || uploaded.filename.includes(fileName);
+            
+            // Try multiple matching strategies
+            // 1. Direct match on originalName
+            const directMatch = uploaded.originalName === fileName;
+            
+            // 2. Check if filename includes the original name
+            const filenameMatch = uploaded.filename && fileName && 
+                                 uploaded.filename.includes(fileName);
+            
+            // 3. Check if names match after removing extensions and special characters
+            const cleanFileName = fileName?.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+            const cleanUploadedName = uploaded.originalName?.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+            const cleanFilenameMatch = cleanFileName && cleanUploadedName && 
+                                      cleanUploadedName.includes(cleanFileName);
+            
+            return directMatch || filenameMatch || cleanFilenameMatch;
           });
           
           if (matchingUploadedFile) {
@@ -224,6 +275,14 @@ const PhotoUploader = ({
               // Store the path
               path: matchingUploadedFile.path
             };
+          } else if (filesToUpload.some(newFile => newFile.id === file.id)) {
+            // This file was in the upload batch but didn't match any server response
+            console.warn(`File ${file.displayName} was uploaded but not matched in server response`);
+            return {
+              ...file,
+              status: 'error',
+              error: 'File was uploaded but not recognized by server'
+            };
           }
           return file;
         });
@@ -240,7 +299,22 @@ const PhotoUploader = ({
         currentFiles.forEach((file, index) => {
           const matchingUploadedFile = response.photos?.find(uploaded => {
             const fileName = file.originalFile ? file.originalFile.name : file.displayName;
-            return uploaded.originalName === fileName || uploaded.filename.includes(fileName);
+            
+            // Try multiple matching strategies
+            // 1. Direct match on originalName
+            const directMatch = uploaded.originalName === fileName;
+            
+            // 2. Check if filename includes the original name
+            const filenameMatch = uploaded.filename && fileName && 
+                                 uploaded.filename.includes(fileName);
+            
+            // 3. Check if names match after removing extensions and special characters
+            const cleanFileName = fileName?.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+            const cleanUploadedName = uploaded.originalName?.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+            const cleanFilenameMatch = cleanFileName && cleanUploadedName && 
+                                      cleanUploadedName.includes(cleanFileName);
+            
+            return directMatch || filenameMatch || cleanFilenameMatch;
           });
           
           if (matchingUploadedFile) {
@@ -429,12 +503,10 @@ const PhotoUploader = ({
   useEffect(() => {
     // This effect should only run on unmount
     return () => {
-      console.log('Component unmounting, cleaning up blob URLs');
       // We'll only clean up when the component is fully unmounted
       activeBlobUrls.current.forEach(url => {
         try {
           URL.revokeObjectURL(url);
-          console.log('Revoked blob URL on unmount:', url);
         } catch (e) {
           console.warn('Failed to revoke blob URL during cleanup:', e);
         }
@@ -538,15 +610,7 @@ const PhotoUploader = ({
                       ? file.preview 
                       : file._id 
                         ? `/api/photos/${file._id}?size=thumbnail` 
-                        : file.originalFile && tempUrlCache.current.get(file.originalFile.name || file.id)
-                          ? tempUrlCache.current.get(file.originalFile.name || file.id)
-                          : file.originalFile
-                            ? (() => {
-                                // Create URL outside of render if needed
-                                const url = createAndTrackBlobUrl(file.originalFile);
-                                return url;
-                              })()
-                            : '/placeholder-image.png'}
+                        : '/placeholder-image.png'}
                     alt={file.displayName || 'Uploaded photo'}
                     className="absolute inset-0 w-full h-full object-cover"
                     onError={(e) => {
@@ -567,8 +631,6 @@ const PhotoUploader = ({
                       
                       // Only retry a few times to avoid infinite loops
                       if (imageRetryCounters.current[imgId] <= 2) {
-                        console.log(`Retrying image load for ${imgId}, attempt ${imageRetryCounters.current[imgId]}`);
-                        
                         // Try different fallback strategies
                         if (file._id && !e.target.src.includes('size=original')) {
                           // Try with original size
@@ -582,11 +644,17 @@ const PhotoUploader = ({
                             }
                             
                             // Don't update state here - just set the src directly
-                            const newUrl = createAndTrackBlobUrl(file.originalFile);
-                            if (newUrl) {
-                              e.target.src = newUrl;
+                            // Check cache first before creating a new URL
+                            const cachedUrl = tempUrlCache.current.get(file.originalFile.name || file.id);
+                            if (cachedUrl) {
+                              e.target.src = cachedUrl;
                             } else {
-                              e.target.src = `/placeholder-image.png`;
+                              const newUrl = createAndTrackBlobUrl(file.originalFile);
+                              if (newUrl) {
+                                e.target.src = newUrl;
+                              } else {
+                                e.target.src = `/placeholder-image.png`;
+                              }
                             }
                             return;
                           } catch (err) {
@@ -598,7 +666,6 @@ const PhotoUploader = ({
                         e.target.src = `/placeholder-image.png`;
                       } else {
                         // Too many retries, use placeholder
-                        console.warn(`Too many retries for image ${imgId}, using placeholder`);
                         e.target.src = `/placeholder-image.png`;
                       }
                     }}
