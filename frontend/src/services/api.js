@@ -1,8 +1,27 @@
 import axios from 'axios';
 
+// Determine the correct API base URL based on environment
+const getBaseUrl = () => {
+  const env = import.meta.env.MODE || 'development';
+  const apiUrl = import.meta.env.VITE_API_URL;
+  
+  console.log(`Environment: ${env}, API URL from env: ${apiUrl}`);
+  
+  if (env === 'production') {
+    // In production, use relative path (/api)
+    return '/api';
+  } else if (apiUrl) {
+    // Use configured URL if available
+    return apiUrl;
+  } else {
+    // Default for local development
+    return 'http://localhost:5001';
+  }
+};
+
 // Create an Axios instance with default config
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5001',
+  baseURL: getBaseUrl(),
   headers: {
     'Content-Type': 'application/json',
   },
@@ -13,27 +32,28 @@ const api = axios.create({
   maxBodyLength: 20 * 1024 * 1024, // 20MB
 });
 
-// Fix for double /api prefix in URLs
-const fixApiPath = (url) => {
-  // Check if we're in production with a relative baseURL
-  const isRelativeBaseUrl = api.defaults.baseURL === '/api';
+// Normalize API paths to prevent prefix issues
+const normalizeApiPath = (url) => {
+  // Log the current baseURL and incoming URL for debugging
+  console.log(`API Request - BaseURL: ${api.defaults.baseURL}, Path: ${url}`);
   
-  // If baseURL is already '/api' and the URL also starts with '/api/'
-  if (isRelativeBaseUrl && url.startsWith('/api/')) {
-    // Log the transformation for debugging
-    console.log(`API path with double prefix detected: ${url}`);
-    // Remove the duplicated prefix to prevent /api/api/ URLs
-    return url.substring(4); // Remove the leading /api
+  // If we're using /api as base and URL starts with /api
+  if (api.defaults.baseURL === '/api' && url.startsWith('/api/')) {
+    // Remove the duplicate /api prefix
+    const normalized = url.substring(4);
+    console.log(`Normalized API path from ${url} to ${normalized}`);
+    return normalized;
   }
+  
   return url;
 };
 
 // Add a request interceptor to include auth token in requests
 api.interceptors.request.use(
   (config) => {
-    // Fix API path to prevent double /api prefix
+    // Normalize API path to prevent double prefix
     if (config.url) {
-      config.url = fixApiPath(config.url);
+      config.url = normalizeApiPath(config.url);
     }
     
     // Only log non-FormData requests or enable with a debug flag

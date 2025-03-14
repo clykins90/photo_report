@@ -13,15 +13,15 @@
       }
     }
   ],
+  "rewrites": [
+    { "source": "/api/auth/:path*", "destination": "/backend/server.js" },
+    { "source": "/api/company/:path*", "destination": "/backend/server.js" },
+    { "source": "/api/reports/:path*", "destination": "/backend/server.js" },
+    { "source": "/api/photos/:path*", "destination": "/backend/server.js" },
+    { "source": "/api/files/:path*", "destination": "/backend/server.js" },
+    { "source": "/api/:path*", "destination": "/backend/server.js" }
+  ],
   "routes": [
-    {
-      "src": "/api/api/(.*)",
-      "dest": "/api/$1"
-    },
-    {
-      "src": "/api/(.*)",
-      "dest": "backend/server.js"
-    },
     {
       "src": "/assets/(.*\\.js)",
       "headers": { "Content-Type": "application/javascript; charset=utf-8" },
@@ -39,22 +39,6 @@
     {
       "src": "/(.*\\.[a-z0-9]+)$",
       "dest": "/$1"
-    },
-    {
-      "src": "/login",
-      "dest": "/index.html"
-    },
-    {
-      "src": "/register",
-      "dest": "/index.html"
-    },
-    {
-      "src": "/dashboard",
-      "dest": "/index.html"
-    },
-    {
-      "src": "/reports/(.*)",
-      "dest": "/index.html"
     },
     {
       "handle": "filesystem"

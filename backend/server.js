@@ -203,12 +203,27 @@ connectDB().then(() => {
   logger.info('GridFS initialized');
 });
 
-// Mount routes
-app.use('/api/auth', authRoutes);
-app.use('/api/company', companyRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/photos', photoRoutes);
-app.use('/api/files', gridfsRoutes); // New GridFS routes
+// Mount routes - add handler to detect and log path patterns
+// This will help us understand how Vercel is sending paths to our app
+const routeLogger = (req, res, next) => {
+  logger.info(`API Request: ${req.method} ${req.originalUrl}, Path: ${req.path}, BaseUrl: ${req.baseUrl}`);
+  next();
+};
+
+// Mount routes with proper prefixes - Vercel will handle the /api part
+app.use('/api/auth', routeLogger, authRoutes);
+app.use('/api/company', routeLogger, companyRoutes);
+app.use('/api/reports', routeLogger, reportRoutes);
+app.use('/api/photos', routeLogger, photoRoutes);
+app.use('/api/files', routeLogger, gridfsRoutes); // New GridFS routes
+
+// Also mount routes without /api prefix as a fallback
+// This helps if Vercel ever strips the /api prefix
+app.use('/auth', routeLogger, authRoutes);
+app.use('/company', routeLogger, companyRoutes);
+app.use('/reports', routeLogger, reportRoutes);
+app.use('/photos', routeLogger, photoRoutes);
+app.use('/files', routeLogger, gridfsRoutes);
 
 // Root route
 app.get('/', (req, res) => {
