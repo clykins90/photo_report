@@ -2,6 +2,7 @@ import { useState, useEffect, useContext } from 'react';
 import { Link } from 'react-router-dom';
 import { getReports, deleteReport } from '../services/reportService';
 import AuthContext from '../context/AuthContext';
+import PhotoUploadTest from '../components/PhotoUploadTest';
 
 const DashboardPage = () => {
   const [reports, setReports] = useState([]);
@@ -60,18 +61,42 @@ const DashboardPage = () => {
   
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-gray-600 dark:text-gray-300">Welcome back, {user?.firstName || 'User'}</p>
-        </div>
-        
-        <Link
-          to="/reports/new"
-          className="bg-primary/90 hover:bg-primary/80 text-primary-foreground font-medium py-2 px-4 rounded focus:outline-none focus:shadow-outline border border-primary/20"
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+        <h1 className="text-2xl font-bold mb-4 md:mb-0">Your Reports</h1>
+        <Link 
+          to="/reports/create" 
+          className="bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-md"
         >
           Create New Report
         </Link>
+      </div>
+      
+      {/* Photo Upload Test Component */}
+      <div className="mb-8">
+        <PhotoUploadTest />
+      </div>
+      
+      <div className="mb-6">
+        <div className="flex space-x-2 mb-4">
+          <button 
+            onClick={() => setFilter('all')}
+            className={`px-4 py-2 rounded-md ${filter === 'all' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+          >
+            All
+          </button>
+          <button 
+            onClick={() => setFilter('draft')}
+            className={`px-4 py-2 rounded-md ${filter === 'draft' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+          >
+            Drafts
+          </button>
+          <button 
+            onClick={() => setFilter('submitted')}
+            className={`px-4 py-2 rounded-md ${filter === 'submitted' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+          >
+            Submitted
+          </button>
+        </div>
       </div>
       
       {error && (
