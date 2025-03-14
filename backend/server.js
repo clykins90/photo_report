@@ -256,6 +256,27 @@ app.use('/pdfs', (req, res, next) => {
   }
 }, express.static(path.join(__dirname, 'temp/pdfs')));
 
+// Add a catch-all route for Vercel to serve the frontend SPA
+if (process.env.VERCEL === '1') {
+  logger.info('Running in Vercel environment, adding SPA catch-all route');
+  
+  // In Vercel, the frontend is handled by the vercel.json configuration
+  // This route is just a fallback to prevent 404 errors from the API
+  app.get('*', (req, res) => {
+    // Only handle non-API routes
+    if (!req.path.startsWith('/api/')) {
+      res.status(200).json({ 
+        message: 'This route should be handled by Vercel routing configuration',
+        path: req.path,
+        note: 'If you see this response, check your vercel.json configuration'
+      });
+    } else {
+      // For API routes that weren't matched, return 404
+      res.status(404).json({ success: false, message: 'API endpoint not found' });
+    }
+  });
+}
+
 // Error handling middleware
 app.use(errorHandler);
 

@@ -274,10 +274,34 @@ Authorization: Bearer [your-token]
 ### Vercel Serverless Deployment Fixes
 - **Robust Serverless Environment Support**: Enhanced the application to work correctly in Vercel's serverless environment
 - Configured proper build settings using `@vercel/static-build` for the frontend
-- Optimized build process with correct dist directory configuration
 - Added environment detection to prevent filesystem operations when running on Vercel
-- Implemented proper routing for static assets and API endpoints
 - Implemented memory storage for file uploads in Vercel environment
+- Eliminated dependency on local filesystem, enabling better cloud deployment
+
+### Vercel Deployment Troubleshooting
+
+#### Fixing 404 NOT_FOUND Errors
+If you encounter a 404 NOT_FOUND error in your Vercel deployment, check the following:
+
+1. **Verify vercel.json Configuration**:
+   - Ensure the `distDir` in the frontend build configuration points to `frontend/dist` (not just `dist`)
+   - Check that the route order is correct (API routes first, then static assets, then the filesystem handler, and finally the catch-all route)
+
+2. **Check Frontend Build**:
+   - Run `cd frontend && npm run build` locally to verify the build process works
+   - Ensure the `dist` directory is created with all necessary files
+
+3. **Server Configuration**:
+   - Make sure the server has a catch-all route for handling SPA routing in Vercel
+   - Verify that the server properly detects the Vercel environment with `process.env.VERCEL === '1'`
+
+4. **Environment Variables**:
+   - Confirm all required environment variables are set in the Vercel project settings
+   - Check that MongoDB connection string and other critical variables are properly configured
+
+5. **Deployment Logs**:
+   - Review the Vercel deployment logs for any build or runtime errors
+   - Look for issues with the build process or missing dependencies
 
 ### Data Model Changes
 - **User Profile with Company Information**: Company information is now embedded directly in the user profile
