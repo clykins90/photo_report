@@ -6,10 +6,10 @@
       "use": "@vercel/node"
     },
     {
-      "src": "package.json",
+      "src": "frontend/package.json",
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "frontend/dist"
+        "distDir": "dist"
       }
     }
   ],
@@ -26,16 +26,5 @@
         { "key": "Content-Type", "value": "application/javascript; charset=utf-8" }
       ]
     }
-  ],
-  "rewrites": [
-    { "source": "/api/auth/:path*", "destination": "/backend/server.js" },
-    { "source": "/api/company/:path*", "destination": "/backend/server.js" },
-    { "source": "/api/reports/:path*", "destination": "/backend/server.js" },
-    { "source": "/api/photos/:path*", "destination": "/backend/server.js" },
-    { "source": "/api/files/:path*", "destination": "/backend/server.js" },
-    { "source": "/api/:path*", "destination": "/backend/server.js" },
-    { "source": "/assets/(.*)", "destination": "/assets/$1" },
-    { "source": "/(.*\\.[a-z0-9]+)$", "destination": "/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
   ]
 } 
