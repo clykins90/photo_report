@@ -57,8 +57,8 @@ export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
   }
   
   // For local files that aren't uploaded yet, use the preview URL
-  // This now handles both 'pending' and 'complete' status for local files
-  if (fileOrId.preview && (fileOrId.status === 'pending' || fileOrId.status === 'complete' || fileOrId.status === 'error')) {
+  // This now handles 'uploading' status as well
+  if (fileOrId.preview && (fileOrId.status === 'pending' || fileOrId.status === 'complete' || fileOrId.status === 'error' || fileOrId.status === 'uploading')) {
     return fileOrId.preview;
   }
   

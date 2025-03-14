@@ -133,64 +133,72 @@ const PhotoUploader = ({
         throw new Error(response.error || 'Upload failed');
       }
       
-      // Update the status of uploaded files
-      setFiles(prev => prev.map(file => {
-        // Check if this file was part of the uploaded batch
-        const matchingUploadedFile = response.photos?.find(uploaded => {
-          // Match by name from the original file
-          const fileName = file.originalFile ? file.originalFile.name : file.displayName;
-          return uploaded.filename === fileName;
+      // Update the status of uploaded files and then notify parent
+      setFiles(prev => {
+        const updatedFiles = prev.map(file => {
+          // Check if this file was part of the uploaded batch
+          const matchingUploadedFile = response.photos?.find(uploaded => {
+            // Match by name from the original file
+            const fileName = file.originalFile ? file.originalFile.name : file.displayName;
+            return uploaded.filename === fileName;
+          });
+          
+          if (matchingUploadedFile) {
+            // Only revoke the blob URL if we have a valid server-side ID
+            if (file.preview && matchingUploadedFile._id) {
+              URL.revokeObjectURL(file.preview);
+            }
+            
+            // Return updated file with server data
+            return {
+              ...file,
+              status: 'complete',
+              // Store the MongoDB ID
+              _id: matchingUploadedFile._id,
+              // Store the filename
+              filename: matchingUploadedFile.filename,
+              // Only clear the preview if we have a valid server-side ID
+              preview: matchingUploadedFile._id ? null : file.preview,
+              // Store the displayName
+              displayName: file.displayName || matchingUploadedFile.filename,
+              // Store the section if available
+              section: matchingUploadedFile.section || file.section || 'Uncategorized'
+            };
+          }
+          return file;
         });
         
-        if (matchingUploadedFile) {
-          // Revoke the blob URL to prevent memory leaks
-          if (file.preview) {
-            URL.revokeObjectURL(file.preview);
-          }
-          
-          // Return updated file with server data
-          return {
-            ...file,
-            status: 'complete',
-            // Store the MongoDB ID
-            _id: matchingUploadedFile._id,
-            // Store the filename
-            filename: matchingUploadedFile.filename,
-            // Clear the blob preview
-            preview: null,
-            // Store the displayName
-            displayName: file.displayName || matchingUploadedFile.filename,
-            // Store the section if available
-            section: matchingUploadedFile.section || file.section || 'Uncategorized'
-          };
+        // Notify parent component with the updated files
+        if (onUploadComplete) {
+          onUploadComplete(updatedFiles);
         }
-        return file;
-      }));
-      
-      // Notify parent component
-      if (onUploadComplete) {
-        onUploadComplete(files);
-      }
+        
+        return updatedFiles;
+      });
     } catch (err) {
       console.error('Upload failed:', err.message);
       setError(err.message || 'Failed to upload photos');
       
       // Update status of failed files but keep the preview URLs
-      setFiles(prev => prev.map(file => {
-        if (filesToUpload.some(newFile => newFile.id === file.id)) {
-          return {
-            ...file,
-            status: 'error',
-            error: err.message || 'Upload failed'
-          };
+      setFiles(prev => {
+        const updatedFiles = prev.map(file => {
+          if (filesToUpload.some(newFile => newFile.id === file.id)) {
+            return {
+              ...file,
+              status: 'error',
+              error: err.message || 'Upload failed'
+            };
+          }
+          return file;
+        });
+        
+        // Notify parent component of the error state
+        if (onUploadComplete) {
+          onUploadComplete(updatedFiles);
         }
-        return file;
-      }));
-      
-      // Notify parent component of the error state
-      if (onUploadComplete) {
-        onUploadComplete(files);
-      }
+        
+        return updatedFiles;
+      });
     } finally {
       setUploading(false);
     }
@@ -217,8 +225,8 @@ const PhotoUploader = ({
       setAnalysisProgress(0);
       
       // Update status of all files to analyzing
-      setFiles(prev => 
-        prev.map(file => {
+      setFiles(prev => {
+        const updatedFiles = prev.map(file => {
           if (file.status === 'complete' && !file.analysis) {
             return {
               ...file,
@@ -226,8 +234,9 @@ const PhotoUploader = ({
             };
           }
           return file;
-        })
-      );
+        });
+        return updatedFiles;
+      });
       
       // Call the analyze endpoint with the report ID
       const response = await analyzePhotos(reportId);
@@ -237,46 +246,37 @@ const PhotoUploader = ({
       }
       
       // Update the files with analysis results
-      const updatedFiles = [...files];
-      
-      // Set analysis progress to 100%
-      setAnalysisProgress(100);
-      
-      if (response.results && response.results.length > 0) {
-        response.results.forEach(result => {
-          if (!result.photoId) return;
-          
-          const fileIndex = updatedFiles.findIndex(f => 
-            f._id && f._id.toString() === result.photoId.toString()
-          );
-          
-          if (fileIndex !== -1) {
-            updatedFiles[fileIndex] = {
-              ...updatedFiles[fileIndex],
-              status: 'complete',
-              analysis: result.analysis,
-            };
+      setFiles(prev => {
+        const updatedFiles = prev.map(file => {
+          if (response.results && response.results.length > 0) {
+            const result = response.results.find(r => r.photoId === file._id?.toString());
+            if (result) {
+              return {
+                ...file,
+                status: 'complete',
+                analysis: result.analysis,
+              };
+            }
           }
+          return file;
         });
-        
-        setFiles(updatedFiles);
         
         // Notify parent component with the analyzed files
         if (onUploadComplete) {
           onUploadComplete(updatedFiles);
         }
         
-        console.log(`AI analysis completed for ${response.results.length} photos`);
-      } else {
-        console.log('No analysis results returned from the server');
-      }
+        return updatedFiles;
+      });
+      
+      console.log(`AI analysis completed for ${response.results?.length || 0} photos`);
     } catch (err) {
       console.error('Overall analysis error:', err);
       setError(err.message || 'Photo analysis failed. Please try again.');
       
       // Reset status of files that were being analyzed
-      setFiles(prev => 
-        prev.map(file => {
+      setFiles(prev => {
+        const updatedFiles = prev.map(file => {
           if (file.status === 'analyzing') {
             return {
               ...file,
@@ -284,8 +284,9 @@ const PhotoUploader = ({
             };
           }
           return file;
-        })
-      );
+        });
+        return updatedFiles;
+      });
     } finally {
       setAnalyzing(false);
     }
