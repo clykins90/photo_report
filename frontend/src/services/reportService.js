@@ -174,7 +174,7 @@ export const createReport = async (reportData) => {
   }
   
   try {
-    const response = await api.post('/api/reports', preparedData);
+    const response = await api.post('/reports', preparedData);
     console.log('Create response:', response.data);
     return response.data;
   } catch (error) {
@@ -217,8 +217,13 @@ export const createReport = async (reportData) => {
  * @returns {Promise} - The response from the API
  */
 export const getReports = async () => {
-  const response = await api.get('/api/reports');
-  return response.data;
+  try {
+    const response = await api.get('/reports');
+    return response.data;
+  } catch (error) {
+    console.error('Error getting reports:', error);
+    throw error;
+  }
 };
 
 /**
@@ -475,7 +480,7 @@ export const generateAISummary = async (photos) => {
       };
     });
     
-    const response = await api.post('/api/reports/generate-summary', { photos: preparedPhotos });
+    const response = await api.post('/reports/generate-summary', { photos: preparedPhotos });
     
     if (!response.data || !response.data.success) {
       throw new Error('Failed to generate summary: Invalid response from server');

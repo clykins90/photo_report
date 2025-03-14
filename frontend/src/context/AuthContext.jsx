@@ -19,56 +19,24 @@ export const AuthProvider = ({ children }) => {
     const loadUser = async () => {
       if (token) {
         try {
-          const res = await api.get('/api/auth/profile');
+          setLoading(true);
+          const res = await api.get('/auth/profile');
           
-          // Ensure the user always has a valid company property
+          // Ensure the user has a valid company property
           let userData = res.data.data;
           
           // Check if user data doesn't have a company property or it's incomplete
           if (!userData.company || (typeof userData.company === 'object' && !userData.company.name)) {
-            console.warn('User is missing company information. Attempting to fetch from company API...');
-            
             try {
-              // Try to fetch company data from API
-              const companyRes = await api.get('/api/company');
-              if (companyRes.data.success && companyRes.data.data && companyRes.data.data.name) {
+              // Try to get company info
+              const companyRes = await api.get('/company');
+              
+              if (companyRes.data && companyRes.data.data) {
                 userData.company = companyRes.data.data;
                 console.log('Successfully retrieved company data:', userData.company);
-              } else {
-                console.warn('Company API returned no valid data. Using test company ID for development.');
-                userData.company = {
-                  name: 'Test Company',
-                  _id: '6601313e0bc8870bfc66a8e5' // Test company ID for development
-                };
               }
-            } catch (companyErr) {
-              console.error('Failed to fetch company data:', companyErr);
-              // Fallback to a development company
-              userData.company = {
-                name: 'Test Company',
-                _id: '6601313e0bc8870bfc66a8e5' // Test company ID for development
-              };
-            }
-          } else if (typeof userData.company === 'string') {
-            // If company is just an ID string, try to convert it to an object with a name
-            try {
-              const companyRes = await api.get('/api/company');
-              if (companyRes.data.success && companyRes.data.data) {
-                userData.company = companyRes.data.data;
-              } else {
-                // Convert the string ID to a minimal company object
-                userData.company = {
-                  name: 'Company', // Default name
-                  _id: userData.company // Keep the ID
-                };
-              }
-            } catch (companyErr) {
-              console.error('Failed to fetch company data:', companyErr);
-              // Convert the string ID to a minimal company object
-              userData.company = {
-                name: 'Company', // Default name
-                _id: userData.company // Keep the ID
-              };
+            } catch (companyError) {
+              console.log('No company data found or error fetching it:', companyError.message);
             }
           }
           
@@ -96,7 +64,7 @@ export const AuthProvider = ({ children }) => {
   const register = async (formData) => {
     try {
       setLoading(true);
-      const res = await api.post('/api/auth/register', formData);
+      const res = await api.post('/auth/register', formData);
       
       // Ensure the registered user has a valid company property
       let userData = res.data.data.user;
@@ -108,7 +76,7 @@ export const AuthProvider = ({ children }) => {
         try {
           // Try to fetch company data from API if we have a token
           localStorage.setItem('token', res.data.data.token); // Set token first for auth
-          const companyRes = await api.get('/api/company');
+          const companyRes = await api.get('/company');
           if (companyRes.data.success && companyRes.data.data && companyRes.data.data.name) {
             userData.company = companyRes.data.data;
             console.log('Successfully retrieved company data:', userData.company);
@@ -132,7 +100,7 @@ export const AuthProvider = ({ children }) => {
         try {
           // Try to fetch company data from API if we have a token
           localStorage.setItem('token', res.data.data.token); // Set token first for auth
-          const companyRes = await api.get('/api/company');
+          const companyRes = await api.get('/company');
           if (companyRes.data.success && companyRes.data.data) {
             userData.company = companyRes.data.data;
           } else {
@@ -179,7 +147,7 @@ export const AuthProvider = ({ children }) => {
         environment: import.meta.env.MODE
       });
       
-      const res = await api.post('/api/auth/login', { email, password });
+      const res = await api.post('/auth/login', { email, password });
       
       console.log('Login successful, response:', res.status, res.statusText);
 
@@ -193,7 +161,7 @@ export const AuthProvider = ({ children }) => {
         try {
           // Try to fetch company data from API if we have a token
           localStorage.setItem('token', res.data.data.token); // Set token first for auth
-          const companyRes = await api.get('/api/company');
+          const companyRes = await api.get('/company');
           if (companyRes.data.success && companyRes.data.data && companyRes.data.data.name) {
             userData.company = companyRes.data.data;
             console.log('Successfully retrieved company data:', userData.company);
@@ -217,7 +185,7 @@ export const AuthProvider = ({ children }) => {
         try {
           // Try to fetch company data from API if we have a token
           localStorage.setItem('token', res.data.data.token); // Set token first for auth
-          const companyRes = await api.get('/api/company');
+          const companyRes = await api.get('/company');
           if (companyRes.data.success && companyRes.data.data) {
             userData.company = companyRes.data.data;
           } else {

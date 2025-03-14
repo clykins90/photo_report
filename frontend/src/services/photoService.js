@@ -105,7 +105,7 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
     }
     
     // Send the request
-    const response = await api.post('/api/photos/upload', formData, config);
+    const response = await api.post('/photos/upload', formData, config);
     
     photoLogger(`Upload complete: ${response.data.count} photos uploaded`);
     
@@ -198,7 +198,7 @@ export const analyzePhoto = async (photo) => {
 
     // This function now delegates to the analyzePhotos endpoint
     // which expects a reportId, but we can also pass a specific photoId
-    const response = await api.post('/api/photos/analyze', { 
+    const response = await api.post('/photos/analyze', { 
       photoId: photoId 
     });
     
@@ -245,7 +245,7 @@ export const analyzeBatchPhotos = async (photos) => {
     }
     
     // Call the analyze endpoint with the photo IDs
-    const response = await api.post('/api/photos/analyze', { 
+    const response = await api.post('/photos/analyze', { 
       photoIds: photoIds 
     });
     

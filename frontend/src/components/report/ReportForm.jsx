@@ -415,10 +415,9 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       };
     } else if (typeof user.company === 'string') {
       try {
-        // Try to fetch company data from API
-        console.log('Fetching company data from API...');
-        const companyRes = await api.get('/api/company');
-        if (companyRes.data.success && companyRes.data.data) {
+        // Fetch company data for branding
+        const companyRes = await api.get('/company');
+        if (companyRes.data && companyRes.data.data) {
           companyData = companyRes.data.data;
           console.log('Successfully fetched company data:', companyData);
         } else {

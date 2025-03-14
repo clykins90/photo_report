@@ -189,12 +189,12 @@ const ProfilePage = () => {
     const fetchCompanyData = async () => {
       try {
         setLoading(true);
-        // For now, we don't need the ID since company info is part of the user profile
-        const companyRes = await api.get('/api/company');
-        setCompany(companyRes.data.data);
-        
-        // Initialize form with company data
-        if (companyRes.data.data) {
+        // Fetch company data
+        const companyRes = await api.get('/company');
+        if (companyRes.data && companyRes.data.data) {
+          setCompany(companyRes.data.data);
+          
+          // Initialize form with company data
           setFormData({
             name: companyRes.data.data.name || '',
             email: companyRes.data.data.email || '',
@@ -286,10 +286,12 @@ const ProfilePage = () => {
       };
 
       // Update to new endpoint
-      const response = await api.put('/api/company', formDataToSubmit);
+      const response = await api.put('/company', formDataToSubmit);
       
-      setCompany(response.data.data);
-      toast.success('Profile updated successfully');
+      if (response.data && response.data.success) {
+        setCompany(response.data.data);
+        toast.success('Profile updated successfully');
+      }
     } catch (err) {
       console.error('Error updating profile:', err);
       toast.error(err.response?.data?.message || 'Error updating profile');
@@ -324,7 +326,7 @@ const ProfilePage = () => {
     setPasswordError('');
     
     try {
-      await api.put('/api/auth/password', {
+      await api.put('/auth/password', {
         currentPassword,
         newPassword
       });
