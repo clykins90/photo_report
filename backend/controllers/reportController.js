@@ -535,29 +535,29 @@ const addPhotos = async (req, res, next) => {
 };
 
 /**
- * Generate a PDF report
- * @route GET /api/reports/:reportId/pdf
- * @route POST /api/reports/:id/generate-pdf
+ * Generate a PDF for a report
+ * @route GET /api/reports/:id/pdf
  * @access Private
  */
 const generatePdf = async (req, res, next) => {
   try {
-    // Support both parameter naming conventions
-    const reportId = req.params.reportId || req.params.id;
-    logger.info(`Generating PDF for report ID: ${reportId}`);
+    logger.info(`Generating PDF for report ${req.params.id}`);
     
-    // Find report by ID with photos included
-    const report = await Report.findById(reportId)
-      .populate('user');
-      
+    // Find the report
+    const report = await Report.findById(req.params.id)
+      .populate('user', 'name email')
+      .populate('company');
+    
     if (!report) {
-      logger.error(`Report not found for ID: ${reportId}`);
       throw new ApiError(404, 'Report not found');
     }
-
-    logger.info(`Found report with ${report.photos?.length || 0} photos`);
     
-    // If the report has photos with blob URLs, we need to try to resolve them to actual GridFS files
+    // Check if user has permission to access this report
+    if (report.user.toString() !== req.user.id && req.user.role !== 'admin') {
+      throw new ApiError(403, 'Not authorized to access this report');
+    }
+    
+    // Check if report has photos with blob URLs that need to be resolved
     if (report.photos && report.photos.length > 0) {
       const blobPhotos = report.photos.filter(p => p.path && p.path.startsWith('blob:'));
       
@@ -598,27 +598,27 @@ const generatePdf = async (req, res, next) => {
     }
     
     // Generate the PDF using pdfGenerationService
-    const pdfBuffer = await pdfGenerationService.generatePdf(report);
+    const pdfResult = await pdfGenerationService.generatePdf(report);
     
     // Check if the PDF was created successfully
-    if (!pdfBuffer || pdfBuffer.length === 0) {
+    if (!pdfResult.buffer || pdfResult.buffer.length === 0) {
       logger.error('PDF generation failed - empty buffer returned');
       throw new ApiError(500, 'PDF generation failed');
     }
     
-    logger.info(`PDF generated successfully, size: ${pdfBuffer.length} bytes`);
+    logger.info(`PDF generated successfully, size: ${pdfResult.buffer.length} bytes`);
     
-    // Set headers and send PDF
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="report_${reportId}.pdf"`,
-      'Content-Length': pdfBuffer.length
-    });
+    // Create a filename for the PDF
+    const timestamp = Date.now();
+    const filename = `report_${report._id}_${timestamp}.pdf`;
     
-    res.send(pdfBuffer);
+    // Set response headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     
+    // Send the PDF buffer
+    res.send(pdfResult.buffer);
   } catch (error) {
-    logger.error(`Error generating PDF: ${error.message}`);
     next(error);
   }
 };

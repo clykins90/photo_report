@@ -205,21 +205,30 @@ app.use('/pdfs', (req, res, next) => {
     return res.status(404).json({ success: false, message: 'PDF not found' });
   }
   
-  // Try to find the PDF in GridFS
+  // Try to find the PDF in GridFS pdf_report bucket
   const gridfs = require('./utils/gridfs');
-  gridfs.findFiles({ filename: pdfFilename })
+  gridfs.findFiles({ filename: pdfFilename }, 'pdf_report')
     .then(files => {
       if (files && files.length > 0) {
-        // Stream the PDF from GridFS
-        return gridfs.streamToResponse(files[0]._id, res);
+        // Stream the PDF from GridFS pdf_report bucket
+        return gridfs.streamPdfReport(files[0]._id, res);
       } else {
-        // If not in GridFS, check if it exists in the filesystem (for backward compatibility)
-        const pdfPath = path.join(config.uploadDir, 'pdfs', pdfFilename);
-        if (fs.existsSync(pdfPath)) {
-          return res.sendFile(pdfPath);
-        } else {
-          return res.status(404).json({ success: false, message: 'PDF not found' });
-        }
+        // If not in pdf_report bucket, check the photos bucket (for backward compatibility)
+        return gridfs.findFiles({ filename: pdfFilename }, 'photos')
+          .then(photoFiles => {
+            if (photoFiles && photoFiles.length > 0) {
+              // Stream from photos bucket
+              return gridfs.streamToResponse(photoFiles[0]._id, res, 'photos');
+            } else {
+              // If not in GridFS, check if it exists in the filesystem (for backward compatibility)
+              const pdfPath = path.join(config.uploadDir, 'pdfs', pdfFilename);
+              if (fs.existsSync(pdfPath)) {
+                return res.sendFile(pdfPath);
+              } else {
+                return res.status(404).json({ success: false, message: 'PDF not found' });
+              }
+            }
+          });
       }
     })
     .catch(err => {

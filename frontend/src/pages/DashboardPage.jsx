@@ -64,7 +64,7 @@ const DashboardPage = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
         <h1 className="text-2xl font-bold mb-4 md:mb-0">Your Reports</h1>
         <Link 
-          to="/reports/create" 
+          to="/reports/new" 
           className="bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-md"
         >
           Create New Report
