@@ -82,7 +82,7 @@ Confidence: ${analysis.confidenceScore || 0}
     // Call OpenAI API to generate summary
     logger.info('Calling OpenAI API to generate summary');
     const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",

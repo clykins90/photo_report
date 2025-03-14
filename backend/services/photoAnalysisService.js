@@ -44,7 +44,7 @@ const analyzePhoto = async (imagePath) => {
     
     // Call OpenAI Vision API
     const response = await openai.chat.completions.create({
-      model: "gpt-4-vision-preview",
+      model: "gpt-4-mini",
       messages: [
         {
           role: "system",
@@ -63,7 +63,8 @@ const analyzePhoto = async (imagePath) => {
           ]
         }
       ],
-      max_tokens: 1000
+      max_tokens: 1000,
+      response_format: { type: "json_object" }
     });
     
     // Parse the response

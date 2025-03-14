@@ -59,7 +59,7 @@ This application allows contractors to:
 ### Photo Analysis Workflow
 1. Photos are uploaded to MongoDB GridFS with metadata linking them to reports
 2. The analysis process retrieves photos from GridFS and creates temporary files
-3. OpenAI's Vision API analyzes each photo for damage, providing detailed descriptions
+3. OpenAI's Vision API with GPT-4-mini analyzes each photo for damage, providing detailed descriptions
 4. Analysis results are stored with the photo metadata in the report document
 5. Users can review and edit AI-generated descriptions before finalizing reports
 
@@ -85,7 +85,7 @@ The photo service has been simplified to focus on the core functionality:
    - Original: Full-resolution image for detailed viewing and PDF generation
    - Thumbnail: Smaller version for report previews and editing interface
 
-3. **Analysis**: Photos are analyzed using OpenAI's Vision API
+3. **Analysis**: Photos are analyzed using OpenAI's Vision API with GPT-4-mini
    - Memory-based processing is used whenever possible
    - AI generates descriptions, tags, and damage assessments
    - Analysis results are stored with the photo in the database
@@ -193,7 +193,7 @@ Photos are stored in two places:
   - Input format validation (e.g., zip code format)
   - Visual indicators for all required fields
 - **AI Analysis**: Automated analysis of damage with editable descriptions
-  - Uses OpenAI Vision API for detailed damage assessment
+  - Uses OpenAI Vision API with GPT-4-mini model for detailed damage assessment
   - Identifies damage type, severity, and provides professional descriptions
   - Extracts key information like location, materials, and recommended actions
   - Uses roofing industry terminology for insurance adjuster-friendly reports
@@ -206,6 +206,7 @@ Photos are stored in two places:
   - Eliminates dependency on external file storage services
   - Metadata support for advanced file organization and retrieval
 - **Comprehensive Report Generation**: AI-powered summary of all analyzed photos
+  - Uses GPT-4o-mini model for efficient and cost-effective report generation
   - Automatically aggregates findings from individual photo analyses
   - Creates a structured summary of all damages found
   - Identifies common materials across the inspection
