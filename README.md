@@ -44,6 +44,7 @@ This application allows contractors to:
 - Custom Vercel configuration for monorepo structure
 - Static build process for frontend with optimized asset delivery
 - Serverless functions for backend API endpoints
+- Configured with vercel.json for proper path rewrites and build settings
 
 ## Features
 
@@ -652,3 +653,21 @@ The application uses a consolidated approach for handling photos throughout the 
 - Custom Vercel configuration for monorepo structure
 - Static build process for frontend with optimized asset delivery
 - Serverless functions for backend API endpoints
+
+## Project Structure and Build Process
+
+### Build Process
+- The project uses a monorepo structure with separate frontend and backend directories
+- Root-level `npm run build` executes the frontend build process for Vercel deployment
+- Frontend build is handled by Vite (configured in frontend/package.json)
+- Build output is generated in frontend/dist directory
+- Vercel configuration routes all requests to the SPA for client-side routing
+
+### Vercel Deployment
+- The application is configured for seamless deployment on Vercel
+- Key configuration files:
+  - `vercel.json`: Defines build command, output directory, and URL rewrites
+  - `package.json`: Contains scripts for installation and build processes
+- The build process avoids recursive loops by using separate script names
+  - Root package.json uses `"build": "cd frontend && npm run vercel-build"`
+  - Frontend package.json uses `"vercel-build": "vite build"` and `"build": "vite build"`

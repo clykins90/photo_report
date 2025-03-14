@@ -1,0 +1,7 @@
+{
+  "buildCommand": "cd frontend && npm run vercel-build",
+  "outputDirectory": "frontend/dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+} 
