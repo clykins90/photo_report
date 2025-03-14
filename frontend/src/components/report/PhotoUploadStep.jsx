@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import PhotoUploader from '../photo/PhotoUploader';
 
 const PhotoUploadStep = ({ 
@@ -8,7 +8,13 @@ const PhotoUploadStep = ({
   nextStep,
   reportId = null
 }) => {
+  // Add debugging to see what photos are being passed in
+  useEffect(() => {
+    console.log('PhotoUploadStep received photos:', uploadedPhotos);
+  }, [uploadedPhotos]);
+
   const handleUploadComplete = (uploadedPhotos) => {
+    console.log('PhotoUploadStep handleUploadComplete received:', uploadedPhotos);
     if (onUploadComplete) {
       onUploadComplete(uploadedPhotos);
     }

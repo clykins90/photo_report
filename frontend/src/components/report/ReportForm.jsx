@@ -503,6 +503,11 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
           // Extract the original file objects
           const fileObjects = photosToUpload.map(photo => photo.originalFile);
           
+          // Prepare metadata with client IDs
+          const fileMetadata = photosToUpload.map(photo => ({
+            clientId: photo.clientId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+          }));
+          
           // Upload the photos to the report
           const uploadResponse = await uploadBatchPhotos(
             fileObjects,
@@ -512,7 +517,8 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
               if (progress % 10 === 0) {
                 console.log(`Photo upload progress: ${progress}%`);
               }
-            }
+            },
+            fileMetadata // Pass the metadata with client IDs
           );
           
           if (!uploadResponse.success) {
@@ -521,6 +527,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
             // The user can try uploading photos again later
           } else {
             console.log('Photos uploaded successfully:', uploadResponse.photos?.length || 0);
+            console.log('Client ID to Server ID mapping:', uploadResponse.idMapping);
           }
         } catch (uploadErr) {
           console.error('Error during photo upload:', uploadErr.message);

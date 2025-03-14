@@ -148,12 +148,16 @@ const PhotoUploader = ({
         previewUrl = createAndTrackBlobUrl(file);
       }
       
+      // Generate a client ID for reliable tracking
+      const clientId = `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      
       // Create a new object with the file properties we need
       return {
         // Original file reference
         originalFile: file,
-        // Use a prefix to ensure this is never confused with a MongoDB ObjectId
-        id: `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        // Use a client ID for reliable tracking
+        id: clientId,
+        clientId: clientId, // Store the client ID explicitly
         // Use the cached or newly created blob URL
         preview: previewUrl,
         // Set initial status
@@ -184,6 +188,11 @@ const PhotoUploader = ({
       // Get original file objects
       const originalFiles = filesToUpload.map(file => file.originalFile);
       
+      // Prepare metadata with client IDs
+      const fileMetadata = filesToUpload.map(file => ({
+        clientId: file.clientId
+      }));
+      
       // Update files to 'uploading' status but preserve all other properties
       setFiles(prev => prev.map(file => {
         if (filesToUpload.some(newFile => newFile.id === file.id)) {
@@ -195,13 +204,14 @@ const PhotoUploader = ({
         return file;
       }));
       
-      // Upload files in batch
+      // Upload files in batch with client IDs
       const response = await uploadBatchPhotos(
         originalFiles, 
         reportId,
         (progress) => {
           setUploadProgress(progress);
-        }
+        },
+        fileMetadata // Pass the metadata with client IDs
       );
       
       if (!response.success) {
@@ -216,73 +226,55 @@ const PhotoUploader = ({
         throw new Error('Server did not return photo information');
       }
       
-      // Log the file names we're trying to match
-      console.log('Files to match:', filesToUpload.map(f => ({
-        id: f.id,
-        name: f.originalFile?.name || f.displayName
-      })));
-      
-      console.log('Server response photos:', response.photos);
+      // Log the ID mapping for debugging
+      console.log('Client ID to Server ID mapping:', response.idMapping);
       
       // Update the status of uploaded files but KEEP the preview URLs
       setFiles(prev => {
         const updatedFiles = prev.map(file => {
           // Check if this file was part of the uploaded batch
-          const matchingUploadedFile = response.photos?.find(uploaded => {
-            const fileName = file.originalFile ? file.originalFile.name : file.displayName;
+          if (filesToUpload.some(newFile => newFile.id === file.id)) {
+            // Use the ID mapping to find the corresponding server file
+            const serverId = response.idMapping[file.clientId];
+            const serverFile = serverId ? 
+              response.photos.find(photo => photo._id === serverId) : 
+              null;
             
-            // Try multiple matching strategies
-            // 1. Direct match on originalName
-            const directMatch = uploaded.originalName === fileName;
-            
-            // 2. Check if filename includes the original name
-            const filenameMatch = uploaded.filename && fileName && 
-                                 uploaded.filename.includes(fileName);
-            
-            // 3. Check if names match after removing extensions and special characters
-            const cleanFileName = fileName?.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-            const cleanUploadedName = uploaded.originalName?.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-            const cleanFilenameMatch = cleanFileName && cleanUploadedName && 
-                                      cleanUploadedName.includes(cleanFileName);
-            
-            return directMatch || filenameMatch || cleanFilenameMatch;
-          });
-          
-          if (matchingUploadedFile) {
-            console.log(`Matched file ${file.displayName} with server response:`, matchingUploadedFile);
-            
-            // NEVER revoke the blob URL during the upload process
-            // Return updated file with server data but keep the preview URL
-            return {
-              ...file,
-              status: 'complete',
-              // Store the MongoDB ID - CRITICAL for analysis
-              _id: matchingUploadedFile._id,
-              // Also set the id field to the MongoDB ID for consistency
-              id: matchingUploadedFile._id,
-              // Store the fileId if available
-              fileId: matchingUploadedFile.fileId || matchingUploadedFile._id,
-              // Store the filename
-              filename: matchingUploadedFile.filename,
-              // Store the original name
-              originalName: matchingUploadedFile.originalName,
-              // ALWAYS keep the preview URL
-              preview: file.preview,
-              // Store the displayName
-              displayName: file.displayName || matchingUploadedFile.originalName || matchingUploadedFile.filename,
-              // Store the section if available
-              section: matchingUploadedFile.section || file.section || 'Uncategorized',
-              // Store the path
-              path: matchingUploadedFile.path
-            };
-          } else if (filesToUpload.some(newFile => newFile.id === file.id)) {
-            // This file was in the upload batch but didn't match any server response
-            console.warn(`File ${file.displayName} was uploaded but not matched in server response`);
-            return {
-              ...file,
-              status: 'error',
-              error: 'File was uploaded but not recognized by server'
-            };
+            if (serverFile) {
+              console.log(`Matched file ${file.displayName} with server ID ${serverId}`);
+              
+              // Return updated file with server data but keep the preview URL
+              return {
+                ...file,
+                status: 'complete',
+                // Store the MongoDB ID - CRITICAL for analysis
+                _id: serverFile._id,
+                // Also set the id field to the MongoDB ID for consistency
+                id: serverFile._id,
+                // Store the fileId if available
+                fileId: serverFile.fileId || serverFile._id,
+                // Store the filename
+                filename: serverFile.filename,
+                // Store the original name
+                originalName: serverFile.originalName,
+                // ALWAYS keep the preview URL
+                preview: file.preview,
+                // Store the displayName
+                displayName: file.displayName || serverFile.originalName || serverFile.filename,
+                // Store the section if available
+                section: serverFile.section || file.section || 'Uncategorized',
+                // Store the path
+                path: serverFile.path
+              };
+            } else {
+              // If we couldn't find a matching server file, mark as error
+              console.warn(`No server file found for client ID ${file.clientId}`);
+              return {
+                ...file,
+                status: 'error',
+                error: 'File was uploaded but server did not return matching ID'
+              };
+            }
           }
           return file;
         });
@@ -297,45 +289,37 @@ const PhotoUploader = ({
         
         // Find and update files with server data
         currentFiles.forEach((file, index) => {
-          const matchingUploadedFile = response.photos?.find(uploaded => {
-            const fileName = file.originalFile ? file.originalFile.name : file.displayName;
+          // Check if this file was part of the uploaded batch
+          if (filesToUpload.some(newFile => newFile.id === file.id)) {
+            // Use the ID mapping to find the corresponding server file
+            const serverId = response.idMapping[file.clientId];
+            const serverFile = serverId ? 
+              response.photos.find(photo => photo._id === serverId) : 
+              null;
             
-            // Try multiple matching strategies
-            // 1. Direct match on originalName
-            const directMatch = uploaded.originalName === fileName;
-            
-            // 2. Check if filename includes the original name
-            const filenameMatch = uploaded.filename && fileName && 
-                                 uploaded.filename.includes(fileName);
-            
-            // 3. Check if names match after removing extensions and special characters
-            const cleanFileName = fileName?.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-            const cleanUploadedName = uploaded.originalName?.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-            const cleanFilenameMatch = cleanFileName && cleanUploadedName && 
-                                      cleanUploadedName.includes(cleanFileName);
-            
-            return directMatch || filenameMatch || cleanFilenameMatch;
-          });
-          
-          if (matchingUploadedFile) {
-            currentFiles[index] = {
-              ...file,
-              status: 'complete',
-              _id: matchingUploadedFile._id,
-              id: matchingUploadedFile._id, // Update the ID to match MongoDB ID
-              fileId: matchingUploadedFile.fileId || matchingUploadedFile._id,
-              filename: matchingUploadedFile.filename,
-              originalName: matchingUploadedFile.originalName,
-              preview: file.preview,
-              displayName: file.displayName || matchingUploadedFile.originalName || matchingUploadedFile.filename,
-              section: matchingUploadedFile.section || file.section || 'Uncategorized',
-              path: matchingUploadedFile.path
-            };
+            if (serverFile) {
+              currentFiles[index] = {
+                ...file,
+                status: 'complete',
+                _id: serverFile._id,
+                id: serverFile._id, // Update the ID to match MongoDB ID
+                fileId: serverFile.fileId || serverFile._id,
+                filename: serverFile.filename,
+                originalName: serverFile.originalName,
+                preview: file.preview,
+                displayName: file.displayName || serverFile.originalName || serverFile.filename,
+                section: serverFile.section || file.section || 'Uncategorized',
+                path: serverFile.path
+              };
+            }
           }
         });
         
         // Update the state with the current files
         setFiles(currentFiles);
+        
+        // Add debugging to see what's being passed to the parent
+        console.log('Calling onUploadComplete with files:', currentFiles);
         
         // Call onUploadComplete with the updated files
         onUploadComplete(currentFiles);

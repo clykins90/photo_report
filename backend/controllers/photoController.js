@@ -31,10 +31,22 @@ const uploadPhotos = async (req, res) => {
       return res.status(404).json({ error: 'Report not found' });
     }
     
+    // Get client IDs if provided
+    const clientIds = req.body.clientIds ? 
+      (Array.isArray(req.body.clientIds) ? req.body.clientIds : [req.body.clientIds]) : 
+      [];
+    
+    logger.info(`Received ${clientIds.length} client IDs for ${req.files.length} files`);
+    
     // Process each file
     const uploadedPhotos = [];
+    const idMapping = {}; // Map client IDs to server IDs
     
-    for (const file of req.files) {
+    for (let i = 0; i < req.files.length; i++) {
+      const file = req.files[i];
+      // Get the client ID for this file if available
+      const clientId = i < clientIds.length ? clientIds[i] : null;
+      
       try {
         // Upload file to GridFS
         const fileInfo = await gridfs.uploadBuffer(file.buffer, {
@@ -43,7 +55,8 @@ const uploadPhotos = async (req, res) => {
           metadata: {
             reportId,
             originalName: file.originalname,
-            uploadDate: new Date()
+            uploadDate: new Date(),
+            clientId // Store the client ID in metadata
           }
         });
         
@@ -56,11 +69,17 @@ const uploadPhotos = async (req, res) => {
           contentType: file.mimetype,
           path: `/api/photos/${fileInfo.id}`,
           status: 'pending',
-          uploadDate: new Date()
+          uploadDate: new Date(),
+          clientId // Include the client ID in the photo object
         };
         
         // Add photo to uploadedPhotos array
         uploadedPhotos.push(photo);
+        
+        // Create mapping from client ID to server ID if client ID was provided
+        if (clientId) {
+          idMapping[clientId] = fileInfo.id;
+        }
         
         // If file was saved to temp directory, clean it up
         if (file.path) {
@@ -82,7 +101,8 @@ const uploadPhotos = async (req, res) => {
     
     return res.status(200).json({
       message: `Successfully uploaded ${uploadedPhotos.length} photos`,
-      photos: uploadedPhotos
+      photos: uploadedPhotos,
+      idMapping // Include the ID mapping in the response
     });
   } catch (error) {
     logger.error(`Error in uploadPhotos: ${error.message}`);

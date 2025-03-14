@@ -91,9 +91,10 @@ export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
  * @param {File[]} files - Array of file objects to upload
  * @param {string|null} reportId - Report ID to associate photos with
  * @param {Function} progressCallback - Optional callback for upload progress
+ * @param {Object[]} fileMetadata - Optional array of metadata for each file, including clientIds
  * @returns {Promise} - Promise resolving to the server response
  */
-export const uploadBatchPhotos = async (files, reportId, progressCallback = null) => {
+export const uploadBatchPhotos = async (files, reportId, progressCallback = null, fileMetadata = []) => {
   try {
     if (!files || files.length === 0) {
       throw new Error('No files provided for upload');
@@ -111,8 +112,25 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
     const formData = new FormData();
     
     // Add each file to the form data
-    files.forEach(file => {
+    files.forEach((file, index) => {
       formData.append('photos', file);
+      
+      // If we have metadata with clientId for this file, add it
+      if (fileMetadata[index] && fileMetadata[index].clientId) {
+        formData.append('clientIds', fileMetadata[index].clientId);
+        photoLogger(`Adding clientId ${fileMetadata[index].clientId} for file ${file.name}`);
+      } else {
+        // Generate a client ID if not provided
+        const generatedClientId = `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_${index}`;
+        formData.append('clientIds', generatedClientId);
+        photoLogger(`Generated clientId ${generatedClientId} for file ${file.name}`);
+        
+        // Add to metadata array for reference
+        if (!fileMetadata[index]) {
+          fileMetadata[index] = {};
+        }
+        fileMetadata[index].clientId = generatedClientId;
+      }
     });
     
     // Add reportId
@@ -139,12 +157,14 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
       throw new Error('Server returned invalid response format');
     }
     
-    photoLogger(`Upload complete: ${response.data.count} photos uploaded`);
+    photoLogger(`Upload complete: ${response.data.photos.length} photos uploaded`);
     photoLogger('Uploaded photo details:', response.data.photos);
     
+    // Add the client ID mapping to the response
     return {
       success: true,
-      photos: response.data.photos
+      photos: response.data.photos,
+      idMapping: response.data.idMapping || {}
     };
   } catch (error) {
     photoLogger('Error uploading photos:', error, true);

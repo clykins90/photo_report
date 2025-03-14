@@ -79,6 +79,7 @@ The photo service has been simplified to focus on the core functionality:
    - When temporary storage is needed, the `/tmp` directory is used (compatible with Vercel)
    - Photos are associated with a specific report
    - Temporary files are automatically cleaned up after processing
+   - Client-generated IDs are used to reliably track files from frontend to backend
 
 2. **Retrieval**: Photos can be retrieved in two formats:
    - Original: Full-resolution image for detailed viewing and PDF generation
@@ -95,6 +96,8 @@ The photo service has been simplified to focus on the core functionality:
 ### API Endpoints
 
 - `POST /api/photos/upload`: Upload multiple photos for a report
+  - Accepts client-generated IDs for reliable file tracking
+  - Returns a mapping of client IDs to server IDs
 - `GET /api/photos/:id`: Retrieve a photo (original or thumbnail)
 - `POST /api/photos/analyze`: Analyze photos with AI
   - Can analyze by reportId (all unanalyzed photos in a report)
@@ -111,9 +114,10 @@ The photo service is integrated with the frontend through several key components
    - Shows upload progress and status indicators
    - Automatically associates photos with reports
    - Provides a grid view of uploaded photos with status indicators
+   - Uses client-generated IDs to reliably track files during upload
 
 2. **PhotoService**: A service layer that handles communication with the backend
-   - `uploadBatchPhotos`: Uploads multiple photos to the server
+   - `uploadBatchPhotos`: Uploads multiple photos to the server with client IDs
    - `analyzePhotos`: Analyzes photos for a report
    - `analyzePhoto`: Analyzes a single photo
    - `analyzeBatchPhotos`: Analyzes a specific set of photos
@@ -125,6 +129,30 @@ The photo service is integrated with the frontend through several key components
    - Shows analysis progress with status indicators
    - Allows editing of AI-generated descriptions
    - Generates a summary of all analyzed photos
+
+### Client ID Tracking System
+
+The application uses a client-generated ID system to reliably track files from frontend to backend:
+
+1. **Client ID Generation**: When a file is selected for upload, a unique client ID is generated
+   - Format: `client_[timestamp]_[random string]`
+   - Example: `client_1623456789123_a1b2c3d4e5`
+
+2. **Upload Process**:
+   - Client IDs are sent with each file in the upload request
+   - Backend stores these client IDs with the uploaded files in MongoDB
+   - Backend returns a mapping of client IDs to server-generated MongoDB IDs
+
+3. **ID Mapping**:
+   - The frontend uses the ID mapping to update its state
+   - This ensures that each file in the UI is correctly associated with its corresponding database record
+   - No more complex filename matching or guesswork is needed
+
+4. **Benefits**:
+   - 100% reliable file tracking even with duplicate filenames
+   - Simplified code with direct ID lookups
+   - Resilient to filename transformations and encoding issues
+   - Works with any number of files in a batch upload
 
 ### Data Model
 
@@ -328,7 +356,7 @@ If you encounter a 404 NOT_FOUND error in your Vercel deployment, check the foll
    - Set up the proper `rewrites` in vercel.json to direct API requests to your serverless function
 
 4. **Avoid Duplicate API Path Prefixes**:
-   - The API entry point (api/index.js) now strips the leading `/api` from URLs to prevent duplicate paths
+   - The API entry point now strips the leading `/api` from URLs to prevent duplicate paths
    - This fixes issues where URLs like `/api/api/photos/filename.jpeg` would return 404 errors
    - All internal routes are still mounted with `/api` prefixes in the Express app
    - The URL modification is handled transparently for all API requests
