@@ -47,26 +47,87 @@ This application allows contractors to:
 - Configured with vercel.json for proper path rewrites and build settings
 
 ### Photo Storage and Processing
-- Photos are uploaded to the server and processed using Sharp
-- Original, optimized, and thumbnail versions are generated for each photo
-- Photos are stored in MongoDB GridFS for efficient retrieval
-- The frontend uses server-provided URLs to access photos, not temporary blob URLs
-- Proper URL handling ensures photos can be accessed across sessions and devices
-- Enhanced path handling for files with relative paths (./file.jpg) and FileSystemFileHandle objects
-- Robust fallback mechanisms for image loading with multiple retry strategies
+- Photos are stored directly in MongoDB using GridFS
+- Original photos are stored for PDF generation and detailed viewing
+- Thumbnails are generated for report previews
+- AI analysis is performed using OpenAI's Vision API
+- Photos are associated with reports in the database
 
-#### Vercel Configuration
-The application uses a specific Vercel configuration to handle both the frontend SPA and backend API:
-- Backend server runs as a serverless function
-- Frontend is built as a static site
-- API routes are directed to the backend server
-- SPA routing is preserved for frontend navigation
+## Photo Service Architecture
 
-To troubleshoot deployment issues:
-1. Check that `/api/*` routes are correctly routed to the backend server
-2. Ensure static assets are properly served from the frontend build
-3. Verify that SPA routes fall back to index.html
-4. For 405 Method Not Allowed errors, check the routes configuration in vercel.json
+The photo service has been simplified to focus on the core functionality:
+
+1. **Upload**: Photos are uploaded directly to MongoDB GridFS storage
+   - Photos are associated with a specific report
+   - Temporary files are cleaned up after upload
+
+2. **Retrieval**: Photos can be retrieved in two formats:
+   - Original: Full-resolution image for detailed viewing and PDF generation
+   - Thumbnail: Smaller version for report previews and editing interface
+
+3. **Analysis**: Photos are analyzed using OpenAI's Vision API
+   - AI generates descriptions, tags, and damage assessments
+   - Analysis results are stored with the photo in the report document
+   - Analysis can be performed on individual photos, specific photo sets, or all photos in a report
+
+4. **Deletion**: Photos can be deleted from both the report and GridFS storage
+
+### API Endpoints
+
+- `POST /api/photos/upload`: Upload multiple photos for a report
+- `GET /api/photos/:id`: Retrieve a photo (original or thumbnail)
+- `POST /api/photos/analyze`: Analyze photos with AI
+  - Can analyze by reportId (all unanalyzed photos in a report)
+  - Can analyze by photoId (a single specific photo)
+  - Can analyze by photoIds (a specific set of photos)
+- `DELETE /api/photos/:id`: Delete a photo
+
+### Frontend Integration
+
+The photo service is integrated with the frontend through several key components:
+
+1. **PhotoUploader**: A reusable component for uploading photos
+   - Supports drag-and-drop and file selection
+   - Shows upload progress and status indicators
+   - Automatically associates photos with reports
+   - Provides a grid view of uploaded photos with status indicators
+
+2. **PhotoService**: A service layer that handles communication with the backend
+   - `uploadBatchPhotos`: Uploads multiple photos to the server
+   - `analyzePhotos`: Analyzes photos for a report
+   - `analyzePhoto`: Analyzes a single photo
+   - `analyzeBatchPhotos`: Analyzes a specific set of photos
+   - `getPhotoUrl`: Generates URLs for accessing photos
+   - `deletePhoto`: Deletes a photo from the server
+
+3. **AIAnalysisStep**: A component for analyzing photos and generating summaries
+   - Processes photos in batches to avoid rate limiting
+   - Shows analysis progress with status indicators
+   - Allows editing of AI-generated descriptions
+   - Generates a summary of all analyzed photos
+
+### Data Model
+
+Photos are stored in two places:
+1. **GridFS**: The actual photo binary data
+2. **Report Document**: Photo metadata and analysis results
+
+```json
+// Photo schema within Report model
+{
+  "_id": "ObjectId",
+  "filename": "example.jpg",
+  "section": "Exterior",
+  "userDescription": "Front of house",
+  "aiAnalysis": {
+    "description": "The image shows the front exterior of a two-story house...",
+    "tags": ["exterior", "siding", "roof", "entrance"],
+    "damageDetected": true,
+    "severity": "moderate",
+    "confidence": 0.85
+  }
+}
+```
 
 ## Features
 
@@ -621,3 +682,38 @@ The application uses a consolidated approach for handling photos throughout the 
 - The build process avoids recursive loops by using separate script names
   - Root package.json uses `"build": "cd frontend && npm run vercel-build"`
   - Frontend package.json uses `"vercel-build": "vite build"` and `"build": "vite build"`
+
+### Vercel Serverless Environment Issues
+
+#### Enhanced MongoDB and GridFS Connection Handling
+
+If you encounter database connection issues in Vercel's serverless environment, particularly with GridFS file retrieval:
+
+1. **Robust Database Connection**:
+   - The application now implements a more robust database connection strategy for Vercel's serverless environment
+   - Ensures MongoDB connection is fully established before handling file requests
+   - Implements connection state checking and reconnection logic
+   - Uses a connection timeout to prevent hanging requests
+   - Provides detailed logging of connection states for troubleshooting
+
+2. **Improved GridFS Initialization**:
+   - Enhanced GridFS initialization with retry logic and proper error handling
+   - Prevents multiple simultaneous initialization attempts with a locking mechanism
+   - Implements a cooldown period between initialization attempts to prevent overloading
+   - Provides detailed logging of initialization attempts and failures
+   - Forces GridFS usage in Vercel environment for consistent behavior
+
+3. **Robust File Streaming**:
+   - Improved file streaming with multiple fallback mechanisms
+   - Implements retry logic for file retrieval with exponential backoff
+   - Provides detailed error messages for troubleshooting
+   - Handles edge cases like invalid file IDs and missing files gracefully
+   - Uses direct streaming as a fallback when file info retrieval fails
+
+4. **Temporary Directory Handling**:
+   - Uses `/tmp` directory in Vercel's serverless environment for temporary file storage
+   - Configures the application to use the appropriate directories based on the environment
+   - Prevents attempts to create directories that are not allowed in Vercel's environment
+   - Forces GridFS usage in Vercel environment to avoid filesystem dependencies
+
+These improvements ensure that the application can handle file requests reliably in Vercel's serverless environment, even when faced with connection issues or initialization failures.

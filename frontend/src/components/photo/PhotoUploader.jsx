@@ -1,9 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { uploadBatchPhotos, analyzePhoto, getPhotoUrl } from '../../services/photoService';
-import AIDescriptionEditor from './AIDescriptionEditor';
+import { uploadBatchPhotos, analyzePhotos, getPhotoUrl } from '../../services/photoService';
 
-// Add a helper function to extract the filename from a file object
+// Helper function to extract the filename from a file object
 const extractFilename = (file) => {
   if (file.name) return file.name;
   if (file.originalname) return file.originalname;
@@ -52,6 +51,8 @@ const PhotoUploader = ({
             processedPhoto.displayName = processedPhoto.path.split('/').pop();
           } else if (processedPhoto.relativePath) {
             processedPhoto.displayName = processedPhoto.relativePath.split('/').pop();
+          } else if (processedPhoto.filename) {
+            processedPhoto.displayName = processedPhoto.filename;
           }
         }
         
@@ -68,9 +69,8 @@ const PhotoUploader = ({
     // Add preview to each file
     const newFiles = acceptedFiles.map(file => {
       // Create a new object with the file properties we need
-      // Don't modify the original file object
       return {
-        // Original file reference (don't modify this)
+        // Original file reference
         originalFile: file,
         // Use a prefix to ensure this is never confused with a MongoDB ObjectId
         id: `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
@@ -88,7 +88,7 @@ const PhotoUploader = ({
     setFiles(prev => [...prev, ...newFiles]);
     
     // Automatically upload the files immediately
-    if (newFiles.length > 0) {
+    if (newFiles.length > 0 && reportId) {
       setUploading(true);
       setError(null);
       setUploadProgress(0);
@@ -111,23 +111,9 @@ const PhotoUploader = ({
         // Upload files in batch
         const response = await uploadBatchPhotos(
           filesToUpload, 
-          reportId, // Pass the reportId if available
+          reportId,
           (progress) => {
             setUploadProgress(progress);
-            
-            // Update file status based on progress
-            if (progress < 100) {
-              // Files are still uploading
-              setFiles(prev => prev.map(file => {
-                if (newFiles.some(newFile => newFile.id === file.id) && file.status !== 'uploading') {
-                  return {
-                    ...file,
-                    status: 'uploading'
-                  };
-                }
-                return file;
-              }));
-            }
           }
         );
         
@@ -138,10 +124,10 @@ const PhotoUploader = ({
         // Update the status of uploaded files
         const updatedFiles = [...files, ...newFiles].map(file => {
           // Check if this file was part of the uploaded batch
-          const matchingUploadedFile = response.files?.find(uploaded => {
+          const matchingUploadedFile = response.photos?.find(uploaded => {
             // Match by name from the original file
             const fileName = file.originalFile ? file.originalFile.name : file.displayName;
-            return uploaded.originalname === fileName || uploaded.filename === fileName;
+            return uploaded.filename === fileName;
           });
           
           if (matchingUploadedFile) {
@@ -150,25 +136,20 @@ const PhotoUploader = ({
               URL.revokeObjectURL(file.preview);
             }
             
-            // Return updated file with server data and proper URLs
+            // Return updated file with server data
             return {
               ...file,
               status: 'complete',
-              // Store all the server data
-              uploadedData: matchingUploadedFile,
-              // Replace the blob preview with the server URL
-              preview: null, // Clear the blob preview
-              // Add direct URLs from server
-              thumbnailUrl: matchingUploadedFile.thumbnailUrl,
-              optimizedUrl: matchingUploadedFile.optimizedUrl,
-              originalUrl: matchingUploadedFile.originalUrl,
-              // Add server-generated ID
+              // Store the MongoDB ID
               _id: matchingUploadedFile._id,
-              // Store the filename in displayName
-              displayName: file.displayName || matchingUploadedFile.originalname || extractFilename(file),
-              // Add path properties for URL generation
-              path: matchingUploadedFile.filename || file.path,
-              filename: matchingUploadedFile.filename
+              // Store the filename
+              filename: matchingUploadedFile.filename,
+              // Clear the blob preview
+              preview: null,
+              // Store the displayName
+              displayName: file.displayName || matchingUploadedFile.filename,
+              // Store the section if available
+              section: matchingUploadedFile.section || file.section || 'Uncategorized'
             };
           }
           return file;
@@ -219,113 +200,19 @@ const PhotoUploader = ({
     disabled: !showUploadControls // Disable dropzone in analyze-only mode
   });
 
-  const handleUpload = async () => {
-    if (files.length === 0) {
-      setError('Please select at least one photo to upload');
-      return;
-    }
-
-    setUploading(true);
-    setError(null);
-    setUploadProgress(0);
-    
-    try {
-      // Get files that need uploading (have not been uploaded yet)
-      const filesToUpload = files.filter(file => file.status === 'pending')
-                             .map(file => file.originalFile);
-      
-      if (filesToUpload.length === 0) {
-        setUploading(false);
-        setError('All files have already been uploaded');
-        return;
-      }
-      
-      // Only log this information if verbose logging is enabled
-      const verboseLogging = import.meta.env.VITE_VERBOSE_PHOTO_LOGGING === 'true' || 
-                            localStorage.getItem('verbosePhotoLogging') === 'true';
-      if (verboseLogging) {
-        console.log(`Uploading ${filesToUpload.length} files...`);
-        console.log(`Report ID for photo association: ${reportId}`);
-      }
-      
-      // Upload files in batch
-      const response = await uploadBatchPhotos(
-        filesToUpload, 
-        reportId, // Pass the reportId if available
-        (progress) => setUploadProgress(progress)
-      );
-      
-      if (!response.success) {
-        throw new Error(response.error || 'Upload failed');
-      }
-      
-      // Update the status of uploaded files
-      const updatedFiles = files.map(file => {
-        // Check if this file was part of the uploaded batch
-        const matchingUploadedFile = response.files?.find(uploaded => 
-          uploaded.originalname === file.name || uploaded.filename === file.name
-        );
-        
-        if (matchingUploadedFile) {
-          // Update the file with uploaded data
-          console.log(`File ${file.name} was uploaded successfully:`, matchingUploadedFile);
-          
-          return {
-            ...file,
-            status: 'uploaded',
-            uploadedData: {
-              _id: matchingUploadedFile._id,
-              filename: matchingUploadedFile.filename || file.name,
-              thumbnailFilename: matchingUploadedFile.thumbnailFilename,
-              optimizedFilename: matchingUploadedFile.optimizedFilename,
-              thumbnailUrl: matchingUploadedFile.thumbnailUrl,
-              optimizedUrl: matchingUploadedFile.optimizedUrl,
-              originalUrl: matchingUploadedFile.originalUrl,
-              gridfsId: matchingUploadedFile.gridfsId || matchingUploadedFile._id
-            }
-          };
-        }
-        
-        return file;
-      });
-      
-      setFiles(updatedFiles);
-      setUploading(false);
-      
-      // Call the onUploadComplete callback with updated files
-      if (onUploadComplete) {
-        onUploadComplete(updatedFiles);
-      }
-      
-    } catch (error) {
-      console.error('Upload failed:', error);
-      setError(`Upload failed: ${error.message}`);
-      setUploading(false);
-    }
-  };
-
   // Function to analyze all uploaded photos using AI
   const analyzeAllPhotos = async () => {
-    if (files.length === 0 || analyzing) return;
+    if (files.length === 0 || analyzing || !reportId) return;
     
     try {
       setAnalyzing(true);
       setError(null);
       setAnalysisProgress(0);
       
-      // Get files ready for analysis using the helper function
-      const uploadedFiles = getAnalyzableFiles();
-      
-      if (uploadedFiles.length === 0) {
-        throw new Error('No photos available to analyze');
-      }
-      
-      console.log(`Starting AI analysis for ${uploadedFiles.length} photos`);
-      
       // Update status of all files to analyzing
       setFiles(prev => 
         prev.map(file => {
-          if (uploadedFiles.includes(file)) {
+          if (file.status === 'complete' && !file.analysis) {
             return {
               ...file,
               status: 'analyzing',
@@ -335,61 +222,63 @@ const PhotoUploader = ({
         })
       );
       
-      // Process each file sequentially
-      const analyzedFiles = [...files];
-      for (let i = 0; i < uploadedFiles.length; i++) {
-        const file = uploadedFiles[i];
-        
-        try {
-          console.log(`Analyzing file ${i + 1}/${uploadedFiles.length}`);
+      // Call the analyze endpoint with the report ID
+      const response = await analyzePhotos(reportId);
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Analysis failed');
+      }
+      
+      // Update the files with analysis results
+      const updatedFiles = [...files];
+      
+      // Set analysis progress to 100%
+      setAnalysisProgress(100);
+      
+      if (response.results && response.results.length > 0) {
+        response.results.forEach(result => {
+          if (!result.photoId) return;
           
-          // Analyze the photo
-          const result = await analyzePhoto(file);
+          const fileIndex = updatedFiles.findIndex(f => 
+            f._id && f._id.toString() === result.photoId.toString()
+          );
           
-          if (!result.success) {
-            throw new Error(result.error || 'Analysis failed');
-          }
-          
-          // Update the file in the array
-          const fileIndex = analyzedFiles.findIndex(f => f.id === file.id);
           if (fileIndex !== -1) {
-            analyzedFiles[fileIndex] = {
-              ...analyzedFiles[fileIndex],
+            updatedFiles[fileIndex] = {
+              ...updatedFiles[fileIndex],
               status: 'complete',
-              analysis: result.data,
+              analysis: result.analysis,
             };
           }
-          
-          // Update progress
-          const progress = Math.round(((i + 1) / uploadedFiles.length) * 100);
-          setAnalysisProgress(progress);
-          setFiles([...analyzedFiles]);
-          
-        } catch (err) {
-          console.error(`Error analyzing file:`, err);
-          
-          // Mark this file as error but continue with others
-          const fileIndex = analyzedFiles.findIndex(f => f.id === file.id);
-          if (fileIndex !== -1) {
-            analyzedFiles[fileIndex] = {
-              ...analyzedFiles[fileIndex],
-              status: 'error',
-              error: `Analysis failed: ${err.message || 'Unknown error'}`,
-            };
-          }
-          setFiles([...analyzedFiles]);
+        });
+        
+        setFiles(updatedFiles);
+        
+        // Notify parent component with the analyzed files
+        if (onUploadComplete) {
+          onUploadComplete(updatedFiles);
         }
+        
+        console.log(`AI analysis completed for ${response.results.length} photos`);
+      } else {
+        console.log('No analysis results returned from the server');
       }
-      
-      // Update parent component with the analyzed files
-      if (onUploadComplete) {
-        onUploadComplete(analyzedFiles);
-      }
-      
-      console.log('AI analysis completed for all photos');
     } catch (err) {
       console.error('Overall analysis error:', err);
       setError(err.message || 'Photo analysis failed. Please try again.');
+      
+      // Reset status of files that were being analyzed
+      setFiles(prev => 
+        prev.map(file => {
+          if (file.status === 'analyzing') {
+            return {
+              ...file,
+              status: 'complete',
+            };
+          }
+          return file;
+        })
+      );
     } finally {
       setAnalyzing(false);
     }
@@ -404,10 +293,24 @@ const PhotoUploader = ({
     const fileIndex = newFiles.findIndex(file => file.id === id);
     if (fileIndex !== -1) {
       // Revoke the preview URL to avoid memory leaks
-      URL.revokeObjectURL(newFiles[fileIndex].preview);
+      if (newFiles[fileIndex].preview) {
+        URL.revokeObjectURL(newFiles[fileIndex].preview);
+      }
+      
+      // If the file has been uploaded to the server, delete it
+      if (newFiles[fileIndex]._id) {
+        // Note: We could call deletePhoto here, but that would require updating the Report model
+        // For now, we'll just remove it from the local state
+        console.log(`File ${newFiles[fileIndex]._id} should be deleted from the server`);
+      }
       
       newFiles.splice(fileIndex, 1);
       setFiles(newFiles);
+      
+      // Notify parent component
+      if (onUploadComplete) {
+        onUploadComplete(newFiles);
+      }
     }
   };
 
@@ -427,21 +330,12 @@ const PhotoUploader = ({
     }
   };
 
-  // Function to check if files are ready to be analyzed
-  const getAnalyzableFiles = () => {
-    return files.filter(file => 
-      (file.status === 'uploaded' && file.uploadedData) || 
-      // Handle pre-uploaded files from initialPhotos
-      (file.uploadedData && !file.analysis)
-    );
-  };
-
   // Clean up all created object URLs on unmount
   useEffect(() => {
     return () => {
       // Only revoke URLs for non-uploaded (pending) files
       files.forEach(file => {
-        if (file.preview && file.status === 'pending') {
+        if (file.preview) {
           URL.revokeObjectURL(file.preview);
         }
       });
@@ -492,6 +386,33 @@ const PhotoUploader = ({
         </div>
       )}
       
+      {/* Analysis progress */}
+      {analyzing && (
+        <div className="mt-4">
+          <p className="text-sm font-medium text-gray-700 mb-1">Analyzing photos... {analysisProgress}%</p>
+          <div className="w-full bg-gray-200 rounded-full h-2.5">
+            <div 
+              className="bg-green-600 h-2.5 rounded-full" 
+              style={{ width: `${analysisProgress}%` }}
+            ></div>
+          </div>
+        </div>
+      )}
+      
+      {/* Analyze button */}
+      {files.length > 0 && !analyzing && files.some(file => file.status === 'complete' && !file.analysis) && (
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={analyzeAllPhotos}
+            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+            disabled={analyzing}
+          >
+            Analyze Photos with AI
+          </button>
+        </div>
+      )}
+      
       {/* File list */}
       {files.length > 0 && (
         <div className="mt-4">
@@ -504,61 +425,12 @@ const PhotoUploader = ({
                     src={getPhotoUrl(file)}
                     alt={file.displayName || 'Uploaded photo'}
                     className="absolute inset-0 w-full h-full object-cover"
-                    onLoad={() => {
-                      // Reset retry counter on successful load
-                      if (imageRetryCounters.current[file.id]) {
-                        delete imageRetryCounters.current[file.id];
-                      }
-                    }}
                     onError={(e) => {
-                      // Initialize retry counter if it doesn't exist
-                      if (!imageRetryCounters.current[file.id]) {
-                        imageRetryCounters.current[file.id] = 0;
-                      }
-                      
-                      // Only retry a limited number of times
-                      if (imageRetryCounters.current[file.id] < 5) {
-                        // Increment retry counter
-                        imageRetryCounters.current[file.id]++;
-                        
-                        console.log(`Retrying image load for ${file.displayName || 'unknown'} (attempt ${imageRetryCounters.current[file.id]})`);
-                        
-                        // Try different URL strategies
-                        if (imageRetryCounters.current[file.id] === 1) {
-                          // First retry: Try with a cache-busting parameter
-                          e.target.src = `${getPhotoUrl(file)}?retry=${Date.now()}`;
-                        } else if (imageRetryCounters.current[file.id] === 2) {
-                          // Second retry: Try with the path directly if available
-                          if (file.path) {
-                            const cleanPath = file.path.replace(/^\.\//, '');
-                            e.target.src = `/api/photos/${cleanPath}?retry=${Date.now()}`;
-                          } else {
-                            e.target.src = `/placeholder-image.png`;
-                          }
-                        } else if (imageRetryCounters.current[file.id] === 3) {
-                          // Third retry: Try with the filename directly
-                          if (file.filename) {
-                            e.target.src = `/api/photos/${file.filename}?retry=${Date.now()}`;
-                          } else if (file.displayName) {
-                            e.target.src = `/api/photos/${file.displayName}?retry=${Date.now()}`;
-                          } else {
-                            e.target.src = `/placeholder-image.png`;
-                          }
-                        } else if (imageRetryCounters.current[file.id] === 4) {
-                          // Fourth retry: Try with the ID if it's a MongoDB ObjectId
-                          if (file._id && typeof file._id === 'string' && /^[0-9a-fA-F]{24}$/.test(file._id)) {
-                            e.target.src = `/api/photos/${file._id}?retry=${Date.now()}`;
-                          } else {
-                            e.target.src = `/placeholder-image.png`;
-                          }
-                        } else {
-                          // Final fallback
-                          e.target.src = `/placeholder-image.png`;
-                        }
+                      // Simple fallback - try with size=original parameter or use placeholder
+                      if (!e.target.src.includes('size=original') && file._id) {
+                        e.target.src = `/api/photos/${file._id}?size=original`;
                       } else {
-                        // After max retries, use placeholder
                         e.target.src = `/placeholder-image.png`;
-                        console.error(`Failed to load image after ${imageRetryCounters.current[file.id]} attempts:`, file);
                       }
                     }}
                   />
@@ -595,15 +467,8 @@ const PhotoUploader = ({
                 
                 {/* File name */}
                 <p className="mt-1 text-sm text-gray-500 truncate">
-                  {file.displayName || file.originalname || (file.path && file.path.split('/').pop()) || 'Unnamed photo'}
+                  {file.displayName || 'Unnamed photo'}
                 </p>
-                
-                {/* Debug info - only show in development */}
-                {import.meta.env.DEV && (
-                  <p className="mt-1 text-xs text-gray-400 truncate">
-                    Path: {file.path || 'N/A'}, ID: {file._id || file.id || 'N/A'}
-                  </p>
-                )}
                 
                 {/* Remove button */}
                 {showUploadControls && (
@@ -616,6 +481,15 @@ const PhotoUploader = ({
                       <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
                     </svg>
                   </button>
+                )}
+                
+                {/* Analysis indicator */}
+                {file.analysis && (
+                  <div className="absolute bottom-2 right-2 bg-white rounded-full p-1 shadow-sm">
+                    <svg className="h-4 w-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                  </div>
                 )}
               </div>
             ))}
