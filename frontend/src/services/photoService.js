@@ -340,9 +340,15 @@ export const analyzeBatchPhotos = async (photos, reportId) => {
       error: result.error
     })) || [];
     
+    // Check if there are remaining photos to process
+    const totalRemaining = response.data.totalPhotosRemaining || 0;
+    
     return {
       success: true,
-      data: results
+      data: results,
+      complete: totalRemaining === 0,
+      totalRemaining: totalRemaining,
+      processedIds: response.data.results?.map(r => r.photoId) || []
     };
   } catch (error) {
     photoLogger('Error analyzing batch of photos:', error, true);

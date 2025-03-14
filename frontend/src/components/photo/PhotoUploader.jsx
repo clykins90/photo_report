@@ -332,64 +332,83 @@ const PhotoUploader = ({
       setError(null);
       setAnalysisProgress(0);
       
-      // Update status of all files to analyzing, but only those with valid IDs
-      setFiles(prev => {
-        const updatedFiles = prev.map(file => {
-          if (file.status === 'complete' && !file.analysis && file._id && typeof file._id === 'string' && /^[0-9a-fA-F]{24}$/.test(file._id)) {
-            return {
-              ...file,
-              status: 'analyzing',
-            };
-          }
-          return file;
-        });
-        return updatedFiles;
-      });
+      // Process all photos in batches
+      let remainingPhotos = [...photosWithValidIds];
+      let processedCount = 0;
+      const totalToProcess = photosWithValidIds.length;
       
-      // Call the analyze endpoint with the report ID
-      const response = await analyzePhotos(reportId);
+      console.log(`Starting analysis of ${totalToProcess} photos in batches`);
       
-      if (!response.success) {
-        throw new Error(response.error || 'Analysis failed');
-      }
-      
-      // Update the files with analysis results
-      setFiles(prev => {
-        const updatedFiles = prev.map(file => {
-          if (response.results && response.results.length > 0) {
-            const result = response.results.find(r => r.photoId === file._id?.toString());
-            if (result) {
-              return {
-                ...file,
-                status: 'complete',
-                analysis: result.analysis,
+      while (remainingPhotos.length > 0) {
+        // Update status of current batch to analyzing
+        setFiles(prev => {
+          const updatedFiles = [...prev];
+          const currentBatchIds = remainingPhotos.map(file => file._id);
+          
+          for (let i = 0; i < updatedFiles.length; i++) {
+            if (currentBatchIds.includes(updatedFiles[i]._id)) {
+              updatedFiles[i] = {
+                ...updatedFiles[i],
+                status: 'analyzing',
               };
             }
           }
-          return file;
+          return updatedFiles;
         });
         
-        return updatedFiles;
-      });
-      
-      console.log(`AI analysis completed for ${response.results?.length || 0} photos`);
-    } catch (err) {
-      console.error('Overall analysis error:', err);
-      setError(err.message || 'Photo analysis failed. Please try again.');
-      
-      // Reset status of files that were being analyzed
-      setFiles(prev => {
-        const updatedFiles = prev.map(file => {
-          if (file.status === 'analyzing') {
-            return {
-              ...file,
-              status: 'complete',
-            };
+        // Call the analyze endpoint with the current batch
+        const response = await analyzeBatchPhotos(remainingPhotos, reportId);
+        
+        if (!response.success) {
+          throw new Error(response.error || 'Analysis failed');
+        }
+        
+        // Update the files with analysis results from this batch
+        setFiles(prev => {
+          const updatedFiles = [...prev];
+          
+          if (response.data && response.data.length > 0) {
+            for (const result of response.data) {
+              const fileIndex = updatedFiles.findIndex(file => file._id === result.fileId);
+              if (fileIndex !== -1) {
+                updatedFiles[fileIndex] = {
+                  ...updatedFiles[fileIndex],
+                  status: 'complete',
+                  analysis: result.data,
+                };
+              }
+            }
           }
-          return file;
+          
+          return updatedFiles;
         });
-        return updatedFiles;
-      });
+        
+        // Update progress
+        processedCount += response.data.length;
+        const progress = Math.round((processedCount / totalToProcess) * 100);
+        setAnalysisProgress(progress);
+        
+        console.log(`Processed batch: ${response.data.length} photos. Progress: ${progress}%`);
+        
+        // Remove processed photos from remaining list
+        if (response.processedIds && response.processedIds.length > 0) {
+          remainingPhotos = remainingPhotos.filter(photo => !response.processedIds.includes(photo._id));
+        } else {
+          // If no processedIds returned, just remove the first batch
+          remainingPhotos = remainingPhotos.slice(response.data.length);
+        }
+        
+        // If there are more photos to process, add a small delay to avoid overwhelming the server
+        if (remainingPhotos.length > 0) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+      
+      console.log(`AI analysis completed for all ${totalToProcess} photos`);
+      setAnalysisProgress(100);
+    } catch (error) {
+      console.error('Error analyzing photos:', error);
+      setError(error.message || 'Failed to analyze photos');
     } finally {
       setAnalyzing(false);
     }

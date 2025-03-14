@@ -54,7 +54,7 @@ module.exports = async (req, res) => {
       if (mongoose.connection.readyState !== 1) {
         console.log('Waiting for MongoDB connection to be fully established...');
         
-        // Wait for connection to be ready
+        // Wait for connection to be ready with a longer timeout
         await new Promise((resolve) => {
           // If already connected, resolve immediately
           if (mongoose.connection.readyState === 1) {
@@ -67,16 +67,16 @@ module.exports = async (req, res) => {
             resolve();
           });
           
-          // Add a timeout to prevent hanging
+          // Add a timeout to prevent hanging - increased to 10 seconds
           setTimeout(() => {
             console.log('MongoDB connection timeout - proceeding anyway');
             resolve();
-          }, 5000);
+          }, 10000);
         });
       }
       
       // Initialize GridFS
-      const bucket = gridfs.initGridFS();
+      const bucket = await gridfs.initGridFS();
       if (bucket) {
         console.log('GridFS initialized successfully');
       } else {
@@ -86,15 +86,8 @@ module.exports = async (req, res) => {
       dbInitialized = true;
     } catch (error) {
       console.error(`Error initializing database: ${error.message}`);
-      
-      // If this is a file request and we couldn't connect to the database, return an error
-      if (isFileRequest) {
-        return res.status(500).json({
-          success: false,
-          message: 'Database connection error',
-          error: error.message
-        });
-      }
+      // Don't throw the error, try to proceed anyway
+      dbInitialized = true; // Mark as initialized to prevent repeated attempts
     }
   }
   

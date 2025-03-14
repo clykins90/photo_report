@@ -162,132 +162,95 @@ const AIAnalysisStep = ({
               await new Promise(resolve => setTimeout(resolve, 5000));
             }
             
-            // Analyze the batch
-            const batchResult = await analyzeBatchPhotos(batch, reportId);
+            // Process this batch in smaller sub-batches to avoid timeouts
+            let remainingBatchPhotos = [...batch];
             
-            // Process results and update photos
-            if (batchResult.success && batchResult.data) {
-              batchResult.data.forEach(result => {
-                if (result.success && result.fileId) {
-                  // Find the photo that matches this result
-                  const photoToUpdate = batch.find(photo => {
-                    // First check for MongoDB ObjectID match (most reliable)
-                    if (photo._id && photo._id === result.fileId) {
-                      return true;
-                    }
-                    
-                    // Then check other ID fields
-                    const photoId = 
-                      photo._id || 
-                      photo.id || 
-                      photo.fileId || 
-                      photo.uploadedData?.gridfs?.original || 
-                      photo.uploadedData?.gridfs?.optimized || 
-                      photo.uploadedData?.gridfsId;
-                    
-                    return photoId === result.fileId;
-                  });
-                  
-                  if (photoToUpdate) {
-                    // Update the photo with analysis results
-                    const photoIndex = updatedPhotos.findIndex(p => {
-                      // First try to match by MongoDB ObjectID
-                      if (p._id && p._id === photoToUpdate._id) {
-                        return true;
-                      }
-                      // Then try to match by id
-                      return p.id === photoToUpdate.id;
-                    });
+            while (remainingBatchPhotos.length > 0) {
+              // Take up to 2 photos at a time to avoid timeouts
+              const subBatch = remainingBatchPhotos.slice(0, 2);
+              console.log(`Processing sub-batch of ${subBatch.length} photos to avoid timeouts`);
+              
+              // Analyze the sub-batch
+              const batchResult = await analyzeBatchPhotos(subBatch, reportId);
+              
+              if (!batchResult.success) {
+                throw new Error(batchResult.error || 'Failed to analyze photos');
+              }
+              
+              // Process results and update photos
+              if (batchResult.data && batchResult.data.length > 0) {
+                batchResult.data.forEach(result => {
+                  if (result.success) {
+                    // Find the photo in our list
+                    const photoIndex = updatedPhotos.findIndex(p => p.id === result.fileId || p._id === result.fileId);
                     
                     if (photoIndex !== -1) {
+                      // Update the photo with analysis results
                       updatedPhotos[photoIndex] = {
                         ...updatedPhotos[photoIndex],
-                        analysis: result.data,
-                        status: 'analyzed'
+                        status: 'complete',
+                        analysis: result.data
                       };
+                      
+                      photosCompleted++;
                     }
                   } else {
-                    console.warn(`Could not find photo matching result fileId: ${result.fileId}`);
+                    console.error(`Analysis failed for photo: ${result.fileId}`, result.error);
                   }
-                }
-              });
-            } else {
-              // Mark batch as failed
-              batch.forEach(photo => {
-                const photoIndex = updatedPhotos.findIndex(p => p.id === photo.id);
-                if (photoIndex !== -1) {
-                  updatedPhotos[photoIndex] = {
-                    ...updatedPhotos[photoIndex],
-                    status: 'error',
-                    error: batchResult.error || 'Analysis failed'
-                  };
-                }
-              });
+                });
+                
+                // Update the UI with the latest photo statuses
+                handlePhotoUploadComplete(updatedPhotos);
+                
+                // Update progress
+                const progress = Math.round((photosCompleted / totalPhotos) * 100);
+                setBatchProgress(progress);
+              }
+              
+              // Remove processed photos from the remaining batch
+              if (batchResult.processedIds && batchResult.processedIds.length > 0) {
+                remainingBatchPhotos = remainingBatchPhotos.filter(
+                  photo => !batchResult.processedIds.includes(photo.id) && !batchResult.processedIds.includes(photo._id)
+                );
+              } else {
+                // If no processedIds returned, just remove the processed sub-batch
+                remainingBatchPhotos = remainingBatchPhotos.slice(subBatch.length);
+              }
+              
+              // Add a small delay between sub-batches
+              if (remainingBatchPhotos.length > 0) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+              }
             }
+          } catch (error) {
+            console.error(`Error processing batch ${batchIndex + 1}:`, error);
             
-            // Update photos state with analysis results
-            handlePhotoUploadComplete(updatedPhotos);
-            
-            // Update progress
-            photosCompleted += batch.filter(p => {
-              const updatedPhoto = updatedPhotos.find(up => up.id === p.id);
-              return updatedPhoto && updatedPhoto.analysis;
-            }).length;
-            
-            setBatchProgress(Math.round((photosCompleted / totalPhotos) * 100));
-          } catch (batchError) {
-            console.error(`Error processing batch ${batchIndex + 1}:`, batchError);
-            
-            // Mark all photos in this batch as error
+            // Mark failed photos as error but continue with other batches
             batch.forEach(photo => {
               const photoIndex = updatedPhotos.findIndex(p => p.id === photo.id);
-              if (photoIndex !== -1) {
+              if (photoIndex !== -1 && updatedPhotos[photoIndex].status === 'analyzing') {
                 updatedPhotos[photoIndex] = {
                   ...updatedPhotos[photoIndex],
                   status: 'error',
-                  error: batchError.message || 'Analysis failed'
+                  error: error.message || 'Analysis failed'
                 };
               }
             });
             
-            // Update photos state with errors
+            // Update the UI with the error statuses
             handlePhotoUploadComplete(updatedPhotos);
           }
         }
       }
       
-      setAnalyzing(false);
+      // Step 2: Generate summary
+      await generateSummary();
       
-      // Step 2: Generate summary after all photos are analyzed
-      // This runs whether photos were just analyzed or were already analyzed
-      const analyzedPhotos = updatedPhotos.filter(photo => photo.analysis && photo.analysis.description);
-      
-      if (analyzedPhotos.length > 0) {
-        console.log(`Generating summary for ${analyzedPhotos.length} analyzed photos`);
-        setLocalGeneratingSummary(true);
-        try {
-          // Make sure we're passing the updated photos to the summary generator
-          const result = await handleGenerateAISummary(analyzedPhotos);
-          console.log('Summary generation completed successfully:', result);
-          
-          // Show success message to user
-          setError(null);
-        } catch (summaryError) {
-          console.error('Error generating summary:', summaryError);
-          setError(`Failed to generate summary: ${summaryError.message || 'Unknown error'}`);
-        } finally {
-          setLocalGeneratingSummary(false);
-        }
-      } else {
-        setError('No photos could be successfully analyzed. Please check your images and try again.');
-      }
-      
-    } catch (err) {
-      console.error('Error during batch processing:', err);
-      setError('Failed to complete the analysis and summary. Please try again.');
+    } catch (error) {
+      console.error('Error in build summarized report:', error);
+      setError(error.message || 'Failed to analyze photos and generate summary');
     } finally {
       setAnalyzing(false);
-      setLocalGeneratingSummary(false);
     }
   };
   

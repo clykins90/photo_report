@@ -13,18 +13,33 @@ const connectDB = async () => {
   try {
     // Set connection options for better reliability in serverless environments
     const options = {
-      serverSelectionTimeoutMS: 5000, // Reduce the timeout for faster failures
-      socketTimeoutMS: 45000, // Keep socket alive longer
+      serverSelectionTimeoutMS: 10000, // Increased timeout for server selection
+      socketTimeoutMS: 60000, // Increased socket timeout
       maxPoolSize: 10, // Limit the number of connections
       minPoolSize: 1, // Maintain at least one connection
-      connectTimeoutMS: 10000, // Connection timeout
+      connectTimeoutMS: 15000, // Increased connection timeout
       retryWrites: true,
       retryReads: true,
+      // Add heartbeat to keep connection alive
+      heartbeatFrequencyMS: 10000,
+      // Add auto_reconnect option
+      auto_reconnect: true,
     };
 
     // Connect to MongoDB
     const conn = await mongoose.connect(process.env.MONGODB_URI, options);
     console.log(`MongoDB Connected: ${conn.connection.host}`);
+    
+    // Add event listeners for connection issues
+    mongoose.connection.on('error', (err) => {
+      console.error('MongoDB connection error:', err);
+      cachedConnection = null; // Reset cached connection on error
+    });
+    
+    mongoose.connection.on('disconnected', () => {
+      console.warn('MongoDB disconnected, will try to reconnect');
+      cachedConnection = null; // Reset cached connection on disconnect
+    });
     
     // Cache the connection
     cachedConnection = conn;

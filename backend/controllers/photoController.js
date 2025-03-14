@@ -247,11 +247,25 @@ const analyzePhotos = async (req, res) => {
     else if (req.body.photoIds && Array.isArray(req.body.photoIds)) {
       photos = report.photos.filter(p => req.body.photoIds.includes(p._id.toString()));
       console.log(`Found ${photos.length} photos matching the provided photoIds`);
+      
+      // Limit to 2 photos per batch to avoid timeouts
+      const batchSize = 2;
+      if (photos.length > batchSize) {
+        logger.info(`Limiting analysis to ${batchSize} photos per batch to avoid timeouts`);
+        photos = photos.slice(0, batchSize);
+      }
     } 
     // If no specific photos requested, analyze all unanalyzed photos
     else {
       photos = report.photos.filter(p => !p.aiAnalysis || !p.aiAnalysis.description);
       console.log(`Found ${photos.length} unanalyzed photos`);
+      
+      // Limit to 2 photos per batch to avoid timeouts
+      const batchSize = 2;
+      if (photos.length > batchSize) {
+        logger.info(`Limiting analysis to ${batchSize} photos per batch to avoid timeouts`);
+        photos = photos.slice(0, batchSize);
+      }
     }
     
     if (photos.length === 0) {
@@ -317,7 +331,11 @@ const analyzePhotos = async (req, res) => {
     
     return res.status(200).json({
       message: `Analyzed ${results.length} photos`,
-      results
+      results,
+      batchComplete: true,
+      totalPhotosRemaining: req.body.photoIds ? 
+        req.body.photoIds.length - photos.length : 
+        report.photos.filter(p => !p.aiAnalysis || !p.aiAnalysis.description).length - photos.length
     });
   } catch (error) {
     logger.error(`Error in analyzePhotos: ${error.message}`);
