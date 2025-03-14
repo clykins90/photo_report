@@ -13,39 +13,29 @@
       }
     }
   ],
+  "headers": [
+    {
+      "source": "/assets/(.*\\.js)",
+      "headers": [
+        { "key": "Content-Type", "value": "application/javascript; charset=utf-8" }
+      ]
+    },
+    {
+      "source": "/(.*\\.js)",
+      "headers": [
+        { "key": "Content-Type", "value": "application/javascript; charset=utf-8" }
+      ]
+    }
+  ],
   "rewrites": [
     { "source": "/api/auth/:path*", "destination": "/backend/server.js" },
     { "source": "/api/company/:path*", "destination": "/backend/server.js" },
     { "source": "/api/reports/:path*", "destination": "/backend/server.js" },
     { "source": "/api/photos/:path*", "destination": "/backend/server.js" },
     { "source": "/api/files/:path*", "destination": "/backend/server.js" },
-    { "source": "/api/:path*", "destination": "/backend/server.js" }
-  ],
-  "routes": [
-    {
-      "src": "/assets/(.*\\.js)",
-      "headers": { "Content-Type": "application/javascript; charset=utf-8" },
-      "dest": "/assets/$1"
-    },
-    {
-      "src": "/assets/(.*)",
-      "dest": "/assets/$1"
-    },
-    {
-      "src": "/(.*\\.js)",
-      "headers": { "Content-Type": "application/javascript; charset=utf-8" },
-      "dest": "/$1"
-    },
-    {
-      "src": "/(.*\\.[a-z0-9]+)$",
-      "dest": "/$1"
-    },
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
+    { "source": "/api/:path*", "destination": "/backend/server.js" },
+    { "source": "/assets/(.*)", "destination": "/assets/$1" },
+    { "source": "/(.*\\.[a-z0-9]+)$", "destination": "/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 } 
