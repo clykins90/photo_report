@@ -195,6 +195,13 @@ const analyzePhotos = async (req, res) => {
     let reportId = req.params.reportId;
     let report = null;
     
+    // Log the request for debugging
+    console.log(`Photo analysis request for report ${reportId}:`, {
+      body: req.body,
+      query: req.query,
+      params: req.params
+    });
+    
     if (!reportId) {
       return res.status(400).json({ error: 'Report ID is required' });
     }
@@ -203,6 +210,9 @@ const analyzePhotos = async (req, res) => {
     if (!report) {
       return res.status(404).json({ error: 'Report not found' });
     }
+    
+    // Log the report photos for debugging
+    console.log(`Found report with ${report.photos?.length || 0} photos`);
     
     // Check if specific photo ID is provided
     if (req.body.photoId) {
@@ -215,10 +225,12 @@ const analyzePhotos = async (req, res) => {
     // Check if array of photo IDs is provided
     else if (req.body.photoIds && Array.isArray(req.body.photoIds)) {
       photos = report.photos.filter(p => req.body.photoIds.includes(p._id.toString()));
+      console.log(`Found ${photos.length} photos matching the provided photoIds`);
     } 
     // If no specific photos requested, analyze all unanalyzed photos
     else {
       photos = report.photos.filter(p => !p.aiAnalysis || !p.aiAnalysis.description);
+      console.log(`Found ${photos.length} unanalyzed photos`);
     }
     
     if (photos.length === 0) {

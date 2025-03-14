@@ -155,13 +155,19 @@ export const analyzePhotos = async (reportId) => {
 
     photoLogger(`Analyzing photos for report: ${reportId}`);
 
+    // Don't include any query parameters
     const response = await api.post(`/photos/analyze/${reportId}`);
     
-    photoLogger(`Analysis complete: ${response.data.count} photos analyzed`);
+    photoLogger(`Analysis complete: ${response.data.results?.length || 0} photos analyzed`);
     
     return {
       success: true,
-      results: response.data.results
+      results: response.data.results?.map(result => ({
+        photoId: result.photoId,
+        status: result.status,
+        analysis: result.analysis,
+        error: result.error
+      })) || []
     };
   } catch (error) {
     photoLogger('Error analyzing photos:', error, true);
@@ -210,7 +216,7 @@ export const deletePhoto = async (photoId) => {
  */
 export const analyzePhoto = async (photo, reportId) => {
   try {
-    if (!photo || (!photo._id && !photo.id)) {
+    if (!photo) {
       throw new Error('Valid photo object is required for analysis');
     }
 
@@ -218,10 +224,19 @@ export const analyzePhoto = async (photo, reportId) => {
       throw new Error('Report ID is required for photo analysis');
     }
 
-    const photoId = photo._id || photo.id;
+    // Try to get the ID from various possible locations
+    const photoId = photo._id || 
+                    photo.id || 
+                    photo.fileId || 
+                    (photo.uploadedData && photo.uploadedData.gridfsId);
+    
+    if (!photoId || typeof photoId !== 'string') {
+      throw new Error('No valid photo ID found in the photo object');
+    }
+
     photoLogger(`Analyzing single photo: ${photoId} for report: ${reportId}`);
 
-    // Use URL parameter for reportId
+    // Use URL parameter for reportId without any query parameters
     const response = await api.post(`/photos/analyze/${reportId}`, { 
       photoId: photoId
     });
@@ -236,8 +251,9 @@ export const analyzePhoto = async (photo, reportId) => {
     }
     
     return {
-      success: true,
-      data: result.analysis
+      success: result.status === 'success',
+      data: result.analysis,
+      error: result.error
     };
   } catch (error) {
     photoLogger('Error analyzing photo:', error, true);
@@ -266,14 +282,23 @@ export const analyzeBatchPhotos = async (photos, reportId) => {
 
     photoLogger(`Analyzing batch of ${photos.length} photos for report: ${reportId}`);
 
-    // Extract photo IDs
-    const photoIds = photos.map(photo => photo._id || photo.id).filter(Boolean);
+    // Extract photo IDs - handle different photo object formats
+    const photoIds = photos.map(photo => {
+      // Try to get the ID from various possible locations
+      return photo._id || 
+             photo.id || 
+             photo.fileId || 
+             (photo.uploadedData && photo.uploadedData.gridfsId);
+    }).filter(id => id && typeof id === 'string');
     
     if (photoIds.length === 0) {
       throw new Error('No valid photo IDs found in the batch');
     }
     
+    photoLogger(`Extracted ${photoIds.length} valid photo IDs for analysis`);
+    
     // Use URL parameter for reportId and send photoIds in the request body
+    // Don't include any query parameters
     const response = await api.post(`/photos/analyze/${reportId}`, { 
       photoIds: photoIds
     });
@@ -282,9 +307,10 @@ export const analyzeBatchPhotos = async (photos, reportId) => {
     
     // Map the results to the expected format
     const results = response.data.results?.map(result => ({
-      success: true,
+      success: result.status === 'success',
       fileId: result.photoId,
-      data: result.analysis
+      data: result.analysis,
+      error: result.error
     })) || [];
     
     return {
