@@ -1,6 +1,7 @@
 import { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createReport, updateReport, generateAISummary, generateReportPdf } from '../../services/reportService';
+import { uploadBatchPhotos } from '../../services/photoService';
 import { validateReportForm, getFormErrorMessage } from '../../utils/formValidation';
 import AuthContext from '../../context/AuthContext';
 import api from '../../services/api';
@@ -457,61 +458,8 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       setIsSubmitting(true);
       setError(null);
       
-      // Prepare photos data - remove circular references and sanitize before backup
-      const preparedPhotos = uploadedPhotos.map(photo => {
-        // Extract only the properties we need, avoiding File objects with circular references
-        const preparedPhoto = {
-          id: photo.id,
-          name: photo.displayName || photo.name,
-          filename: photo.filename || photo.displayName || photo.name,
-          description: photo.description || '',
-          section: photo.section || 'Uncategorized',
-          status: photo.status || 'pending',
-        };
-        
-        // Only include URL properties if they're strings
-        if (typeof photo.url === 'string') {
-          preparedPhoto.url = photo.url;
-        }
-        if (typeof photo.preview === 'string') {
-          preparedPhoto.preview = photo.preview;
-        }
-        
-        // Add the filename from uploadedData if available - only include necessary properties
-        if (photo.uploadedData) {
-          preparedPhoto.uploadedData = {
-            filename: photo.uploadedData.filename,
-            thumbnailFilename: photo.uploadedData.thumbnailFilename,
-            optimizedFilename: photo.uploadedData.optimizedFilename,
-            thumbnailUrl: photo.uploadedData.thumbnailUrl,
-            optimizedUrl: photo.uploadedData.optimizedUrl,
-            originalUrl: photo.uploadedData.originalUrl,
-            thumbnailPath: photo.uploadedData.thumbnailPath,
-            optimizedPath: photo.uploadedData.optimizedPath,
-          };
-          
-          // Ensure we have the correct filename
-          if (photo.uploadedData.filename) {
-            preparedPhoto.filename = photo.uploadedData.filename;
-          }
-        }
-        
-        // Include analysis data if it exists - create a clean copy
-        if (photo.analysis) {
-          preparedPhoto.aiAnalysis = {
-            description: photo.analysis.description || '',
-            tags: Array.isArray(photo.analysis.tags) ? photo.analysis.tags : [],
-            damageDetected: photo.analysis.damageDetected || false,
-            confidence: photo.analysis.confidence || 0,
-            severity: photo.analysis.severity || 'unknown'
-          };
-        }
-        
-        return preparedPhoto;
-      });
-      
-      // Build the report data with current form values
-      const updatedReportData = {
+      // Build the initial report data without photos
+      const initialReportData = {
         title: formData.title,
         clientName: formData.clientName,
         propertyAddress: formData.propertyAddress,
@@ -522,30 +470,63 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         recommendations: formData.recommendations,
         materials: formData.materials,
         tags: formData.tags,
-        photos: preparedPhotos,
-        // Include user ID and company data with placeholders if needed
+        // Include user ID and company data
         user: user._id,
         company: companyData
       };
       
-      console.log('Sending updated report data with user and company info:', updatedReportData);
+      console.log('Creating initial report without photos');
       
       // Create or update the report
       let response;
-      const reportId = reportData?._id;
+      const reportId = reportData?._id || formData._id;
       
       if (isEditing && reportId) {
         console.log(`Updating report with ID: ${reportId}`);
-        response = await updateReport(reportId, updatedReportData);
+        response = await updateReport(reportId, initialReportData);
       } else {
         console.log('Creating new report');
-        response = await createReport(updatedReportData);
+        response = await createReport(initialReportData);
       }
       
-      console.log('Report saved successfully:', response);
+      // Get the report ID from the response
+      const createdReportId = response._id || response.data._id;
+      console.log('Report created/updated with ID:', createdReportId);
+      
+      // Check if we have photos with original file references that need to be uploaded
+      const photosToUpload = uploadedPhotos.filter(photo => photo.originalFile && !photo._id);
+      
+      if (photosToUpload.length > 0) {
+        console.log(`Uploading ${photosToUpload.length} photos to the created report`);
+        
+        try {
+          // Extract the original file objects
+          const fileObjects = photosToUpload.map(photo => photo.originalFile);
+          
+          // Upload the photos to the report
+          const uploadResponse = await uploadBatchPhotos(
+            fileObjects,
+            createdReportId,
+            (progress) => {
+              console.log(`Photo upload progress: ${progress}%`);
+            }
+          );
+          
+          if (!uploadResponse.success) {
+            console.error('Photo upload failed:', uploadResponse.error);
+            // Continue with navigation even if photo upload fails
+            // The user can try uploading photos again later
+          } else {
+            console.log('Photos uploaded successfully:', uploadResponse.photos?.length || 0);
+          }
+        } catch (uploadErr) {
+          console.error('Error during photo upload:', uploadErr);
+          // Continue with navigation even if photo upload fails
+        }
+      }
       
       // Navigate to the report detail page
-      navigate(`/reports/${response._id || response.data._id}`);
+      navigate(`/reports/${createdReportId}`);
     } catch (err) {
       console.error('Report submission failed:', err);
       
@@ -618,7 +599,48 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
     
     // Clear any previous errors
     setError(null);
-    setStep(step + 1);
+    
+    // If moving from step 1 to step 2 and we don't have a reportId yet, create a draft report
+    if (step === 1 && !existingReport?._id && !formData._id) {
+      // Create a draft report to get an ID for photo uploads
+      createDraftReport().then(() => {
+        setStep(step + 1);
+      }).catch(err => {
+        console.error('Failed to create draft report:', err);
+        setError('Failed to create draft report. Please try again.');
+      });
+    } else {
+      setStep(step + 1);
+    }
+  };
+  
+  // Create a draft report to get an ID for photo uploads
+  const createDraftReport = async () => {
+    try {
+      // Create a minimal report with just the basic info
+      const draftData = {
+        title: formData.title || 'Draft Report',
+        clientName: formData.clientName || 'Draft Client',
+        propertyAddress: formData.propertyAddress,
+        inspectionDate: formData.inspectionDate,
+        isDraft: true,
+        user: user?._id
+      };
+      
+      const response = await createReport(draftData);
+      
+      // Update formData with the new report ID
+      setFormData(prev => ({
+        ...prev,
+        _id: response._id || response.data._id
+      }));
+      
+      console.log('Created draft report with ID:', response._id || response.data._id);
+      return response;
+    } catch (err) {
+      console.error('Error creating draft report:', err);
+      throw err;
+    }
   };
   
   const prevStep = () => {

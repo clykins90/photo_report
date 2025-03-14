@@ -28,6 +28,11 @@ const PhotoUploadStep = ({
           <div className="ml-3">
             <p className="text-sm text-blue-700">
               Upload photos of the property for inspection. You can upload multiple photos at once.
+              {!reportId && (
+                <span className="block mt-1 font-medium">
+                  Photos will be stored locally and automatically uploaded when the report is submitted.
+                </span>
+              )}
             </p>
           </div>
         </div>

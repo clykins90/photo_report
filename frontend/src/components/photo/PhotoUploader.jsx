@@ -77,7 +77,7 @@ const PhotoUploader = ({
         // Create a blob URL for preview
         preview: URL.createObjectURL(file),
         // Set initial status
-        status: 'pending', // pending, uploading, analyzing, complete, error
+        status: 'complete', // Mark as complete for local storage
         analysis: null,
         // Store the name in a separate property
         displayName: file.name || extractFilename(file)
@@ -85,109 +85,116 @@ const PhotoUploader = ({
     });
     
     // Add new files to state
-    setFiles(prev => [...prev, ...newFiles]);
+    const updatedFiles = [...files, ...newFiles];
+    setFiles(updatedFiles);
     
-    // Automatically upload the files immediately
-    if (newFiles.length > 0 && reportId) {
-      setUploading(true);
-      setError(null);
-      setUploadProgress(0);
-      
-      try {
-        // Get files that need uploading
-        const filesToUpload = newFiles.map(file => file.originalFile);
-        
-        // Update all new files to 'uploading' status
-        setFiles(prev => prev.map(file => {
-          if (newFiles.some(newFile => newFile.id === file.id)) {
-            return {
-              ...file,
-              status: 'uploading'
-            };
-          }
-          return file;
-        }));
-        
-        // Upload files in batch
-        const response = await uploadBatchPhotos(
-          filesToUpload, 
-          reportId,
-          (progress) => {
-            setUploadProgress(progress);
-          }
-        );
-        
-        if (!response.success) {
-          throw new Error(response.error || 'Upload failed');
-        }
-        
-        // Update the status of uploaded files
-        const updatedFiles = [...files, ...newFiles].map(file => {
-          // Check if this file was part of the uploaded batch
-          const matchingUploadedFile = response.photos?.find(uploaded => {
-            // Match by name from the original file
-            const fileName = file.originalFile ? file.originalFile.name : file.displayName;
-            return uploaded.filename === fileName;
-          });
-          
-          if (matchingUploadedFile) {
-            // Revoke the blob URL to prevent memory leaks
-            if (file.preview) {
-              URL.revokeObjectURL(file.preview);
-            }
-            
-            // Return updated file with server data
-            return {
-              ...file,
-              status: 'complete',
-              // Store the MongoDB ID
-              _id: matchingUploadedFile._id,
-              // Store the filename
-              filename: matchingUploadedFile.filename,
-              // Clear the blob preview
-              preview: null,
-              // Store the displayName
-              displayName: file.displayName || matchingUploadedFile.filename,
-              // Store the section if available
-              section: matchingUploadedFile.section || file.section || 'Uncategorized'
-            };
-          }
-          return file;
-        });
-        
-        setFiles(updatedFiles);
-        
-        // Notify parent component
-        if (onUploadComplete) {
-          onUploadComplete(updatedFiles);
-        }
-      } catch (err) {
-        console.error('Upload failed:', err);
-        setError(err.message || 'Failed to upload photos');
-        
-        // Update status of failed files
-        const updatedFiles = [...files, ...newFiles].map(file => {
-          if (newFiles.some(newFile => newFile.id === file.id)) {
-            return {
-              ...file,
-              status: 'error',
-              error: err.message || 'Upload failed'
-            };
-          }
-          return file;
-        });
-        
-        setFiles(updatedFiles);
-        
-        // Notify parent component of the error state
-        if (onUploadComplete) {
-          onUploadComplete(updatedFiles);
-        }
-      } finally {
-        setUploading(false);
-      }
+    // Notify parent component
+    if (onUploadComplete) {
+      onUploadComplete(updatedFiles);
+    }
+    
+    // If reportId is available, upload to server
+    if (reportId && newFiles.length > 0) {
+      uploadFilesToServer(newFiles);
     }
   }, [files, onUploadComplete, reportId, showUploadControls]);
+
+  // Separate function to upload files to server when reportId is available
+  const uploadFilesToServer = async (filesToUpload) => {
+    setUploading(true);
+    setError(null);
+    setUploadProgress(0);
+    
+    try {
+      // Get original file objects
+      const originalFiles = filesToUpload.map(file => file.originalFile);
+      
+      // Update files to 'uploading' status
+      setFiles(prev => prev.map(file => {
+        if (filesToUpload.some(newFile => newFile.id === file.id)) {
+          return {
+            ...file,
+            status: 'uploading'
+          };
+        }
+        return file;
+      }));
+      
+      // Upload files in batch
+      const response = await uploadBatchPhotos(
+        originalFiles, 
+        reportId,
+        (progress) => {
+          setUploadProgress(progress);
+        }
+      );
+      
+      if (!response.success) {
+        throw new Error(response.error || 'Upload failed');
+      }
+      
+      // Update the status of uploaded files
+      setFiles(prev => prev.map(file => {
+        // Check if this file was part of the uploaded batch
+        const matchingUploadedFile = response.photos?.find(uploaded => {
+          // Match by name from the original file
+          const fileName = file.originalFile ? file.originalFile.name : file.displayName;
+          return uploaded.filename === fileName;
+        });
+        
+        if (matchingUploadedFile) {
+          // Revoke the blob URL to prevent memory leaks
+          if (file.preview) {
+            URL.revokeObjectURL(file.preview);
+          }
+          
+          // Return updated file with server data
+          return {
+            ...file,
+            status: 'complete',
+            // Store the MongoDB ID
+            _id: matchingUploadedFile._id,
+            // Store the filename
+            filename: matchingUploadedFile.filename,
+            // Clear the blob preview
+            preview: null,
+            // Store the displayName
+            displayName: file.displayName || matchingUploadedFile.filename,
+            // Store the section if available
+            section: matchingUploadedFile.section || file.section || 'Uncategorized'
+          };
+        }
+        return file;
+      }));
+      
+      // Notify parent component
+      if (onUploadComplete) {
+        onUploadComplete(files);
+      }
+    } catch (err) {
+      console.error('Upload failed:', err);
+      setError(err.message || 'Failed to upload photos');
+      
+      // Update status of failed files
+      setFiles(prev => prev.map(file => {
+        if (filesToUpload.some(newFile => newFile.id === file.id)) {
+          return {
+            ...file,
+            status: 'error',
+            error: err.message || 'Upload failed'
+          };
+        }
+        return file;
+      }));
+      
+      // Notify parent component of the error state
+      if (onUploadComplete) {
+        onUploadComplete(files);
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
