@@ -194,21 +194,27 @@ export const deletePhoto = async (photoId) => {
 /**
  * Analyze a single photo using AI
  * @param {Object} photo - Photo object to analyze
+ * @param {string} reportId - ID of the report containing the photo
  * @returns {Promise} - Promise resolving to the server response
  */
-export const analyzePhoto = async (photo) => {
+export const analyzePhoto = async (photo, reportId) => {
   try {
     if (!photo || (!photo._id && !photo.id)) {
       throw new Error('Valid photo object is required for analysis');
     }
 
+    if (!reportId) {
+      throw new Error('Report ID is required for photo analysis');
+    }
+
     const photoId = photo._id || photo.id;
-    photoLogger(`Analyzing single photo: ${photoId}`);
+    photoLogger(`Analyzing single photo: ${photoId} for report: ${reportId}`);
 
     // This function now delegates to the analyzePhotos endpoint
     // which expects a reportId, but we can also pass a specific photoId
     const response = await api.post('/photos/analyze', { 
-      photoId: photoId 
+      photoId: photoId,
+      reportId: reportId
     });
     
     photoLogger(`Analysis complete for photo: ${photoId}`);
@@ -236,15 +242,20 @@ export const analyzePhoto = async (photo) => {
 /**
  * Analyze a batch of photos using AI
  * @param {Object[]} photos - Array of photo objects to analyze
+ * @param {string} reportId - ID of the report containing the photos
  * @returns {Promise} - Promise resolving to the server response
  */
-export const analyzeBatchPhotos = async (photos) => {
+export const analyzeBatchPhotos = async (photos, reportId) => {
   try {
     if (!photos || !Array.isArray(photos) || photos.length === 0) {
       throw new Error('Valid array of photos is required for batch analysis');
     }
 
-    photoLogger(`Analyzing batch of ${photos.length} photos`);
+    if (!reportId) {
+      throw new Error('Report ID is required for batch photo analysis');
+    }
+
+    photoLogger(`Analyzing batch of ${photos.length} photos for report: ${reportId}`);
 
     // Extract photo IDs
     const photoIds = photos.map(photo => photo._id || photo.id).filter(Boolean);
@@ -253,9 +264,10 @@ export const analyzeBatchPhotos = async (photos) => {
       throw new Error('No valid photo IDs found in the batch');
     }
     
-    // Call the analyze endpoint with the photo IDs
+    // Call the analyze endpoint with the photo IDs and report ID
     const response = await api.post('/photos/analyze', { 
-      photoIds: photoIds 
+      photoIds: photoIds,
+      reportId: reportId
     });
     
     photoLogger(`Batch analysis complete for ${response.data.results?.length || 0} photos`);

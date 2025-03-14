@@ -232,7 +232,7 @@ export const getReports = async () => {
  * @returns {Promise} - The response from the API
  */
 export const getReport = async (id) => {
-  const response = await api.get(`/api/reports/${id}`);
+  const response = await api.get(`/reports/${id}`);
   return response.data;
 };
 
@@ -275,115 +275,37 @@ export const updateReport = async (id, reportData) => {
       materials: reportData.materials,
       tags: Array.isArray(reportData.tags) ? [...reportData.tags] : []
     };
-    
-    // Safely process photos
-    if (reportData.photos && Array.isArray(reportData.photos)) {
-      dataToSend.photos = reportData.photos.map(photo => {
-        const sanitizedPhoto = {
-          // Ensure each photo has a valid _id
-          _id: photo._id || photo.id || generateObjectId(),
-          filename: photo.filename || photo.displayName || photo.name,
-          path: photo.path || photo.url || photo.preview || '',
-          section: photo.section || 'Uncategorized',
-          userDescription: photo.description || ''
-        };
-        
-        // Safely extract aiAnalysis if available
-        if (photo.analysis || photo.aiAnalysis) {
-          const analysis = photo.analysis || photo.aiAnalysis;
-          sanitizedPhoto.aiAnalysis = {
-            description: analysis.description || '',
-            tags: Array.isArray(analysis.tags) ? analysis.tags : [],
-            damageDetected: analysis.damageDetected || false,
-            confidence: analysis.confidence || 0,
-            severity: normalizeSeverity(analysis.severity) // Normalize severity to valid enum value
-          };
-        }
-        
-        return sanitizedPhoto;
-      });
-    }
   }
-  
-  // Ensure we're keeping important fields even if they're not in the form
-  const preparedData = {
-    ...dataToSend,
-    // Convert IDs to string format if they exist
-    user: dataToSend.user ? String(dataToSend.user) : undefined,
-    company: dataToSend.company ? String(dataToSend.company) : undefined
-  };
-  
-  // Ensure recommendations is always a string
-  if (preparedData.recommendations) {
-    if (Array.isArray(preparedData.recommendations)) {
-      preparedData.recommendations = preparedData.recommendations.join('\n\n');
-    } else if (typeof preparedData.recommendations !== 'string') {
-      preparedData.recommendations = String(preparedData.recommendations);
-    }
+
+  // Add company information if available
+  if (reportData.company) {
+    dataToSend.company = reportData.company;
   }
-  
-  // Make sure each photo has consistently named fields and valid severity values
-  if (preparedData.photos && Array.isArray(preparedData.photos)) {
-    preparedData.photos = preparedData.photos.map(photo => {
-      // Ensure we're using consistent field names
-      const normalizedPhoto = {
-        ...photo,
-        // Make sure we have an _id field
-        _id: photo._id || photo.id || generateObjectId(),
-        // Make sure we're using the right field names expected by the backend
-        filename: photo.filename || photo.displayName || photo.name,
-        path: photo.path || photo.url || photo.preview || '',
-        section: photo.section || 'Uncategorized',
-        // Use userDescription as the field name for consistency with backend
-        userDescription: photo.description || photo.userDescription || '',
-        name: photo.displayName || photo.name || 'Unnamed photo'
-      };
-      
-      // Normalize severity in aiAnalysis to ensure it matches backend enum
-      if (normalizedPhoto.aiAnalysis && normalizedPhoto.aiAnalysis.severity) {
-        normalizedPhoto.aiAnalysis.severity = normalizeSeverity(normalizedPhoto.aiAnalysis.severity);
-      }
-      
-      return normalizedPhoto;
-    });
+
+  // Add status if available
+  if (reportData.status) {
+    dataToSend.status = reportData.status;
   }
-  
-  // Log the sanitized data size for debugging
-  const dataSize = JSON.stringify(preparedData).length;
-  console.log(`Updating report with ID: ${id}, data size: ${dataSize} bytes`);
-  
-  // Break updates into chunks if necessary (for very large reports)
-  if (dataSize > 5000000) { // 5MB
-    console.warn('Report data is very large, consider optimizing the data size');
-    // Could implement chunked updates here if needed
+
+  // Add photos if available
+  if (reportData.photos) {
+    // Only include necessary photo data
+    dataToSend.photos = reportData.photos.map(photo => ({
+      _id: photo._id,
+      id: photo.id,
+      filename: photo.filename,
+      displayName: photo.displayName,
+      section: photo.section,
+      description: photo.description,
+      analysis: photo.analysis
+    }));
   }
-  
+
   try {
-    const response = await api.put(`/api/reports/${id}`, preparedData);
-    console.log('Update response:', response.data);
+    const response = await api.put(`/reports/${id}`, dataToSend);
     return response.data;
   } catch (error) {
     console.error('Error updating report:', error);
-    
-    // Enhanced error handling
-    if (error.response) {
-      console.error('Response status:', error.response.status);
-      console.error('Response data:', error.response.data);
-      
-      // Check for specific error messages
-      if (error.response.data && error.response.data.error) {
-        if (error.response.data.error.includes('size limit')) {
-          throw new Error('Report data is too large. Try reducing the amount of photos or data before submitting.');
-        }
-        
-        // Extract enum validation errors
-        if (error.response.data.error.includes('not a valid enum value')) {
-          console.error('Enum validation error detected:', error.response.data.error);
-          throw new Error('Some fields contain invalid values. Please check severity levels or other dropdown fields.');
-        }
-      }
-    }
-    
     throw error;
   }
 };
@@ -394,7 +316,7 @@ export const updateReport = async (id, reportData) => {
  * @returns {Promise} - The response from the API
  */
 export const deleteReport = async (id) => {
-  const response = await api.delete(`/api/reports/${id}`);
+  const response = await api.delete(`/reports/${id}`);
   return response.data;
 };
 
@@ -404,7 +326,7 @@ export const deleteReport = async (id) => {
  * @returns {Promise} - The PDF data as an ArrayBuffer
  */
 export const generateReportPdf = async (id) => {
-  const response = await api.post(`/api/reports/${id}/generate-pdf`, {}, {
+  const response = await api.post(`/reports/${id}/generate-pdf`, {}, {
     responseType: 'arraybuffer' // Set response type to handle binary data
   });
   return response.data;
@@ -432,7 +354,7 @@ export const addPhotosToReport = async (id, files, metadata = {}) => {
     formData.append('description', metadata.description);
   }
 
-  const response = await api.post(`/api/reports/${id}/photos`, formData, {
+  const response = await api.post(`/reports/${id}/photos`, formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },

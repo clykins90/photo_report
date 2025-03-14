@@ -12,6 +12,7 @@ const AIAnalysisStep = ({
   addDamage,
   updateDamage,
   removeDamage,
+  reportId,
   prevStep, 
   nextStep 
 }) => {
@@ -162,7 +163,7 @@ const AIAnalysisStep = ({
             }
             
             // Analyze the batch
-            const batchResult = await analyzeBatchPhotos(batch);
+            const batchResult = await analyzeBatchPhotos(batch, reportId);
             
             // Process results and update photos
             if (batchResult.success && batchResult.data) {

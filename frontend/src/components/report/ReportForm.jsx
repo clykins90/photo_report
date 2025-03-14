@@ -708,6 +708,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
             addDamage={addDamage}
             updateDamage={updateDamage}
             removeDamage={removeDamage}
+            reportId={existingReport?._id || formData._id}
             prevStep={prevStep} 
             nextStep={nextStep} 
           />
