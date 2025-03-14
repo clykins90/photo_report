@@ -39,6 +39,11 @@ export const getPhotoUrl = (fileOrFilename) => {
   const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
   const apiBase = baseApiUrl.endsWith('/') ? baseApiUrl.slice(0, -1) : baseApiUrl;
   
+  // Enable verbose logging for debugging
+  const verboseLogging = import.meta.env.VITE_VERBOSE_PHOTO_LOGGING === 'true' || 
+                         localStorage.getItem('verbosePhotoLogging') === 'true' ||
+                         true; // Force enable for debugging
+  
   // Function to create a proper API URL that avoids duplicate /api prefixes
   const createApiUrl = (path) => {
     // Check if baseApiUrl already ends with /api
@@ -48,143 +53,166 @@ export const getPhotoUrl = (fileOrFilename) => {
     const baseEndsWithApi = apiBase.endsWith('/api');
     
     // Create proper URL structure based on environment
+    let url;
     if (isApiBase) {
       // When base is exactly '/api', just append path segments
-      return `/api/photos/${path}`;
+      url = `/api/photos/${path}`;
     } else if (baseEndsWithApi) {
       // When base ends with /api but isn't exactly '/api'
-      return `${apiBase}/photos/${path}`;
+      url = `${apiBase}/photos/${path}`;
     } else {
       // Default case: full path with /api
-      return `${apiBase}/api/photos/${path}`;
+      url = `${apiBase}/api/photos/${path}`;
     }
+    
+    if (verboseLogging) {
+      photoLogger(`Created API URL: ${url} from path: ${path}`, null, false, true);
+    }
+    
+    return url;
   };
   
   // If given a string filename, use it directly
   if (typeof fileOrFilename === 'string') {
+    if (verboseLogging) {
+      photoLogger(`Creating URL from string filename: ${fileOrFilename}`, null, false, true);
+    }
     return createApiUrl(fileOrFilename);
   }
   
   // If file has no data, return placeholder
   if (!fileOrFilename) {
+    if (verboseLogging) {
+      photoLogger('No file or filename provided, returning placeholder', null, false, true);
+    }
     return '/placeholder-image.png';
   }
   
-  // Handle FileSystemFileHandle objects (from the error logs)
-  if (fileOrFilename.handle && fileOrFilename.handle.kind === 'file') {
-    // Extract the filename from the path or relativePath
-    const path = fileOrFilename.path || fileOrFilename.relativePath;
-    if (path) {
-      // Remove any leading ./ from the path
-      const cleanPath = path.replace(/^\.\//, '');
-      return createApiUrl(cleanPath);
-    }
-    
-    // If we have a name from the handle, use that
-    if (fileOrFilename.handle.name) {
-      return createApiUrl(fileOrFilename.handle.name);
-    }
-  }
+  // Try to get a URL using various properties, with detailed logging
   
   // First, prioritize direct URLs from the server (these are absolute URLs)
-  // These are the most reliable as they come directly from the server
   if (fileOrFilename.thumbnailUrl) {
+    if (verboseLogging) photoLogger(`Using thumbnailUrl: ${fileOrFilename.thumbnailUrl}`, null, false, true);
     return fileOrFilename.thumbnailUrl;
   }
   
   if (fileOrFilename.optimizedUrl) {
+    if (verboseLogging) photoLogger(`Using optimizedUrl: ${fileOrFilename.optimizedUrl}`, null, false, true);
     return fileOrFilename.optimizedUrl;
   }
   
   if (fileOrFilename.originalUrl) {
+    if (verboseLogging) photoLogger(`Using originalUrl: ${fileOrFilename.originalUrl}`, null, false, true);
     return fileOrFilename.originalUrl;
   }
   
   // For uploaded files, use server URLs from uploadedData
   if (fileOrFilename.uploadedData) {
-    // First prioritize direct URLs if they exist
     if (fileOrFilename.uploadedData.thumbnailUrl) {
+      if (verboseLogging) photoLogger(`Using uploadedData.thumbnailUrl`, null, false, true);
       return fileOrFilename.uploadedData.thumbnailUrl;
     }
     
     if (fileOrFilename.uploadedData.optimizedUrl) {
+      if (verboseLogging) photoLogger(`Using uploadedData.optimizedUrl`, null, false, true);
       return fileOrFilename.uploadedData.optimizedUrl;
     }
     
     if (fileOrFilename.uploadedData.originalUrl) {
+      if (verboseLogging) photoLogger(`Using uploadedData.originalUrl`, null, false, true);
       return fileOrFilename.uploadedData.originalUrl;
     }
     
     // Fallback to filename-based URLs
     if (fileOrFilename.uploadedData.thumbnailFilename) {
+      if (verboseLogging) photoLogger(`Using uploadedData.thumbnailFilename`, null, false, true);
       return createApiUrl(fileOrFilename.uploadedData.thumbnailFilename);
     }
     
     if (fileOrFilename.uploadedData.optimizedFilename) {
+      if (verboseLogging) photoLogger(`Using uploadedData.optimizedFilename`, null, false, true);
       return createApiUrl(fileOrFilename.uploadedData.optimizedFilename);
     }
     
     if (fileOrFilename.uploadedData.filename) {
+      if (verboseLogging) photoLogger(`Using uploadedData.filename`, null, false, true);
       return createApiUrl(fileOrFilename.uploadedData.filename);
+    }
+    
+    // Try using the GridFS ID if available
+    if (fileOrFilename.uploadedData.gridfsId) {
+      if (verboseLogging) photoLogger(`Using uploadedData.gridfsId`, null, false, true);
+      return createApiUrl(fileOrFilename.uploadedData.gridfsId);
     }
   }
   
-  // Handle path or relativePath directly (from the error logs)
+  // Check for MongoDB ObjectId
+  if (fileOrFilename._id) {
+    if (verboseLogging) photoLogger(`Using _id: ${fileOrFilename._id}`, null, false, true);
+    return createApiUrl(fileOrFilename._id);
+  }
+  
+  // Check for displayName property (our custom property)
+  if (fileOrFilename.displayName) {
+    if (verboseLogging) photoLogger(`Using displayName: ${fileOrFilename.displayName}`, null, false, true);
+    return createApiUrl(fileOrFilename.displayName);
+  }
+  
+  // If we have a name property, use that
+  if (fileOrFilename.name) {
+    if (verboseLogging) photoLogger(`Using name: ${fileOrFilename.name}`, null, false, true);
+    return createApiUrl(fileOrFilename.name);
+  }
+  
+  // If we have a filename property, use that
+  if (fileOrFilename.filename) {
+    if (verboseLogging) photoLogger(`Using filename: ${fileOrFilename.filename}`, null, false, true);
+    return createApiUrl(fileOrFilename.filename);
+  }
+  
+  // Handle path or relativePath directly
   if (fileOrFilename.path) {
     // Remove any leading ./ from the path
     const cleanPath = fileOrFilename.path.replace(/^\.\//, '');
+    if (verboseLogging) photoLogger(`Using path: ${cleanPath}`, null, false, true);
     return createApiUrl(cleanPath);
   }
   
   if (fileOrFilename.relativePath) {
     // Remove any leading ./ from the path
     const cleanPath = fileOrFilename.relativePath.replace(/^\.\//, '');
+    if (verboseLogging) photoLogger(`Using relativePath: ${cleanPath}`, null, false, true);
     return createApiUrl(cleanPath);
   }
   
-  // For local files that aren't uploaded yet, use the preview URL
-  // This should be a last resort as blob URLs are temporary
-  if (fileOrFilename.status === 'pending' && fileOrFilename.preview) {
-    return fileOrFilename.preview;
-  }
-  
-  // Check if we have an ID that might be used directly in the URL
-  if (fileOrFilename._id) {
-    // Use the same URL structure as createApiUrl for consistency
-    const isApiBase = apiBase === '/api';
-    const baseEndsWithApi = apiBase.endsWith('/api');
-    
-    if (isApiBase) {
-      return `/api/photos/${fileOrFilename._id}`;
-    } else if (baseEndsWithApi) {
-      return `${apiBase}/photos/${fileOrFilename._id}`;
-    } else {
-      return `${apiBase}/api/photos/${fileOrFilename._id}`;
+  // Handle FileSystemFileHandle objects
+  if (fileOrFilename.handle && fileOrFilename.handle.kind === 'file') {
+    if (fileOrFilename.handle.name) {
+      if (verboseLogging) photoLogger(`Using handle.name: ${fileOrFilename.handle.name}`, null, false, true);
+      return createApiUrl(fileOrFilename.handle.name);
     }
   }
   
-  // Check for displayName property (our custom property)
-  if (fileOrFilename.displayName) {
-    return createApiUrl(fileOrFilename.displayName);
-  }
-  
-  // If we have a name property, use that
-  if (fileOrFilename.name) {
-    return createApiUrl(fileOrFilename.name);
-  }
-  
-  // If we have a filename property, use that
-  if (fileOrFilename.filename) {
-    return createApiUrl(fileOrFilename.filename);
+  // For local files that aren't uploaded yet, use the preview URL
+  if (fileOrFilename.status === 'pending' && fileOrFilename.preview) {
+    if (verboseLogging) photoLogger(`Using preview URL for pending file`, null, false, true);
+    return fileOrFilename.preview;
   }
   
   // If we have an originalFile property with a name, use that
   if (fileOrFilename.originalFile && fileOrFilename.originalFile.name) {
+    if (verboseLogging) photoLogger(`Using originalFile.name: ${fileOrFilename.originalFile.name}`, null, false, true);
     return createApiUrl(fileOrFilename.originalFile.name);
   }
   
+  // If we have an id property that looks like a MongoDB ObjectId, use that
+  if (fileOrFilename.id && typeof fileOrFilename.id === 'string' && /^[0-9a-fA-F]{24}$/.test(fileOrFilename.id)) {
+    if (verboseLogging) photoLogger(`Using id as ObjectId: ${fileOrFilename.id}`, null, false, true);
+    return createApiUrl(fileOrFilename.id);
+  }
+  
   // Fallback to placeholder
-  photoLogger('Unable to determine photo URL from object:', fileOrFilename, true);
+  photoLogger('Unable to determine photo URL from object:', fileOrFilename, true, true);
   return '/placeholder-image.png';
 };
 

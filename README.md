@@ -200,6 +200,12 @@ If you encounter errors like "Unable to determine photo URL from object" with Fi
    - Final fallback: Uses a placeholder image
    - Limits retries to prevent infinite loops
 
+5. **Read-only File Properties**: Fixed issues with trying to modify read-only properties of File objects:
+   - Uses a separate `displayName` property instead of trying to modify the read-only `name` property
+   - Creates new objects instead of modifying original File objects
+   - Properly handles File objects during upload without attempting to modify them
+   - Fixes "Cannot set property name of #<File> which has only a getter" errors
+
 These improvements ensure that photos with FileSystemFileHandle objects and relative paths are properly displayed throughout the application.
 
 ### PDF Image Display Issues

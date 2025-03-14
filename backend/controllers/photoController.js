@@ -32,6 +32,42 @@ const uploadPhotos = async (req, res, next) => {
     }
 
     logger.info(`Processing ${req.files.length} uploaded files`);
+    
+    // Check MongoDB connection
+    const dbState = mongoose.connection.readyState;
+    const dbStateText = {
+      0: 'disconnected',
+      1: 'connected',
+      2: 'connecting',
+      3: 'disconnecting'
+    }[dbState] || 'unknown';
+    
+    logger.info(`MongoDB connection state: ${dbStateText} (${dbState})`);
+    
+    if (dbState !== 1) {
+      logger.error(`MongoDB not connected, attempting to reconnect...`);
+      try {
+        await mongoose.connect(process.env.MONGODB_URI);
+        logger.info(`MongoDB reconnected successfully: ${mongoose.connection.host}`);
+      } catch (dbError) {
+        logger.error(`Failed to reconnect to MongoDB: ${dbError.message}`);
+      }
+    }
+    
+    // Ensure GridFS is initialized
+    const bucket = gridfs.initGridFS();
+    if (!bucket) {
+      logger.error('GridFS not initialized, photos may not be stored properly');
+    } else {
+      logger.info('GridFS initialized successfully');
+    }
+    
+    // Force enable GridFS on Vercel
+    const isVercel = process.env.VERCEL === '1';
+    if (isVercel) {
+      process.env.USE_GRIDFS = 'true';
+      logger.info('Running in Vercel environment, forcing GridFS usage');
+    }
 
     // Process all files
     const processedFiles = await Promise.all(req.files.map(async (file) => {
@@ -90,6 +126,12 @@ const uploadPhotos = async (req, res, next) => {
               }
             });
             
+            if (!originalGridFS || !originalGridFS.id) {
+              throw new Error('Failed to upload original file to GridFS - no ID returned');
+            }
+            
+            logger.info(`Original file uploaded to GridFS with ID: ${originalGridFS.id}`);
+            
             const optimizedGridFS = await gridfs.uploadFile(optimizedPath, {
               filename: path.basename(optimizedPath),
               contentType: 'image/jpeg',
@@ -99,6 +141,12 @@ const uploadPhotos = async (req, res, next) => {
                 originalFileId: originalGridFS.id
               }
             });
+            
+            if (!optimizedGridFS || !optimizedGridFS.id) {
+              logger.error('Failed to upload optimized file to GridFS - no ID returned');
+            } else {
+              logger.info(`Optimized file uploaded to GridFS with ID: ${optimizedGridFS.id}`);
+            }
             
             const thumbnailGridFS = await gridfs.uploadFile(thumbnailPath, {
               filename: path.basename(thumbnailPath),
@@ -110,16 +158,22 @@ const uploadPhotos = async (req, res, next) => {
               }
             });
             
+            if (!thumbnailGridFS || !thumbnailGridFS.id) {
+              logger.error('Failed to upload thumbnail file to GridFS - no ID returned');
+            } else {
+              logger.info(`Thumbnail file uploaded to GridFS with ID: ${thumbnailGridFS.id}`);
+            }
+            
             gridfsInfo = {
               original: originalGridFS.id,
-              optimized: optimizedGridFS.id,
-              thumbnail: thumbnailGridFS.id
+              optimized: optimizedGridFS?.id,
+              thumbnail: thumbnailGridFS?.id
             };
             
             logger.info(`Successfully uploaded file to GridFS: ${file.originalname}`, {
               originalId: originalGridFS.id,
-              optimizedId: optimizedGridFS.id,
-              thumbnailId: thumbnailGridFS.id
+              optimizedId: optimizedGridFS?.id,
+              thumbnailId: thumbnailGridFS?.id
             });
             
             // Clean up temporary files after uploading to GridFS
@@ -760,15 +814,22 @@ const getPhoto = async (req, res, next) => {
     // Remove any leading ./ from the filename
     filename = filename.replace(/^\.\//, '');
     
-    logger.info(`Retrieving photo: ${filename}`);
+    // Log detailed information about the request
+    logger.info(`Retrieving photo: ${filename}, URL: ${req.originalUrl}, Host: ${req.get('host')}, Environment: ${process.env.NODE_ENV || 'unknown'}`);
+    
+    // Special handling for numeric filenames (like 3.jpeg, 4.jpeg)
+    const isNumericFilename = /^\d+\.\w+$/.test(filename);
+    if (isNumericFilename) {
+      logger.info(`Detected numeric filename: ${filename}, applying special handling`);
+    }
     
     // First try to find the file in GridFS by filename
     try {
-      // Check if USE_GRIDFS is enabled
-      const useGridFS = (process.env.USE_GRIDFS === 'true');
+      // Always use GridFS on Vercel
+      const useGridFS = process.env.USE_GRIDFS === 'true' || process.env.VERCEL === '1';
       
       if (useGridFS) {
-        logger.info(`Searching for file in GridFS: ${filename}`);
+        logger.info(`Searching for file in GridFS: ${filename} (GridFS enabled: ${useGridFS})`);
         
         // Try to find by exact filename first
         let files = await gridfs.findFiles({ filename });
@@ -801,6 +862,28 @@ const getPhoto = async (req, res, next) => {
           return; // Return early as response is handled by streamToResponse
         }
         
+        // For numeric filenames, try to find any file that contains this number
+        if (isNumericFilename) {
+          const numericPart = filename.split('.')[0];
+          logger.info(`Trying broader search for numeric filename part: ${numericPart}`);
+          
+          const numericFiles = await gridfs.findFiles({
+            $or: [
+              { filename: { $regex: numericPart } },
+              { 'metadata.originalName': { $regex: numericPart } }
+            ]
+          });
+          
+          if (numericFiles && numericFiles.length > 0) {
+            const fileId = numericFiles[0]._id;
+            logger.info(`Found file in GridFS with numeric search, ID: ${fileId}`);
+            
+            // Stream the file directly to the response
+            await gridfs.streamToResponse(fileId, res);
+            return;
+          }
+        }
+        
         // Try one more approach - check if the filename is actually a MongoDB ObjectId
         if (mongoose.Types.ObjectId.isValid(filename)) {
           try {
@@ -814,6 +897,18 @@ const getPhoto = async (req, res, next) => {
             }
           } catch (objectIdError) {
             logger.warn(`Error treating filename as ObjectId: ${objectIdError.message}`);
+          }
+        }
+        
+        // Last resort - dump all files in GridFS to help debug
+        if (isNumericFilename) {
+          try {
+            const allFiles = await gridfs.findFiles({});
+            logger.info(`GridFS contains ${allFiles.length} total files. First 5 filenames: ${
+              allFiles.slice(0, 5).map(f => f.filename).join(', ')
+            }`);
+          } catch (err) {
+            logger.warn(`Error listing all GridFS files: ${err.message}`);
           }
         }
         
@@ -852,7 +947,12 @@ const getPhoto = async (req, res, next) => {
       
       // Try with just the filename (no path)
       path.join(tempDir, path.basename(filename)),
-      path.join(uploadsDir, path.basename(filename))
+      path.join(uploadsDir, path.basename(filename)),
+      
+      // Vercel specific paths
+      path.join('/tmp', filename),
+      path.join('/tmp/uploads', filename),
+      path.join('/tmp/temp', filename)
     ];
     
     // Find the first path that exists
@@ -907,6 +1007,7 @@ const getPhoto = async (req, res, next) => {
     }
     
     // If we got here, the file wasn't found in GridFS or filesystem
+    logger.error(`Photo not found after all attempts: ${filename}`);
     throw new ApiError(404, 'Photo not found');
   } catch (error) {
     next(error);

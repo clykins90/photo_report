@@ -628,7 +628,7 @@ const AIAnalysisStep = ({
               <div className="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-75 flex items-center justify-center p-4">
                 <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
                   <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center">
-                    <h3 className="font-semibold">{selectedPhoto.name || `Photo ${uploadedPhotos.findIndex(p => p.id === selectedPhoto.id) + 1}`}</h3>
+                    <h3 className="font-semibold">{selectedPhoto.displayName || selectedPhoto.name || `Photo ${uploadedPhotos.findIndex(p => p.id === selectedPhoto.id) + 1}`}</h3>
                     <button 
                       onClick={closeDetailView}
                       className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -644,7 +644,7 @@ const AIAnalysisStep = ({
                       <div className="md:w-1/3 p-4">
                         <img 
                           src={getBestImageUrl(selectedPhoto)} 
-                          alt={selectedPhoto.name || 'Selected photo'}
+                          alt={selectedPhoto.displayName || selectedPhoto.name || 'Selected photo'}
                           className="w-full h-auto object-contain rounded"
                           onError={(e) => e.target.src = '/placeholder-image.png'}
                         />

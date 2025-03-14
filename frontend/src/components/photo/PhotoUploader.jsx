@@ -517,7 +517,7 @@ const PhotoUploader = ({
                       }
                       
                       // Only retry a limited number of times
-                      if (imageRetryCounters.current[file.id] < 3) {
+                      if (imageRetryCounters.current[file.id] < 5) {
                         // Increment retry counter
                         imageRetryCounters.current[file.id]++;
                         
@@ -535,6 +535,22 @@ const PhotoUploader = ({
                           } else {
                             e.target.src = `/placeholder-image.png`;
                           }
+                        } else if (imageRetryCounters.current[file.id] === 3) {
+                          // Third retry: Try with the filename directly
+                          if (file.filename) {
+                            e.target.src = `/api/photos/${file.filename}?retry=${Date.now()}`;
+                          } else if (file.displayName) {
+                            e.target.src = `/api/photos/${file.displayName}?retry=${Date.now()}`;
+                          } else {
+                            e.target.src = `/placeholder-image.png`;
+                          }
+                        } else if (imageRetryCounters.current[file.id] === 4) {
+                          // Fourth retry: Try with the ID if it's a MongoDB ObjectId
+                          if (file._id && typeof file._id === 'string' && /^[0-9a-fA-F]{24}$/.test(file._id)) {
+                            e.target.src = `/api/photos/${file._id}?retry=${Date.now()}`;
+                          } else {
+                            e.target.src = `/placeholder-image.png`;
+                          }
                         } else {
                           // Final fallback
                           e.target.src = `/placeholder-image.png`;
@@ -542,6 +558,7 @@ const PhotoUploader = ({
                       } else {
                         // After max retries, use placeholder
                         e.target.src = `/placeholder-image.png`;
+                        console.error(`Failed to load image after ${imageRetryCounters.current[file.id]} attempts:`, file);
                       }
                     }}
                   />

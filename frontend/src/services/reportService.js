@@ -98,7 +98,7 @@ export const createReport = async (reportData) => {
         const sanitizedPhoto = {
           // Ensure each photo has a valid _id
           _id: photo._id || photo.id || generateObjectId(),
-          filename: photo.filename || photo.name,
+          filename: photo.filename || photo.displayName || photo.name,
           path: photo.path || photo.url || photo.preview || '',
           section: photo.section || 'Uncategorized',
           userDescription: photo.description || ''
@@ -147,11 +147,12 @@ export const createReport = async (reportData) => {
         // Make sure we have an _id field
         _id: photo._id || photo.id || generateObjectId(),
         // Make sure we're using the right field names expected by the backend
-        filename: photo.filename || photo.name,
+        filename: photo.filename || photo.displayName || photo.name,
         path: photo.path || photo.url || photo.preview || '',
         section: photo.section || 'Uncategorized',
         // Use userDescription as the field name for consistency with backend
-        userDescription: photo.description || photo.userDescription || ''
+        userDescription: photo.description || photo.userDescription || '',
+        name: photo.displayName || photo.name || 'Unnamed photo'
       };
       
       // Normalize severity in aiAnalysis to ensure it matches backend enum
@@ -276,7 +277,7 @@ export const updateReport = async (id, reportData) => {
         const sanitizedPhoto = {
           // Ensure each photo has a valid _id
           _id: photo._id || photo.id || generateObjectId(),
-          filename: photo.filename || photo.name,
+          filename: photo.filename || photo.displayName || photo.name,
           path: photo.path || photo.url || photo.preview || '',
           section: photo.section || 'Uncategorized',
           userDescription: photo.description || ''
@@ -325,11 +326,12 @@ export const updateReport = async (id, reportData) => {
         // Make sure we have an _id field
         _id: photo._id || photo.id || generateObjectId(),
         // Make sure we're using the right field names expected by the backend
-        filename: photo.filename || photo.name,
+        filename: photo.filename || photo.displayName || photo.name,
         path: photo.path || photo.url || photo.preview || '',
         section: photo.section || 'Uncategorized',
         // Use userDescription as the field name for consistency with backend
-        userDescription: photo.description || photo.userDescription || ''
+        userDescription: photo.description || photo.userDescription || '',
+        name: photo.displayName || photo.name || 'Unnamed photo'
       };
       
       // Normalize severity in aiAnalysis to ensure it matches backend enum

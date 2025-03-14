@@ -104,7 +104,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
           // Return a properly formatted photo object
           return {
             id: photo._id || photo.id || `temp-${index}`,
-            name: photo.filename || filename,
+            name: photo.displayName || photo.name || filename,
             filename: filename,
             description: photo.description || photo.userDescription || '',
             url: photoUrl,
@@ -184,7 +184,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       // Prepare photos data to avoid circular references
       const preparedPhotos = analyzedPhotos.map(photo => ({
         id: photo.id,
-        name: photo.name,
+        name: photo.displayName || photo.name,
         description: photo.description,
         url: photo.url,
         preview: photo.preview,
@@ -273,13 +273,12 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       // Prepare photos data to avoid circular references
       const preparedPhotos = uploadedPhotos.map(photo => ({
         id: photo.id,
-        name: photo.name,
+        name: photo.displayName || photo.name,
         description: photo.description,
         url: photo.url,
         preview: photo.preview,
         status: photo.status,
-        // Add the filename from uploadedData if available
-        filename: photo.uploadedData?.filename || photo.filename,
+        filename: photo.filename || photo.displayName || photo.name,
         analysis: photo.analysis ? {
           description: photo.analysis.description,
           tags: photo.analysis.tags,
@@ -464,8 +463,8 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         // Extract only the properties we need, avoiding File objects with circular references
         const preparedPhoto = {
           id: photo.id,
-          name: photo.name,
-          filename: photo.filename || photo.name,
+          name: photo.displayName || photo.name,
+          filename: photo.filename || photo.displayName || photo.name,
           description: photo.description || '',
           section: photo.section || 'Uncategorized',
           status: photo.status || 'pending',

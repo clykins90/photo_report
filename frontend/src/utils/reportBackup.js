@@ -18,8 +18,8 @@ const sanitizePhotosForBackup = (photos) => {
     // Create a clean copy without circular references
     const sanitizedPhoto = {
       id: photo.id,
-      name: photo.name,
-      filename: photo.filename || photo.name,
+      name: photo.displayName || photo.name,
+      filename: photo.filename || photo.displayName || photo.name,
       description: photo.description || '',
       status: photo.status || 'pending',
       preview: typeof photo.preview === 'string' ? photo.preview : null,

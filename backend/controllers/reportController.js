@@ -111,7 +111,7 @@ const createReport = async (req, res, next) => {
           
           // Use the original filename if available, don't generate a new one
           // This will preserve UUIDs from the upload process
-          const filename = photo.filename || photo.name || '';
+          const filename = photo.filename || photo.displayName || photo.name || '';
           
           if (!filename) {
             console.log('Warning: Photo missing filename, this may cause retrieval issues');
@@ -315,7 +315,7 @@ const updateReport = async (req, res, next) => {
           const path = photo.path || photo.url || photo.preview || '';
           
           // Use the original filename if available, don't generate a new one
-          const filename = photo.filename || photo.name || '';
+          const filename = photo.filename || photo.displayName || photo.name || '';
           
           if (!path || !filename) {
             console.log('Warning: Photo missing required fields:', { path, filename });
@@ -651,7 +651,7 @@ const generateSummary = async (req, res, next) => {
     // Extract analyses from photos
     const photoAnalyses = validPhotos.map(photo => ({
       analysis: photo.analysis,
-      filename: photo.uploadedData?.filename || photo.name || 'unknown'
+      filename: photo.uploadedData?.filename || photo.displayName || photo.name || 'unknown'
     }));
     
     // Generate the summary
