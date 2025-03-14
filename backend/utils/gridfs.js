@@ -347,6 +347,54 @@ const streamPdfReport = async (fileId, res) => {
   return streamToResponse(fileId, res, 'pdf_report');
 };
 
+/**
+ * Get a download stream for a file from GridFS
+ * @param {string|ObjectId} fileId - ID of the file to download
+ * @param {string} bucketName - Name of the bucket to use
+ * @returns {Promise<stream.Readable>} A readable stream of the file
+ */
+const downloadFile = async (fileId, bucketName = 'photos') => {
+  try {
+    const bucket = await initGridFS(bucketName);
+    if (!bucket) {
+      throw new Error(`GridFS bucket '${bucketName}' not initialized`);
+    }
+
+    // Convert string ID to ObjectId if needed
+    let id;
+    try {
+      id = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
+    } catch (error) {
+      logger.error(`Invalid ObjectId format: ${fileId}`);
+      throw new Error(`Invalid ObjectId format: ${fileId}`);
+    }
+    
+    // Check if file exists in this bucket
+    const files = await bucket.find({ _id: id }).toArray();
+    if (!files.length) {
+      // If not found in the specified bucket, try the other bucket
+      const otherBucketName = bucketName === 'photos' ? 'pdf_report' : 'photos';
+      logger.info(`File not found in '${bucketName}', trying '${otherBucketName}'`);
+      
+      const otherBucket = await initGridFS(otherBucketName);
+      const otherFiles = await otherBucket.find({ _id: id }).toArray();
+      
+      if (!otherFiles.length) {
+        throw new Error(`File not found with ID: ${fileId} in any bucket`);
+      }
+      
+      // Use the other bucket
+      return otherBucket.openDownloadStream(id);
+    }
+    
+    // Create and return download stream
+    return bucket.openDownloadStream(id);
+  } catch (error) {
+    logger.error(`Error getting download stream for file '${fileId}': ${error.message}`);
+    throw error;
+  }
+};
+
 module.exports = {
   initGridFS,
   uploadFile,
@@ -355,5 +403,6 @@ module.exports = {
   deleteFile,
   findFiles,
   uploadPdfReport,
-  streamPdfReport
+  streamPdfReport,
+  downloadFile
 }; 
