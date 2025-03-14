@@ -210,11 +210,9 @@ export const analyzePhoto = async (photo, reportId) => {
     const photoId = photo._id || photo.id;
     photoLogger(`Analyzing single photo: ${photoId} for report: ${reportId}`);
 
-    // This function now delegates to the analyzePhotos endpoint
-    // which expects a reportId, but we can also pass a specific photoId
-    const response = await api.post('/photos/analyze', { 
-      photoId: photoId,
-      reportId: reportId
+    // Use URL parameter for reportId
+    const response = await api.post(`/photos/analyze/${reportId}`, { 
+      photoId: photoId
     });
     
     photoLogger(`Analysis complete for photo: ${photoId}`);
@@ -264,10 +262,9 @@ export const analyzeBatchPhotos = async (photos, reportId) => {
       throw new Error('No valid photo IDs found in the batch');
     }
     
-    // Call the analyze endpoint with the photo IDs and report ID
-    const response = await api.post('/photos/analyze', { 
-      photoIds: photoIds,
-      reportId: reportId
+    // Use URL parameter for reportId
+    const response = await api.post(`/photos/analyze/${reportId}`, { 
+      photoIds: photoIds
     });
     
     photoLogger(`Batch analysis complete for ${response.data.results?.length || 0} photos`);

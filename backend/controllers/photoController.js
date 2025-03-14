@@ -178,55 +178,33 @@ const deletePhoto = async (req, res) => {
 const analyzePhotos = async (req, res) => {
   try {
     let photos = [];
-    let reportId = null;
+    let reportId = req.params.reportId;
     let report = null;
     
+    if (!reportId) {
+      return res.status(400).json({ error: 'Report ID is required' });
+    }
+    
+    report = await Report.findById(reportId);
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+    
     // Check if specific photo ID is provided
-    if (req.params.photoId) {
-      reportId = req.body.reportId;
-      if (!reportId) {
-        return res.status(400).json({ error: 'Report ID is required when analyzing a specific photo' });
-      }
-      
-      report = await Report.findById(reportId);
-      if (!report) {
-        return res.status(404).json({ error: 'Report not found' });
-      }
-      
-      const photo = report.photos.find(p => p._id.toString() === req.params.photoId);
+    if (req.body.photoId) {
+      const photo = report.photos.find(p => p._id.toString() === req.body.photoId);
       if (!photo) {
         return res.status(404).json({ error: 'Photo not found in report' });
       }
-      
       photos = [photo];
     } 
     // Check if array of photo IDs is provided
     else if (req.body.photoIds && Array.isArray(req.body.photoIds)) {
-      reportId = req.body.reportId;
-      if (!reportId) {
-        return res.status(400).json({ error: 'Report ID is required when analyzing specific photos' });
-      }
-      
-      report = await Report.findById(reportId);
-      if (!report) {
-        return res.status(404).json({ error: 'Report not found' });
-      }
-      
       photos = report.photos.filter(p => req.body.photoIds.includes(p._id.toString()));
     } 
-    // Check if report ID is provided to analyze all unanalyzed photos
-    else if (req.params.reportId || req.body.reportId) {
-      reportId = req.params.reportId || req.body.reportId;
-      
-      report = await Report.findById(reportId);
-      if (!report) {
-        return res.status(404).json({ error: 'Report not found' });
-      }
-      
-      // Get all photos that haven't been analyzed yet
+    // If no specific photos requested, analyze all unanalyzed photos
+    else {
       photos = report.photos.filter(p => !p.aiAnalysis || !p.aiAnalysis.description);
-    } else {
-      return res.status(400).json({ error: 'Photo ID, photo IDs array, or report ID is required' });
     }
     
     if (photos.length === 0) {
@@ -282,27 +260,16 @@ const analyzePhotos = async (req, res) => {
         }
       } catch (error) {
         logger.error(`Error analyzing photo ${photo._id}: ${error.message}`);
-        
-        // Find the photo in the report and update its status
-        const photoIndex = report.photos.findIndex(p => p._id.toString() === photo._id.toString());
-        if (photoIndex !== -1) {
-          report.photos[photoIndex].status = 'failed';
-          report.photos[photoIndex].analysisError = error.message;
-        }
-        
-        // Save the updated report
-        await report.save();
-        
         results.push({
           photoId: photo._id,
-          status: 'failed',
+          status: 'error',
           error: error.message
         });
       }
     }
     
     return res.status(200).json({
-      message: `Analysis completed for ${results.filter(r => r.status === 'success').length} of ${photos.length} photos`,
+      message: `Analyzed ${results.length} photos`,
       results
     });
   } catch (error) {
