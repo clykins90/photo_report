@@ -34,21 +34,28 @@ const PhotoUploader = ({
     if (initialPhotos.length > 0) {
       // Ensure all initial photos have the necessary properties
       const processedPhotos = initialPhotos.map(photo => {
+        // Create a new object instead of modifying the original
+        const processedPhoto = { ...photo };
+        
         // If the photo doesn't have a proper ID, generate one
-        if (!photo.id) {
-          photo.id = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        if (!processedPhoto.id) {
+          processedPhoto.id = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         }
         
-        // Ensure the photo has a name property
-        if (!photo.name && photo.handle && photo.handle.name) {
-          photo.name = photo.handle.name;
-        } else if (!photo.name && photo.path) {
-          photo.name = photo.path.split('/').pop();
-        } else if (!photo.name && photo.relativePath) {
-          photo.name = photo.relativePath.split('/').pop();
+        // Store the filename in a separate property instead of modifying name
+        if (!processedPhoto.displayName) {
+          if (processedPhoto.name) {
+            processedPhoto.displayName = processedPhoto.name;
+          } else if (processedPhoto.handle && processedPhoto.handle.name) {
+            processedPhoto.displayName = processedPhoto.handle.name;
+          } else if (processedPhoto.path) {
+            processedPhoto.displayName = processedPhoto.path.split('/').pop();
+          } else if (processedPhoto.relativePath) {
+            processedPhoto.displayName = processedPhoto.relativePath.split('/').pop();
+          }
         }
         
-        return photo;
+        return processedPhoto;
       });
       
       setFiles(processedPhotos);
@@ -59,18 +66,23 @@ const PhotoUploader = ({
     if (!showUploadControls) return; // Don't allow new files if in analyze-only mode
     
     // Add preview to each file
-    const newFiles = acceptedFiles.map(file => 
-      Object.assign(file, {
+    const newFiles = acceptedFiles.map(file => {
+      // Create a new object with the file properties we need
+      // Don't modify the original file object
+      return {
+        // Original file reference (don't modify this)
+        originalFile: file,
         // Use a prefix to ensure this is never confused with a MongoDB ObjectId
         id: `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        // Create a blob URL for preview
         preview: URL.createObjectURL(file),
+        // Set initial status
         status: 'pending', // pending, uploading, analyzing, complete, error
         analysis: null,
-        originalFile: file, // Store the original File object
-        // Ensure we have a name property
-        name: file.name || extractFilename(file)
-      })
-    );
+        // Store the name in a separate property
+        displayName: file.name || extractFilename(file)
+      };
+    });
     
     // Add new files to state
     setFiles(prev => [...prev, ...newFiles]);
@@ -126,9 +138,11 @@ const PhotoUploader = ({
         // Update the status of uploaded files
         const updatedFiles = [...files, ...newFiles].map(file => {
           // Check if this file was part of the uploaded batch
-          const matchingUploadedFile = response.files?.find(uploaded => 
-            uploaded.originalname === file.name || uploaded.filename === file.name
-          );
+          const matchingUploadedFile = response.files?.find(uploaded => {
+            // Match by name from the original file
+            const fileName = file.originalFile ? file.originalFile.name : file.displayName;
+            return uploaded.originalname === fileName || uploaded.filename === fileName;
+          });
           
           if (matchingUploadedFile) {
             // Revoke the blob URL to prevent memory leaks
@@ -150,11 +164,11 @@ const PhotoUploader = ({
               originalUrl: matchingUploadedFile.originalUrl,
               // Add server-generated ID
               _id: matchingUploadedFile._id,
-              // Ensure we have a name property
-              name: file.name || matchingUploadedFile.originalname || extractFilename(file),
+              // Store the filename in displayName
+              displayName: file.displayName || matchingUploadedFile.originalname || extractFilename(file),
               // Add path properties for URL generation
               path: matchingUploadedFile.filename || file.path,
-              filename: matchingUploadedFile.filename || file.name
+              filename: matchingUploadedFile.filename
             };
           }
           return file;
@@ -488,7 +502,7 @@ const PhotoUploader = ({
                 <div className="relative pb-[100%] overflow-hidden rounded-lg border border-gray-200">
                   <img
                     src={getPhotoUrl(file)}
-                    alt={file.name || 'Uploaded photo'}
+                    alt={file.displayName || 'Uploaded photo'}
                     className="absolute inset-0 w-full h-full object-cover"
                     onLoad={() => {
                       // Reset retry counter on successful load
@@ -507,7 +521,7 @@ const PhotoUploader = ({
                         // Increment retry counter
                         imageRetryCounters.current[file.id]++;
                         
-                        console.log(`Retrying image load for ${file.name || 'unknown'} (attempt ${imageRetryCounters.current[file.id]})`);
+                        console.log(`Retrying image load for ${file.displayName || 'unknown'} (attempt ${imageRetryCounters.current[file.id]})`);
                         
                         // Try different URL strategies
                         if (imageRetryCounters.current[file.id] === 1) {
@@ -564,7 +578,7 @@ const PhotoUploader = ({
                 
                 {/* File name */}
                 <p className="mt-1 text-sm text-gray-500 truncate">
-                  {file.name || file.originalname || (file.path && file.path.split('/').pop()) || 'Unnamed photo'}
+                  {file.displayName || file.originalname || (file.path && file.path.split('/').pop()) || 'Unnamed photo'}
                 </p>
                 
                 {/* Debug info - only show in development */}

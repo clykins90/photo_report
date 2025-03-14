@@ -52,6 +52,8 @@ This application allows contractors to:
 - Photos are stored in MongoDB GridFS for efficient retrieval
 - The frontend uses server-provided URLs to access photos, not temporary blob URLs
 - Proper URL handling ensures photos can be accessed across sessions and devices
+- Enhanced path handling for files with relative paths (./file.jpg) and FileSystemFileHandle objects
+- Robust fallback mechanisms for image loading with multiple retry strategies
 
 #### Vercel Configuration
 The application uses a specific Vercel configuration to handle both the frontend SPA and backend API:
@@ -171,6 +173,34 @@ If you encounter errors related to "Invalid file ID format" during photo analysi
    - Fallback to searching all files for matching IDs
 
 These improvements ensure that only valid MongoDB ObjectIds are used for photo analysis, preventing errors related to invalid ID formats, and provide robust fallback mechanisms for finding files in GridFS.
+
+#### Handling FileSystemFileHandle Objects and Relative Paths
+If you encounter errors like "Unable to determine photo URL from object" with FileSystemFileHandle objects:
+
+1. **Enhanced Path Handling**: The system now properly handles file objects with FileSystemFileHandle properties:
+   - Extracts filenames from path or relativePath properties
+   - Removes leading ./ from paths to ensure proper URL construction
+   - Uses the handle.name property as a fallback
+   - Adds multiple fallback mechanisms for URL generation
+
+2. **Improved URL Generation**: The getPhotoUrl function now has enhanced capabilities:
+   - Prioritizes server-provided URLs (thumbnailUrl, optimizedUrl, originalUrl)
+   - Falls back to path-based URL generation for FileSystemFileHandle objects
+   - Handles relative paths with proper normalization
+   - Provides clear debug information when URL generation fails
+
+3. **API Path Handling**: The API entry point now properly handles paths with special characters:
+   - Decodes URL components to handle special characters
+   - Removes leading ./ from paths to prevent routing issues
+   - Provides detailed logging for URL modifications
+
+4. **Image Loading Retries**: The image display components now use a multi-stage retry strategy:
+   - First attempt: Uses the standard URL with a cache-busting parameter
+   - Second attempt: Tries with the direct path if available
+   - Final fallback: Uses a placeholder image
+   - Limits retries to prevent infinite loops
+
+These improvements ensure that photos with FileSystemFileHandle objects and relative paths are properly displayed throughout the application.
 
 ### PDF Image Display Issues
 

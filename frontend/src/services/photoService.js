@@ -163,6 +163,11 @@ export const getPhotoUrl = (fileOrFilename) => {
     }
   }
   
+  // Check for displayName property (our custom property)
+  if (fileOrFilename.displayName) {
+    return createApiUrl(fileOrFilename.displayName);
+  }
+  
   // If we have a name property, use that
   if (fileOrFilename.name) {
     return createApiUrl(fileOrFilename.name);
@@ -171,6 +176,11 @@ export const getPhotoUrl = (fileOrFilename) => {
   // If we have a filename property, use that
   if (fileOrFilename.filename) {
     return createApiUrl(fileOrFilename.filename);
+  }
+  
+  // If we have an originalFile property with a name, use that
+  if (fileOrFilename.originalFile && fileOrFilename.originalFile.name) {
+    return createApiUrl(fileOrFilename.originalFile.name);
   }
   
   // Fallback to placeholder
@@ -197,6 +207,7 @@ export const uploadBatchPhotos = async (files, reportId = null, progressCallback
     const formData = new FormData();
     
     // Add each file to the form data
+    // Don't modify the file objects, just append them as-is
     files.forEach(file => {
       formData.append('photos', file);
     });
@@ -262,6 +273,7 @@ export const uploadSinglePhoto = async (file, reportId = null, progressCallback 
     photoLogger(`Uploading single photo${reportId ? ' for report: ' + reportId : ''}`, file.name);
     
     const formData = new FormData();
+    // Don't modify the file object, just append it as-is
     formData.append('photos', file); // Use 'photos' to match consolidated endpoint
     
     // Add reportId if provided
