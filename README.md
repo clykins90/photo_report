@@ -190,44 +190,49 @@ These fixes ensure that images stored in MongoDB GridFS are properly retrieved a
 If you encounter a 404 NOT_FOUND error in your Vercel deployment, check the following:
 
 1. **Verify vercel.json Configuration**:
-   - Ensure the `distDir` in the frontend build configuration points to `dist`
-   - Check that the route order is correct (filesystem handler first, then API routes, then the catch-all route)
-   - Make sure you're using the correct property names (`distDir` not `outputDirectory` in the build config)
+   - Ensure the `outputDirectory` points to `frontend/dist`
+   - Use the newer Vercel configuration format with `buildCommand` and `rewrites`
+   - Make sure the API route uses the `:path*` parameter for proper path matching
 
 2. **Check Frontend Build**:
    - Run `cd frontend && npm run build` locally to verify the build process works
    - Ensure the `dist` directory is created with all necessary files
 
-3. **Correct Routes Structure**:
-   - Use `handle: "filesystem"` as the first route to serve static assets directly
-   - API routes should come before the catch-all route
-   - The catch-all route should point to `index.html` in the frontend build directory
-   - Example of a working configuration:
+3. **Use Vercel Serverless Functions for API**:
+   - Create an `api/index.js` file at the root to handle API requests
+   - Make sure your Express app is properly exported from `backend/server.js`
+   - Set up the proper `rewrites` in vercel.json to direct API requests to your serverless function
+
+4. **Example of a Working Configuration**:
    ```json
    {
-     "routes": [
-       { "handle": "filesystem" },
-       { "src": "/api/(.*)", "dest": "/backend/server.js" },
-       { "src": "/(.*)", "dest": "/frontend/dist/index.html" }
-     ]
+     "version": 2,
+     "buildCommand": "npm run install-all && cd frontend && npm run build",
+     "outputDirectory": "frontend/dist",
+     "rewrites": [
+       { "source": "/api/:path*", "destination": "/api" }
+     ],
+     "functions": {
+       "api/index.js": {
+         "memory": 1024,
+         "maxDuration": 10
+       }
+     }
    }
    ```
 
-4. **Environment Variables**:
+5. **Resolve Nested Directory Issues**:
+   - If you have a nested directory structure (e.g., `frontend/frontend`), make sure your build path is correct
+   - Check the actual output location of your build files
+   - Use proper path references in your vercel.json configuration
+
+6. **Environment Variables**:
    - Confirm all required environment variables are set in the Vercel project settings
    - Check that MongoDB connection string and other critical variables are properly configured
 
-5. **Deployment Logs**:
+7. **Deployment Logs**:
    - Review the Vercel deployment logs for any build or runtime errors
    - Look for issues with the build process or missing dependencies
-
-#### Simplified Build Process
-The application now uses a simplified build process for Vercel deployment:
-
-1. The root `package.json` build script directly builds the frontend
-2. The `vercel.json` configuration points directly to the frontend's dist directory
-3. No intermediate build script or file copying is needed
-4. This approach reduces complexity and potential points of failure
 
 ### Data Model Changes
 - **User Profile with Company Information**: Company information is now embedded directly in the user profile
