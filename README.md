@@ -607,3 +607,9 @@ The application uses a consolidated approach for handling photos throughout the 
 5. **Display**: Photos are displayed in the report edit interface and PDF
 6. **Analysis**: AI can analyze photos for damage assessment
 7. **Deletion**: Photos are automatically deleted when a report is removed
+
+### Deployment
+- Vercel for hosting both frontend and backend
+- Custom Vercel configuration for monorepo structure
+- Static build process for frontend with optimized asset delivery
+- Serverless functions for backend API endpoints
