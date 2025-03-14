@@ -144,7 +144,7 @@ export const analyzePhotos = async (reportId) => {
 
     photoLogger(`Analyzing photos for report: ${reportId}`);
 
-    const response = await api.post('/photos/analyze', { reportId });
+    const response = await api.post(`/photos/analyze/${reportId}`);
     
     photoLogger(`Analysis complete: ${response.data.count} photos analyzed`);
     
