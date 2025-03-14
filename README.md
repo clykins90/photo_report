@@ -295,16 +295,18 @@ Authorization: Bearer [your-token]
     "dest": "backend/server.js"  // Note: No leading slash
   }
   ```
-  2. Check if your frontend API service is correctly handling API paths. Do NOT modify API paths in production mode when the baseURL is already '/api':
+  2. Check if your frontend API service is correctly handling API paths with double prefixes when the baseURL is already '/api':
   ```javascript
-  // Incorrect implementation - causes 404 errors:
+  // Correct implementation - prevents double /api prefix:
   if (isRelativeBaseUrl && url.startsWith('/api/')) {
-    return url.substring(4); // Don't remove the /api prefix in production
+    return url.substring(4); // Remove the leading /api prefix to prevent /api/api/
   }
-  
-  // Correct implementation - keeps original path:
-  if (isRelativeBaseUrl && url.startsWith('/api/')) {
-    return url; // Keep the /api prefix in production
+  ```
+  3. Alternatively, you can add a routing rule in vercel.json to handle double prefixes:
+  ```json
+  {
+    "src": "/api/api/(.*)",
+    "dest": "/api/$1"
   }
   ```
 - **Production API URL**: The frontend uses `/api` as the base URL in production. Make sure `frontend/.env.production` contains `VITE_API_URL=/api` to enable proper routing on Vercel.

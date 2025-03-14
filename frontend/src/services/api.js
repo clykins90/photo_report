@@ -22,9 +22,8 @@ const fixApiPath = (url) => {
   if (isRelativeBaseUrl && url.startsWith('/api/')) {
     // Log the transformation for debugging
     console.log(`API path with double prefix detected: ${url}`);
-    // In production with Vercel, we should NOT modify the URL as the routing handles it correctly
-    // Return the original URL without modification
-    return url;
+    // Remove the duplicated prefix to prevent /api/api/ URLs
+    return url.substring(4); // Remove the leading /api
   }
   return url;
 };
