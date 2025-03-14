@@ -6,18 +6,40 @@ const logger = require('./logger');
 
 let gridFSBucket;
 
+// Cache for empty queries to avoid repeated database calls
+let cachedAllFiles = null;
+let cacheTimestamp = null;
+const CACHE_TTL = 60000; // 1 minute cache TTL
+
 /**
  * Initialize the GridFS bucket
  * @returns {GridFSBucket} The GridFS bucket instance
  */
 const initGridFS = () => {
-  if (!gridFSBucket && mongoose.connection.readyState === 1) {
-    gridFSBucket = new GridFSBucket(mongoose.connection.db, {
-      bucketName: 'files'
-    });
-    logger.info('GridFS bucket initialized');
+  try {
+    if (!gridFSBucket && mongoose.connection.readyState === 1) {
+      logger.info('Initializing GridFS bucket...');
+      gridFSBucket = new GridFSBucket(mongoose.connection.db, {
+        bucketName: 'files'
+      });
+      logger.info('GridFS bucket initialized successfully');
+    } else if (!gridFSBucket) {
+      logger.warn(`Cannot initialize GridFS: MongoDB connection not ready (state: ${mongoose.connection.readyState})`);
+    }
+    return gridFSBucket;
+  } catch (error) {
+    logger.error(`Error initializing GridFS bucket: ${error.message}`, error);
+    return null;
   }
-  return gridFSBucket;
+};
+
+/**
+ * Invalidate the file cache
+ */
+const invalidateCache = () => {
+  cachedAllFiles = null;
+  cacheTimestamp = null;
+  logger.debug('GridFS file cache invalidated');
 };
 
 /**
@@ -32,13 +54,26 @@ const initGridFS = () => {
 const uploadFile = (filePath, options = {}) => {
   return new Promise((resolve, reject) => {
     try {
+      logger.info(`Starting GridFS upload for file: ${filePath}`);
+      
+      // Check if file exists
+      if (!fs.existsSync(filePath)) {
+        const error = new Error(`File not found at path: ${filePath}`);
+        logger.error(error.message);
+        return reject(error);
+      }
+      
       const bucket = initGridFS();
       if (!bucket) {
-        return reject(new Error('GridFS not initialized, database connection may be missing'));
+        const error = new Error('GridFS not initialized, database connection may be missing');
+        logger.error(error.message);
+        return reject(error);
       }
 
       const filename = options.filename || path.basename(filePath);
       const contentType = options.contentType || 'application/octet-stream';
+      
+      logger.info(`Creating GridFS upload stream for file: ${filename} (${contentType})`);
       
       // Create upload stream
       const uploadStream = bucket.openUploadStream(filename, {
@@ -51,18 +86,20 @@ const uploadFile = (filePath, options = {}) => {
       
       // Handle errors
       readStream.on('error', (error) => {
-        logger.error(`Error reading file for GridFS upload: ${error.message}`);
+        logger.error(`Error reading file for GridFS upload: ${error.message}`, error);
         reject(error);
       });
       
       uploadStream.on('error', (error) => {
-        logger.error(`Error uploading to GridFS: ${error.message}`);
+        logger.error(`Error uploading to GridFS: ${error.message}`, error);
         reject(error);
       });
       
       // On finish, resolve with file info
       uploadStream.on('finish', (file) => {
         logger.info(`File uploaded to GridFS: ${filename}, id: ${uploadStream.id}`);
+        // Invalidate cache when a new file is uploaded
+        invalidateCache();
         resolve({
           id: uploadStream.id,
           filename,
@@ -74,7 +111,7 @@ const uploadFile = (filePath, options = {}) => {
       // Pipe read stream to upload stream
       readStream.pipe(uploadStream);
     } catch (error) {
-      logger.error(`Error in GridFS upload: ${error.message}`);
+      logger.error(`Error in GridFS upload: ${error.message}`, error);
       reject(error);
     }
   });
@@ -92,13 +129,22 @@ const downloadFile = (fileId, options = {}) => {
     try {
       const bucket = initGridFS();
       if (!bucket) {
+        logger.error('GridFS not initialized, database connection may be missing');
         return reject(new Error('GridFS not initialized, database connection may be missing'));
       }
 
       // Convert string ID to ObjectId if needed
-      const id = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
+      let id;
+      try {
+        id = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
+        logger.info(`Converted fileId to ObjectId: ${id}`);
+      } catch (idError) {
+        logger.error(`Invalid ObjectId format: ${fileId}`, idError);
+        return reject(new Error(`Invalid ObjectId format: ${fileId}`));
+      }
       
       // Create download stream
+      logger.info(`Opening download stream for GridFS file with id: ${id}`);
       const downloadStream = bucket.openDownloadStream(id);
       
       downloadStream.on('error', (error) => {
@@ -123,7 +169,7 @@ const downloadFile = (fileId, options = {}) => {
         downloadStream.pipe(writeStream);
       } else {
         // Otherwise, return the stream
-        logger.info(`Download stream created for GridFS file with id: ${fileId}`);
+        logger.info(`Download stream created for GridFS file with id: ${id}`);
         resolve(downloadStream);
       }
     } catch (error) {
@@ -155,6 +201,8 @@ const deleteFile = (fileId) => {
           reject(error);
         } else {
           logger.info(`File deleted from GridFS: ${fileId}`);
+          // Invalidate cache when a file is deleted
+          invalidateCache();
           resolve(true);
         }
       });
@@ -168,18 +216,37 @@ const deleteFile = (fileId) => {
 /**
  * Find files in GridFS by query
  * @param {Object} query - MongoDB query for file metadata
+ * @param {boolean} useCache - Whether to use cache for empty queries (default: true)
  * @returns {Promise<Array>} Array of matching files
  */
-const findFiles = async (query = {}) => {
+const findFiles = async (query = {}, useCache = true) => {
   try {
     const bucket = initGridFS();
     if (!bucket) {
       throw new Error('GridFS not initialized, database connection may be missing');
     }
     
+    // Check if this is an empty query and we can use the cache
+    const isEmptyQuery = Object.keys(query).length === 0;
+    if (isEmptyQuery && useCache && cachedAllFiles && cacheTimestamp && (Date.now() - cacheTimestamp < CACHE_TTL)) {
+      // Use cached results for empty queries
+      return cachedAllFiles;
+    }
+    
     // Using MongoDB native find operation
     const files = await mongoose.connection.db.collection('files.files').find(query).toArray();
-    logger.info(`Found ${files.length} files in GridFS matching query`);
+    
+    // Only log for non-empty queries or first empty query
+    if (!isEmptyQuery || !cachedAllFiles) {
+      logger.info(`Found ${files.length} files in GridFS matching query`);
+    }
+    
+    // Cache results for empty queries
+    if (isEmptyQuery) {
+      cachedAllFiles = files;
+      cacheTimestamp = Date.now();
+    }
+    
     return files;
   } catch (error) {
     logger.error(`Error finding files in GridFS: ${error.message}`);
@@ -201,6 +268,14 @@ const getFileInfo = async (fileId) => {
     
     // Convert string ID to ObjectId if needed
     const id = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
+    
+    // Check if we can use the cache to find this file
+    if (cachedAllFiles && cacheTimestamp && (Date.now() - cacheTimestamp < CACHE_TTL)) {
+      const cachedFile = cachedAllFiles.find(file => file._id.toString() === id.toString());
+      if (cachedFile) {
+        return cachedFile;
+      }
+    }
     
     // Find file by ID
     const file = await mongoose.connection.db.collection('files.files').findOne({ _id: id });
@@ -228,18 +303,32 @@ const streamToResponse = (fileId, res) => {
     try {
       const bucket = initGridFS();
       if (!bucket) {
+        logger.error('GridFS not initialized, database connection may be missing');
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Database connection error' });
+        }
         return reject(new Error('GridFS not initialized, database connection may be missing'));
       }
       
       // Convert string ID to ObjectId if needed
-      const id = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
+      let id;
+      try {
+        id = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
+      } catch (idError) {
+        logger.error(`Invalid ObjectId format: ${fileId}`);
+        if (!res.headersSent) {
+          res.status(400).json({ error: 'Invalid file ID format' });
+        }
+        return reject(new Error(`Invalid ObjectId format: ${fileId}`));
+      }
       
       // Get file info first to set appropriate headers
       getFileInfo(id)
         .then(fileInfo => {
           // Set response headers
-          res.set('Content-Type', fileInfo.contentType);
+          res.set('Content-Type', fileInfo.contentType || 'application/octet-stream');
           res.set('Content-Disposition', `inline; filename="${fileInfo.filename}"`);
+          res.set('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
           
           // Create download stream
           const downloadStream = bucket.openDownloadStream(id);
@@ -247,7 +336,7 @@ const streamToResponse = (fileId, res) => {
           downloadStream.on('error', (error) => {
             logger.error(`Error streaming file from GridFS: ${error.message}`);
             if (!res.headersSent) {
-              res.status(404).json({ error: 'File not found' });
+              res.status(404).json({ error: 'File not found or error streaming file' });
             }
             reject(error);
           });
@@ -284,5 +373,6 @@ module.exports = {
   deleteFile,
   findFiles,
   getFileInfo,
-  streamToResponse
+  streamToResponse,
+  invalidateCache
 }; 

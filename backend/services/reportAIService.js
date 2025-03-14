@@ -19,6 +19,9 @@ INSTRUCTIONS:
 6. Include key observations about materials and conditions
 7. Prioritize recommendations based on severity and urgency
 
+IMPORTANT: For severity values, you MUST use ONLY one of these three exact values: "minor", "moderate", or "severe". 
+Do NOT use any other values or combinations like "moderate to severe" or "minor to moderate". If a damage falls between two levels, choose the higher severity level.
+
 FORMAT YOUR RESPONSE AS JSON:
 {
   "summary": "A 2-3 paragraph comprehensive overview of the roof condition and damage findings",

@@ -26,13 +26,14 @@ const PhotoUploader = ({
     }
   }, [initialPhotos]);
 
-  const onDrop = useCallback((acceptedFiles) => {
+  const onDrop = useCallback(async (acceptedFiles) => {
     if (!showUploadControls) return; // Don't allow new files if in analyze-only mode
     
     // Add preview to each file
     const newFiles = acceptedFiles.map(file => 
       Object.assign(file, {
-        id: Date.now() + Math.random().toString(36).substring(2, 9), // Generate a unique ID
+        // Use a prefix to ensure this is never confused with a MongoDB ObjectId
+        id: `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
         preview: URL.createObjectURL(file),
         status: 'pending', // pending, uploading, analyzing, complete, error
         analysis: null,
@@ -40,8 +41,83 @@ const PhotoUploader = ({
       })
     );
     
+    // Add new files to state
     setFiles(prev => [...prev, ...newFiles]);
-  }, [showUploadControls]);
+    
+    // Automatically upload the files immediately
+    if (newFiles.length > 0) {
+      setUploading(true);
+      setError(null);
+      setUploadProgress(0);
+      
+      try {
+        // Get files that need uploading
+        const filesToUpload = newFiles.map(file => file.originalFile);
+        
+        console.log(`Automatically uploading ${filesToUpload.length} files...`);
+        console.log(`Report ID for photo association: ${reportId}`);
+        
+        // Upload files in batch
+        const response = await uploadBatchPhotos(
+          filesToUpload, 
+          reportId, // Pass the reportId if available
+          (progress) => setUploadProgress(progress)
+        );
+        
+        if (!response.success) {
+          throw new Error(response.error || 'Upload failed');
+        }
+        
+        // Update the status of uploaded files
+        const updatedFiles = [...files, ...newFiles].map(file => {
+          // Check if this file was part of the uploaded batch
+          const matchingUploadedFile = response.files?.find(uploaded => 
+            uploaded.originalname === file.name || uploaded.filename === file.name
+          );
+          
+          if (matchingUploadedFile) {
+            return {
+              ...file,
+              status: 'complete',
+              uploadedData: matchingUploadedFile
+            };
+          }
+          return file;
+        });
+        
+        setFiles(updatedFiles);
+        
+        // Notify parent component
+        if (onUploadComplete) {
+          onUploadComplete(updatedFiles);
+        }
+      } catch (err) {
+        console.error('Upload failed:', err);
+        setError(err.message || 'Failed to upload photos');
+        
+        // Update status of failed files
+        const updatedFiles = [...files, ...newFiles].map(file => {
+          if (newFiles.some(newFile => newFile.id === file.id)) {
+            return {
+              ...file,
+              status: 'error',
+              error: err.message || 'Upload failed'
+            };
+          }
+          return file;
+        });
+        
+        setFiles(updatedFiles);
+        
+        // Notify parent component of the error state
+        if (onUploadComplete) {
+          onUploadComplete(updatedFiles);
+        }
+      } finally {
+        setUploading(false);
+      }
+    }
+  }, [files, onUploadComplete, reportId, showUploadControls]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -67,7 +143,7 @@ const PhotoUploader = ({
     try {
       // Get files that need uploading (have not been uploaded yet)
       const filesToUpload = files.filter(file => file.status === 'pending')
-                               .map(file => file.originalFile);
+                             .map(file => file.originalFile);
       
       if (filesToUpload.length === 0) {
         setUploading(false);
@@ -76,6 +152,7 @@ const PhotoUploader = ({
       }
       
       console.log(`Uploading ${filesToUpload.length} files...`);
+      console.log(`Report ID for photo association: ${reportId}`);
       
       // Upload files in batch
       const response = await uploadBatchPhotos(
@@ -88,58 +165,47 @@ const PhotoUploader = ({
         throw new Error(response.error || 'Upload failed');
       }
       
-      // Create a map to identify updated files by name
-      const fileNameMap = {};
-      files.forEach(file => {
-        fileNameMap[file.name] = file.id;
-      });
-      
-      // Merge the server response with existing files
+      // Update the status of uploaded files
       const updatedFiles = files.map(file => {
-        // If this file was just uploaded, find the corresponding server data
-        if (file.status === 'pending') {
-          const serverData = response.data.find(data => data.originalName === file.name);
-          if (serverData) {
-            // Success - update file with server data
-            // But DON'T keep the blob URL preview after upload - it will be invalid
-            return {
-              ...file,
-              ...serverData,
-              status: 'complete',
-              uploadedData: serverData,
-              // Explicitly set preview to null - we'll use server URLs instead
-              preview: null
-            };
-          }
+        // Check if this file was part of the uploaded batch
+        const matchingUploadedFile = response.files?.find(uploaded => 
+          uploaded.originalname === file.name || uploaded.filename === file.name
+        );
+        
+        if (matchingUploadedFile) {
+          // Update the file with uploaded data
+          console.log(`File ${file.name} was uploaded successfully:`, matchingUploadedFile);
+          
+          return {
+            ...file,
+            status: 'uploaded',
+            uploadedData: {
+              _id: matchingUploadedFile._id,
+              filename: matchingUploadedFile.filename || file.name,
+              thumbnailFilename: matchingUploadedFile.thumbnailFilename,
+              optimizedFilename: matchingUploadedFile.optimizedFilename,
+              thumbnailUrl: matchingUploadedFile.thumbnailUrl,
+              optimizedUrl: matchingUploadedFile.optimizedUrl,
+              originalUrl: matchingUploadedFile.originalUrl,
+              gridfsId: matchingUploadedFile.gridfsId || matchingUploadedFile._id
+            }
+          };
         }
-        // Keep unchanged files as they were
+        
         return file;
       });
       
-      // Update files state
       setFiles(updatedFiles);
-      setUploadProgress(100);
+      setUploading(false);
       
-      // Clean up blob URLs for uploaded files
-      cleanupUploadedFiles(updatedFiles);
-      
-      // Notify parent component
+      // Call the onUploadComplete callback with updated files
       if (onUploadComplete) {
         onUploadComplete(updatedFiles);
       }
-    } catch (err) {
-      console.error('Overall upload error:', err);
-      setError(err.message || 'Upload failed. Please try again.');
       
-      // Reset file status on error
-      setFiles(prev => 
-        prev.map(file => ({
-          ...file,
-          status: 'error',
-          error: err.message || 'Upload failed',
-        }))
-      );
-    } finally {
+    } catch (error) {
+      console.error('Upload failed:', error);
+      setError(`Upload failed: ${error.message}`);
       setUploading(false);
     }
   };
@@ -180,33 +246,15 @@ const PhotoUploader = ({
       for (let i = 0; i < uploadedFiles.length; i++) {
         const file = uploadedFiles[i];
         
-        // Ensure we have a valid filename before calling the API
-        let filename;
-        if (file.uploadedData && file.uploadedData.filename) {
-          filename = file.uploadedData.filename;
-        } else if (file.filename) {
-          filename = file.filename;
-        } else if (file.name) {
-          filename = file.name;
-        } else {
-          console.error('File is missing filename information', file);
-          // Skip this file or mark as error
-          const fileIndex = analyzedFiles.findIndex(f => f.id === file.id);
-          if (fileIndex !== -1) {
-            analyzedFiles[fileIndex] = {
-              ...analyzedFiles[fileIndex],
-              status: 'error',
-              error: 'File is missing filename information',
-            };
-          }
-          continue; // Skip to next file
-        }
-        
         try {
           console.log(`Analyzing file ${i + 1}/${uploadedFiles.length}`);
           
-          // Pass the entire file object to analyzePhoto instead of just the filename
+          // Analyze the photo
           const result = await analyzePhoto(file);
+          
+          if (!result.success) {
+            throw new Error(result.error || 'Analysis failed');
+          }
           
           // Update the file in the array
           const fileIndex = analyzedFiles.findIndex(f => f.id === file.id);
@@ -224,7 +272,7 @@ const PhotoUploader = ({
           setFiles([...analyzedFiles]);
           
         } catch (err) {
-          console.error(`Error analyzing file ${filename}:`, err);
+          console.error(`Error analyzing file:`, err);
           
           // Mark this file as error but continue with others
           const fileIndex = analyzedFiles.findIndex(f => f.id === file.id);
@@ -253,16 +301,20 @@ const PhotoUploader = ({
     }
   };
 
-  const removeFile = (index) => {
+  const handleRemoveFile = (id) => {
     if (!showUploadControls) return; // Don't allow file removal in analyze-only mode
     
     const newFiles = [...files];
     
-    // Revoke the preview URL to avoid memory leaks
-    URL.revokeObjectURL(newFiles[index].preview);
-    
-    newFiles.splice(index, 1);
-    setFiles(newFiles);
+    // Find the file to remove
+    const fileIndex = newFiles.findIndex(file => file.id === id);
+    if (fileIndex !== -1) {
+      // Revoke the preview URL to avoid memory leaks
+      URL.revokeObjectURL(newFiles[fileIndex].preview);
+      
+      newFiles.splice(fileIndex, 1);
+      setFiles(newFiles);
+    }
   };
 
   const updatePhotoAnalysis = (photoId, updatedAnalysis) => {
@@ -284,7 +336,7 @@ const PhotoUploader = ({
   // Function to check if files are ready to be analyzed
   const getAnalyzableFiles = () => {
     return files.filter(file => 
-      (file.status === 'complete' && file.uploadedData) || 
+      (file.status === 'uploaded' && file.uploadedData) || 
       // Handle pre-uploaded files from initialPhotos
       (file.uploadedData && !file.analysis)
     );
@@ -302,21 +354,15 @@ const PhotoUploader = ({
     };
   }, [files]);
 
-  // Clean up blob URLs for files after they're uploaded
-  const cleanupUploadedFiles = useCallback((updatedFiles) => {
-    // Find files that were previously pending but are now uploaded
-    files.forEach(oldFile => {
-      const updatedFile = updatedFiles.find(f => f.id === oldFile.id);
-      if (oldFile.status === 'pending' && updatedFile?.status === 'complete' && oldFile.preview) {
-        // Revoke the blob URL as we don't need it anymore
-        URL.revokeObjectURL(oldFile.preview);
-        console.log(`Revoked blob URL for uploaded file: ${oldFile.name}`);
-      }
-    });
-  }, [files]);
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {error && (
+        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
+          <p>{error}</p>
+        </div>
+      )}
+      
+      {/* Dropzone for file uploads */}
       {showUploadControls && (
         <div 
           {...getRootProps()} 
@@ -326,168 +372,117 @@ const PhotoUploader = ({
         >
           <input {...getInputProps()} />
           <div className="space-y-2">
-            <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
-              <path 
-                d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4h-12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" 
-                strokeWidth={2} 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-              />
+            <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+              <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <div className="text-gray-600">
-              <p className="text-base">
-                Drag and drop files here, or <span className="text-blue-500">browse</span>
-              </p>
-              <p className="text-sm">
-                Supports JPEG, PNG, and HEIC (max 10MB per file)
-              </p>
-            </div>
+            <p className="text-gray-600">
+              {isDragActive ? 'Drop the files here...' : 'Drag & drop photos here, or click to select files'}
+            </p>
+            <p className="text-sm text-gray-500">
+              Supported formats: JPG, PNG, HEIC (Max 10MB per file)
+            </p>
           </div>
         </div>
       )}
       
-      {/* Upload button and progress */}
-      {showUploadControls && files.length > 0 && (
-        <div className="flex flex-col space-y-2">
-          <button
-            onClick={handleUpload}
-            disabled={uploading || files.length === 0}
-            className={`w-full py-2 rounded-md text-white font-medium ${
-              uploading || files.length === 0 
-                ? 'bg-gray-400 cursor-not-allowed' 
-                : 'bg-blue-600 hover:bg-blue-700'
-            }`}
-          >
-            {uploading ? `Uploading... ${uploadProgress}%` : 'Upload Photos'}
-          </button>
-          
-          {uploading && (
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div 
-                className="bg-blue-600 h-2 rounded-full" 
-                style={{ width: `${uploadProgress}%` }}
-              ></div>
-            </div>
-          )}
-        </div>
-      )}
-      
-      {/* Error message */}
-      {error && (
-        <div className="bg-red-50 border-l-4 border-red-500 p-4">
-          <div className="flex">
-            <svg className="h-5 w-5 text-red-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
-            <p className="text-red-700">{error}</p>
+      {/* Upload progress */}
+      {uploading && (
+        <div className="mt-4">
+          <p className="text-sm font-medium text-gray-700 mb-1">Uploading photos... {uploadProgress}%</p>
+          <div className="w-full bg-gray-200 rounded-full h-2.5">
+            <div 
+              className="bg-blue-600 h-2.5 rounded-full" 
+              style={{ width: `${uploadProgress}%` }}
+            ></div>
           </div>
         </div>
       )}
       
-      {/* Analyze button and progress - only show when not in upload step */}
-      {!showUploadControls && files.length > 0 && (
-        <div className="flex flex-col space-y-2">
-          <button
-            onClick={analyzeAllPhotos}
-            disabled={analyzing || files.length === 0}
-            className={`w-full py-2 rounded-md text-white font-medium ${
-              analyzing || files.length === 0 
-                ? 'bg-gray-400 cursor-not-allowed' 
-                : 'bg-green-600 hover:bg-green-700'
-            }`}
-          >
-            {analyzing 
-              ? `Analyzing... ${analysisProgress}%` 
-              : 'Analyze All Photos with AI'}
-          </button>
-          
-          {analyzing && (
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div 
-                className="bg-green-600 h-2 rounded-full" 
-                style={{ width: `${analysisProgress}%` }}
-              ></div>
-            </div>
-          )}
-        </div>
-      )}
-      
-      {/* Photo Preview Grid */}
+      {/* File list */}
       {files.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-4">
-          {files.map((file, index) => {
-            // Create different URL options to try
-            const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
-            const filename = file.filename || (file.path ? file.path.split('/').pop() : null);
-            
-            // Initialize retry counter for this image if it doesn't exist
-            if (!imageRetryCounters.current[file.id]) {
-              imageRetryCounters.current[file.id] = 0;
-            }
-            
-            // Determine if the file has been uploaded to the server
-            const isUploaded = file.status === 'complete' && file.uploadedData;
-            
-            // Get the image URL - with debug logging to help identify issues
-            let imageUrl = getPhotoUrl(file);
-            console.log(`Photo ${index} (${file.name || 'unnamed'}):`, {
-              status: file.status,
-              isUploaded,
-              url: imageUrl,
-              hasPreview: !!file.preview,
-              hasUploadedData: !!file.uploadedData,
-              dataUrls: file.uploadedData ? {
-                thumbnailUrl: file.uploadedData.thumbnailUrl,
-                optimizedUrl: file.uploadedData.optimizedUrl
-              } : 'none'
-            });
-            
-            return (
-              <div 
-                key={index}
-                className="relative border rounded p-2 hover:bg-gray-50 transition-colors"
-              >
-                <button
-                  type="button"
-                  onClick={() => removeFile(index)}
-                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600 transition-colors"
-                  aria-label="Remove file"
-                >
-                  <span className="sr-only">Remove</span>
-                  <span aria-hidden="true">&times;</span>
-                </button>
-                
-                <div className="h-32 overflow-hidden rounded mb-2">
+        <div className="mt-4">
+          <h4 className="text-lg font-medium mb-2">Uploaded Photos ({files.length})</h4>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            {files.map((file) => (
+              <div key={file.id} className="relative">
+                <div className="relative pb-[100%] overflow-hidden rounded-lg border border-gray-200">
                   <img
-                    src={imageUrl}
-                    alt={file.name || `Uploaded image ${index + 1}`}
-                    className="w-full h-full object-cover"
+                    src={file.preview || getPhotoUrl(file)}
+                    alt={file.name || 'Uploaded photo'}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    onLoad={() => {
+                      // Reset retry counter on successful load
+                      if (imageRetryCounters.current[file.id]) {
+                        delete imageRetryCounters.current[file.id];
+                      }
+                    }}
                     onError={(e) => {
-                      // Simple error handler - just use placeholder if image fails to load
-                      console.log(`Image failed to load for photo ${index}, using placeholder`);
-                      e.target.src = '/placeholder-image.png';
+                      // Initialize retry counter if it doesn't exist
+                      if (!imageRetryCounters.current[file.id]) {
+                        imageRetryCounters.current[file.id] = 0;
+                      }
+                      
+                      // Only retry a limited number of times
+                      if (imageRetryCounters.current[file.id] < 3) {
+                        // Increment retry counter
+                        imageRetryCounters.current[file.id]++;
+                        
+                        // Add a timestamp to bust cache
+                        e.target.src = `${getPhotoUrl(file)}?retry=${Date.now()}`;
+                      }
                     }}
                   />
+                  
+                  {/* Status indicator */}
+                  <div className="absolute top-2 right-2">
+                    {file.status === 'pending' && (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                        Pending
+                      </span>
+                    )}
+                    {file.status === 'uploading' && (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        Uploading
+                      </span>
+                    )}
+                    {file.status === 'analyzing' && (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                        Analyzing
+                      </span>
+                    )}
+                    {file.status === 'complete' && (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        Complete
+                      </span>
+                    )}
+                    {file.status === 'error' && (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                        Error
+                      </span>
+                    )}
+                  </div>
                 </div>
                 
-                <div className="text-xs truncate" title={file.name || `Photo ${index + 1}`}>
-                  {file.name || `Photo ${index + 1}`}
-                </div>
+                {/* File name */}
+                <p className="mt-1 text-sm text-gray-500 truncate">
+                  {file.name || 'Unnamed photo'}
+                </p>
                 
-                {file.error && (
-                  <div className="text-red-500 text-xs mt-1">{file.error}</div>
-                )}
-                
-                {file.status === 'analyzing' && (
-                  <div className="text-xs text-blue-500 mt-1">Analyzing...</div>
-                )}
-                
-                {file.analysis && (
-                  <div className="text-xs text-green-500 mt-1">Analyzed</div>
+                {/* Remove button */}
+                {showUploadControls && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveFile(file.id)}
+                    className="absolute top-2 left-2 bg-white rounded-full p-1 shadow-sm hover:bg-red-100"
+                  >
+                    <svg className="h-4 w-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
                 )}
               </div>
-            );
-          })}
+            ))}
+          </div>
         </div>
       )}
     </div>

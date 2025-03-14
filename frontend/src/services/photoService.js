@@ -73,183 +73,231 @@ export const getPhotoUrl = (fileOrFilename) => {
 };
 
 /**
- * Upload a single photo
- * @param {File} file - The photo file to upload
- * @param {String} reportId - Optional report ID to associate with the photo
- * @returns {Promise} - The response from the API
+ * Upload multiple photos to the server
+ * @param {File[]} files - Array of file objects to upload
+ * @param {string|null} reportId - Optional report ID to associate photos with
+ * @param {Function} progressCallback - Optional callback for upload progress
+ * @returns {Promise} - Promise resolving to the server response
  */
-export const uploadSinglePhoto = async (file, reportId = null) => {
-  const formData = new FormData();
-  formData.append('photo', file);
-  
-  // Add reportId if provided
-  if (reportId) {
-    formData.append('reportId', reportId);
-    console.log('Associating photo with report:', reportId);
+export const uploadBatchPhotos = async (files, reportId = null, progressCallback = null) => {
+  try {
+    if (!files || files.length === 0) {
+      throw new Error('No files provided for upload');
+    }
+
+    const formData = new FormData();
+    
+    // Add each file to the form data
+    files.forEach(file => {
+      formData.append('photos', file);
+    });
+    
+    // Add reportId if provided
+    if (reportId) {
+      formData.append('reportId', reportId);
+    }
+    
+    // Create config with progress tracking if callback provided
+    const config = {};
+    if (progressCallback) {
+      config.onUploadProgress = progressEvent => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        progressCallback(percentCompleted);
+      };
+    }
+    
+    // Send the upload request
+    const response = await api.post('/api/photos/upload', formData, config);
+    
+    return {
+      success: true,
+      files: response.data.files || []
+    };
+  } catch (error) {
+    console.error('Photo batch upload failed:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to upload photos'
+    };
   }
-  
-  console.log('Uploading single photo with field name "photo":', file.name);
-
-  // Let Axios handle the Content-Type automatically
-  const response = await api.post('/api/photos/single', formData);
-
-  return response.data;
 };
 
 /**
- * Upload multiple photos
- * @param {FormData|Array<File>} filesOrFormData - FormData object or array of photo files to upload
- * @returns {Promise} - The response from the API
+ * Upload a single photo to the server
+ * @param {File} file - The file to upload
+ * @param {string|null} reportId - Optional report ID to associate the photo with
+ * @param {Function} progressCallback - Optional callback for upload progress
+ * @returns {Promise} - Promise resolving to the server response
  */
-export const uploadBatchPhotos = async (files, reportId = null, onProgress = null) => {
-  const formData = new FormData();
-  
-  // Add each file to the form data with the field name 'photos'
-  files.forEach(file => {
-    formData.append('photos', file);
-  });
-  
-  // Add reportId if provided
-  if (reportId) {
-    formData.append('reportId', reportId);
-    console.log('Associating batch photos with report:', reportId);
-  }
-  
-  console.log(`Uploading ${files.length} photos with field name "photos"`);
-  
-  // Create config with upload progress tracking if callback provided
-  const config = {};
-  
-  if (onProgress) {
-    config.onUploadProgress = progressEvent => {
-      const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-      onProgress(percentCompleted);
+export const uploadSinglePhoto = async (file, reportId = null, progressCallback = null) => {
+  try {
+    if (!file) {
+      throw new Error('No file provided for upload');
+    }
+    
+    const formData = new FormData();
+    formData.append('photos', file); // Use 'photos' to match consolidated endpoint
+    
+    // Add reportId if provided
+    if (reportId) {
+      formData.append('reportId', reportId);
+    }
+    
+    // Create config with progress tracking if callback provided
+    const config = {};
+    if (progressCallback) {
+      config.onUploadProgress = progressEvent => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        progressCallback(percentCompleted);
+      };
+    }
+    
+    // Send the upload request using the consolidated endpoint
+    const response = await api.post('/api/photos/upload', formData, config);
+    
+    // Return the first file from the response since we only uploaded one
+    return {
+      success: true,
+      file: response.data.files && response.data.files.length > 0 
+        ? response.data.files[0] 
+        : null
+    };
+  } catch (error) {
+    console.error('Photo upload failed:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to upload photo'
     };
   }
-
-  // Let Axios handle the Content-Type automatically
-  const response = await api.post('/api/photos/batch', formData, config);
-
-  return response.data;
 };
 
 /**
  * Analyze a photo using AI
- * @param {object} photo - The photo object to analyze
- * @returns {Promise} - The response from the API
+ * @param {Object} photo - Photo object with ID or filename
+ * @returns {Promise} - Promise resolving to the analysis results
  */
 export const analyzePhoto = async (photo) => {
-  let fileId;
-  
-  // Extract the file ID from the photo object
-  if (photo.uploadedData && photo.uploadedData.gridfs) {
-    // Prefer the optimized version for analysis if available
-    fileId = photo.uploadedData.gridfs.optimized || photo.uploadedData.gridfs.original;
-  } 
-  // Try to extract ID from URL if available
-  else if (photo.uploadedData && photo.uploadedData.optimizedUrl) {
-    const urlParts = photo.uploadedData.optimizedUrl.split('/');
-    fileId = urlParts[urlParts.length - 1];
+  try {
+    if (!photo) {
+      throw new Error('No photo provided for analysis');
+    }
+    
+    // Get the photo ID - try several possible properties
+    const photoId = photo._id || photo.id || photo.gridfsId || 
+                   (photo.uploadedData ? photo.uploadedData.gridfsId : null);
+                   
+    if (!photoId) {
+      throw new Error('Photo ID not found. Make sure the photo has been uploaded first.');
+    }
+    
+    // Send the analysis request
+    const response = await api.post(`/api/photos/analyze/${photoId}`);
+    
+    return {
+      success: true,
+      data: response.data.data
+    };
+  } catch (error) {
+    console.error('Photo analysis failed:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to analyze photo'
+    };
   }
-  else if (photo.uploadedData && photo.uploadedData.thumbnailUrl) {
-    const urlParts = photo.uploadedData.thumbnailUrl.split('/');
-    fileId = urlParts[urlParts.length - 1];
-  }
-  // If photo has direct _id
-  else if (photo._id) {
-    fileId = photo._id;
-  }
-  
-  if (!fileId) {
-    console.error('Unable to determine file ID for analysis:', photo);
-    throw new Error('Unable to determine file ID for analysis. The photo may not have been properly uploaded.');
-  }
-  
-  console.log('Analyzing photo with ID:', fileId);
-  const response = await api.post(`/api/photos/analyze-by-id/${fileId}`);
-  return response.data;
 };
 
 /**
- * Analyze multiple photos in a batch (up to 20 at once)
- * @param {Array<object>} photos - Array of photo objects to analyze
- * @returns {Promise} - The response from the API with all analysis results
+ * Analyze multiple photos using AI
+ * @param {Array} photos - Array of photo objects with IDs
+ * @returns {Promise} - Promise resolving to the analysis results
  */
 export const analyzeBatchPhotos = async (photos) => {
-  if (!photos || photos.length === 0) {
-    throw new Error('No photos provided for batch analysis');
+  try {
+    if (!photos || photos.length === 0) {
+      throw new Error('No photos provided for analysis');
+    }
+    
+    // Extract photo IDs using a simplified, consistent approach
+    const fileIds = photos.map(photo => {
+      // Use a consistent priority order for ID extraction
+      let id = null;
+      
+      // Priority 1: GridFS original ID (most reliable)
+      if (photo.uploadedData?.gridfs?.original) {
+        id = photo.uploadedData.gridfs.original;
+      } 
+      // Priority 2: GridFS optimized ID
+      else if (photo.uploadedData?.gridfs?.optimized) {
+        id = photo.uploadedData.gridfs.optimized;
+      }
+      // Priority 3: GridFS ID from uploadedData
+      else if (photo.uploadedData?.gridfsId) {
+        id = photo.uploadedData.gridfsId;
+      }
+      // Priority 4: Direct _id field
+      else if (photo._id) {
+        id = photo._id;
+      }
+      // Priority 5: id field (if it looks like a MongoDB ObjectId)
+      else if (photo.id && typeof photo.id === 'string' && /^[0-9a-fA-F]{24}$/.test(photo.id)) {
+        id = photo.id;
+      }
+      
+      return id;
+    }).filter(Boolean); // Remove any null/undefined IDs
+    
+    if (fileIds.length === 0) {
+      throw new Error('No valid photo IDs found for analysis');
+    }
+    
+    // Send the batch analysis request
+    const response = await api.post('/api/photos/analyze-batch', { fileIds });
+    
+    return {
+      success: true,
+      data: response.data.data
+    };
+  } catch (error) {
+    console.error('Batch photo analysis failed:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to analyze photos'
+    };
   }
-
-  // Extract file IDs from the photos
-  const fileIds = photos.map(photo => {
-    let fileId;
-    
-    if (photo.uploadedData && photo.uploadedData.gridfs) {
-      // Prefer the optimized version for analysis if available
-      fileId = photo.uploadedData.gridfs.optimized || photo.uploadedData.gridfs.original;
-    } 
-    else if (photo.uploadedData && photo.uploadedData.optimizedUrl) {
-      const urlParts = photo.uploadedData.optimizedUrl.split('/');
-      fileId = urlParts[urlParts.length - 1];
-    }
-    else if (photo.uploadedData && photo.uploadedData.thumbnailUrl) {
-      const urlParts = photo.uploadedData.thumbnailUrl.split('/');
-      fileId = urlParts[urlParts.length - 1];
-    }
-    else if (photo._id) {
-      fileId = photo._id;
-    }
-    
-    if (!fileId) {
-      console.error('Unable to determine file ID for batch analysis:', photo);
-      return null;
-    }
-    
-    return fileId;
-  }).filter(id => id !== null);
-
-  if (fileIds.length === 0) {
-    throw new Error('No valid photo IDs found for batch analysis');
-  }
-
-  console.log(`Analyzing batch of ${fileIds.length} photos`);
-  const response = await api.post('/api/photos/analyze-batch', { fileIds });
-  return response.data;
 };
 
 /**
- * Delete a photo
- * @param {object} photo - The photo object to delete
- * @returns {Promise} - The response from the API
+ * Delete a photo from the server
+ * @param {string} photoId - ID of the photo to delete
+ * @returns {Promise} - Promise resolving to the server response
  */
-export const deletePhoto = async (photo) => {
-  let fileId;
-  
-  // Extract the file ID from the photo object
-  if (photo.uploadedData && photo.uploadedData.gridfs) {
-    // Use the original file's ID for deletion
-    fileId = photo.uploadedData.gridfs.original;
-  } 
-  // Try to extract ID from URL if available
-  else if (photo.uploadedData && photo.uploadedData.optimizedUrl) {
-    const urlParts = photo.uploadedData.optimizedUrl.split('/');
-    fileId = urlParts[urlParts.length - 1];
+export const deletePhoto = async (photoId) => {
+  try {
+    if (!photoId) {
+      throw new Error('No photo ID provided for deletion');
+    }
+    
+    // Send the delete request
+    const response = await api.delete(`/api/photos/${photoId}`);
+    
+    return {
+      success: true,
+      message: response.data.message || 'Photo deleted successfully'
+    };
+  } catch (error) {
+    console.error('Photo deletion failed:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to delete photo'
+    };
   }
-  else if (photo.uploadedData && photo.uploadedData.thumbnailUrl) {
-    const urlParts = photo.uploadedData.thumbnailUrl.split('/');
-    fileId = urlParts[urlParts.length - 1];
-  }
-  // If photo has direct _id
-  else if (photo._id) {
-    fileId = photo._id;
-  }
-  
-  if (!fileId) {
-    console.error('Unable to determine file ID for deletion:', photo);
-    throw new Error('Unable to determine file ID for deletion. The photo may not have been properly uploaded.');
-  }
-  
-  console.log('Deleting photo with ID:', fileId);
-  const response = await api.delete(`/api/photos/delete-by-id/${fileId}`);
-  return response.data;
+};
+
+export default {
+  uploadBatchPhotos,
+  uploadSinglePhoto,
+  analyzePhoto,
+  analyzeBatchPhotos,
+  deletePhoto,
+  getPhotoUrl
 }; 

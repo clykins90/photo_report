@@ -1,6 +1,23 @@
 import api from './api';
 
 /**
+ * Generate a MongoDB-compatible ObjectId string
+ * This creates a valid 24-character hexadecimal string that MongoDB will accept as an ObjectId
+ * @returns {string} A valid MongoDB ObjectId string
+ */
+const generateObjectId = () => {
+  const hexChars = '0123456789abcdef';
+  let objectId = '';
+  
+  // Generate a 24-character hex string
+  for (let i = 0; i < 24; i++) {
+    objectId += hexChars.charAt(Math.floor(Math.random() * hexChars.length));
+  }
+  
+  return objectId;
+};
+
+/**
  * Normalize severity value to match the backend's expected enum values
  * @param {string} severity - The severity value to normalize
  * @returns {string} - A normalized severity value that matches backend enum
@@ -9,13 +26,27 @@ const normalizeSeverity = (severity) => {
   if (!severity) return 'minor';
   
   // Convert to lowercase for case-insensitive comparison
-  const lowerSeverity = String(severity).toLowerCase();
+  const lowerSeverity = String(severity).toLowerCase().trim();
+  
+  // Handle exact matches first
+  if (lowerSeverity === 'minor') return 'minor';
+  if (lowerSeverity === 'moderate') return 'moderate';
+  if (lowerSeverity === 'severe') return 'severe';
   
   // The valid enum values in the backend schema are: 'minor', 'moderate', 'severe'
+  // Handle combination cases
+  if (lowerSeverity.includes('moderate') && lowerSeverity.includes('severe')) {
+    return 'severe'; // Handle "moderate to severe" case
+  }
+  if (lowerSeverity.includes('minor') && lowerSeverity.includes('moderate')) {
+    return 'moderate'; // Handle "minor to moderate" case
+  }
+  
+  // Handle partial matches
   if (lowerSeverity.includes('minor') || lowerSeverity.includes('low')) {
     return 'minor';
   } else if (lowerSeverity.includes('moderate') || lowerSeverity.includes('medium')) {
-    return 'moderate'; // This is a valid enum value in the backend
+    return 'moderate';
   } else if (lowerSeverity.includes('major') || lowerSeverity.includes('high') || lowerSeverity.includes('severe')) {
     return 'severe';
   } else if (lowerSeverity.includes('critical')) {
@@ -23,6 +54,7 @@ const normalizeSeverity = (severity) => {
   }
   
   // Default to 'minor' if no match
+  console.warn(`Unrecognized severity value: "${severity}" - defaulting to "minor"`);
   return 'minor';
 };
 
@@ -64,7 +96,10 @@ export const createReport = async (reportData) => {
     if (reportData.photos && Array.isArray(reportData.photos)) {
       dataToSend.photos = reportData.photos.map(photo => {
         const sanitizedPhoto = {
+          // Ensure each photo has a valid _id
+          _id: photo._id || photo.id || generateObjectId(),
           filename: photo.filename || photo.name,
+          path: photo.path || photo.url || photo.preview || '',
           section: photo.section || 'Uncategorized',
           userDescription: photo.description || ''
         };
@@ -109,8 +144,11 @@ export const createReport = async (reportData) => {
       // Ensure we're using consistent field names
       const normalizedPhoto = {
         ...photo,
+        // Make sure we have an _id field
+        _id: photo._id || photo.id || generateObjectId(),
         // Make sure we're using the right field names expected by the backend
         filename: photo.filename || photo.name,
+        path: photo.path || photo.url || photo.preview || '',
         section: photo.section || 'Uncategorized',
         // Use userDescription as the field name for consistency with backend
         userDescription: photo.description || photo.userDescription || ''
@@ -236,7 +274,10 @@ export const updateReport = async (id, reportData) => {
     if (reportData.photos && Array.isArray(reportData.photos)) {
       dataToSend.photos = reportData.photos.map(photo => {
         const sanitizedPhoto = {
+          // Ensure each photo has a valid _id
+          _id: photo._id || photo.id || generateObjectId(),
           filename: photo.filename || photo.name,
+          path: photo.path || photo.url || photo.preview || '',
           section: photo.section || 'Uncategorized',
           userDescription: photo.description || ''
         };
@@ -281,8 +322,11 @@ export const updateReport = async (id, reportData) => {
       // Ensure we're using consistent field names
       const normalizedPhoto = {
         ...photo,
+        // Make sure we have an _id field
+        _id: photo._id || photo.id || generateObjectId(),
         // Make sure we're using the right field names expected by the backend
         filename: photo.filename || photo.name,
+        path: photo.path || photo.url || photo.preview || '',
         section: photo.section || 'Uncategorized',
         // Use userDescription as the field name for consistency with backend
         userDescription: photo.description || photo.userDescription || ''

@@ -2,7 +2,7 @@ const express = require('express');
 const { check } = require('express-validator');
 const { updateCompany, getCompany, uploadLogo } = require('../controllers/companyController');
 const { protect } = require('../middleware/auth');
-const { uploadSingle } = require('../middleware/tempUpload');
+const { uploadSingle } = require('../middleware/uploadMiddleware');
 
 const router = express.Router();
 

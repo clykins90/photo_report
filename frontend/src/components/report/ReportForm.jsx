@@ -2,7 +2,6 @@ import { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createReport, updateReport, generateAISummary, generateReportPdf } from '../../services/reportService';
 import { validateReportForm, getFormErrorMessage } from '../../utils/formValidation';
-import { backupReportData, getBackupReportData, clearBackupReportData, hasBackupReportData } from '../../utils/reportBackup';
 import AuthContext from '../../context/AuthContext';
 import api from '../../services/api';
 
@@ -50,7 +49,6 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [pdfUrl, setPdfUrl] = useState(null);
-  const [hasBackup, setHasBackup] = useState(false);
   
   const navigate = useNavigate();
   
@@ -123,13 +121,6 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
     }
   }, [reportData]);
   
-  // Check for backup data on initial load
-  useEffect(() => {
-    const backupExists = hasBackupReportData();
-    setHasBackup(backupExists);
-    console.log('Backup report data exists:', backupExists);
-  }, []);
-  
   const handleChange = (e) => {
     const { name, value } = e.target;
     
@@ -171,48 +162,8 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
     
     console.log('Processed photos:', processedPhotos);
     setUploadedPhotos(processedPhotos);
-    
-    // Save to local storage backup
-    if (processedPhotos.length > 0) {
-      backupReportData({ ...formData, photos: processedPhotos });
-      setHasBackup(true);
-    }
-  };
-
-  // Restore data from backup
-  const handleRestoreFromBackup = () => {
-    try {
-      const backup = getBackupReportData();
-      if (!backup) {
-        setError('No backup data found to restore');
-        return;
-      }
-      
-      // Restore form data
-      if (backup.reportData) {
-        setFormData(backup.reportData);
-      }
-      
-      // Restore photos
-      if (backup.photos && backup.photos.length > 0) {
-        setUploadedPhotos(backup.photos);
-      }
-      
-      setError(null);
-      console.log('Restored data from backup saved on', backup.timestamp);
-    } catch (error) {
-      console.error('Failed to restore from backup:', error);
-      setError('Failed to restore from backup: ' + error.message);
-    }
   };
   
-  // Clear backup data
-  const handleClearBackup = () => {
-    if (clearBackupReportData()) {
-      setHasBackup(false);
-    }
-  };
-
   // Generate AI summary based on analyzed photos
   const handleGenerateAISummary = async () => {
     // Check if we have analyzed photos
@@ -277,10 +228,6 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
           }));
         }
       }
-      
-      // After successful AI summary generation, backup the data
-      backupReportData(formData, uploadedPhotos);
-      setHasBackup(true);
       
     } catch (err) {
       console.error('Failed to generate AI summary:', err);
@@ -554,26 +501,6 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         return preparedPhoto;
       });
       
-      // Backup safely after sanitizing photos
-      const preparedFormData = { ...formData };
-      backupReportData(preparedFormData, preparedPhotos);
-      setHasBackup(true);
-      
-      // Check if the data size is very large and warn the user
-      try {
-        const dataSize = JSON.stringify({
-          ...preparedFormData,
-          photos: preparedPhotos
-        }).length;
-        
-        if (dataSize > 5000000) { // 5MB
-          console.warn(`Large report data detected: ${dataSize} bytes`);
-          // Show warning but continue
-        }
-      } catch (sizeError) {
-        console.warn('Could not determine exact data size due to:', sizeError.message);
-      }
-      
       // Build the report data with current form values
       const updatedReportData = {
         title: formData.title,
@@ -607,10 +534,6 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       }
       
       console.log('Report saved successfully:', response);
-      
-      // On successful submission, clear the backup
-      clearBackupReportData();
-      setHasBackup(false);
       
       // Navigate to the report detail page
       navigate(`/reports/${response._id || response.data._id}`);
@@ -659,11 +582,6 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         errorMsg = 'The report data is too large to send. Try reducing the number of photos or the amount of text.';
       } else if (err.message && err.message.includes('timeout')) {
         errorMsg = 'The request timed out. The report may be too large or the server is busy. Your data is backed up locally.';
-      }
-      
-      // Add information about backup availability
-      if (hasBackup) {
-        errorMsg += ' Your report data has been backed up locally and can be recovered.';
       }
       
       setError(errorMsg);
@@ -783,31 +701,6 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
   
   return (
     <div className="max-w-4xl mx-auto bg-card p-8 rounded-lg shadow-md">
-      {hasBackup && (
-        <div className="bg-blue-100 dark:bg-blue-900/20 border border-blue-400 dark:border-blue-700 text-blue-700 dark:text-blue-300 px-4 py-3 rounded mb-4 flex justify-between items-center">
-          <div>
-            <p className="font-bold">Backed up report data available</p>
-            <p className="text-sm">There is saved report data that you can restore if needed.</p>
-          </div>
-          <div className="flex space-x-2">
-            <button 
-              type="button"
-              onClick={handleRestoreFromBackup}
-              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
-            >
-              Restore
-            </button>
-            <button 
-              type="button"
-              onClick={handleClearBackup}
-              className="bg-gray-300 hover:bg-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-bold py-2 px-4 rounded"
-            >
-              Discard
-            </button>
-          </div>
-        </div>
-      )}
-      
       {error && (
         <div className="bg-red-100 dark:bg-red-900/20 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-300 px-4 py-3 rounded mb-4">
           {error}

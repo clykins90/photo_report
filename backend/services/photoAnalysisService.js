@@ -65,80 +65,116 @@ const analyzePhoto = async (imagePath) => {
     const imageBuffer = fs.readFileSync(imagePath);
     const base64Image = imageBuffer.toString('base64');
 
-    // Call OpenAI API with the detailed roofing system prompt
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: ROOFING_SYSTEM_PROMPT
-        },
-        {
-          role: "user",
-          content: [
-            { 
-              type: "text", 
-              text: "Analyze this roofing photo according to the instructions provided." 
+    // Add retry logic for rate limit errors
+    const MAX_RETRIES = 3;
+    let retryCount = 0;
+    let lastError = null;
+    
+    while (retryCount <= MAX_RETRIES) {
+      try {
+        // Call OpenAI API with the detailed roofing system prompt
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: ROOFING_SYSTEM_PROMPT
             },
             {
-              type: "image_url",
-              image_url: {
-                url: `data:image/jpeg;base64,${base64Image}`,
-              },
+              role: "user",
+              content: [
+                { 
+                  type: "text", 
+                  text: "Analyze this roofing photo according to the instructions provided." 
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: `data:image/jpeg;base64,${base64Image}`,
+                  },
+                },
+              ],
             },
           ],
-        },
-      ],
-      max_tokens: 1000,
-      response_format: { type: "json_object" }, // Ensure JSON formatted response
-    });
+          max_tokens: 1000,
+          response_format: { type: "json_object" }, // Ensure JSON formatted response
+        });
 
-    // Parse the response
-    const analysisText = response.choices[0].message.content;
-    let analysis;
-    
-    try {
-      // Parse the JSON response
-      analysis = JSON.parse(analysisText);
-      
-      // Ensure tags is always an array
-      if (!analysis.tags || !Array.isArray(analysis.tags)) {
-        analysis.tags = [];
-      } else if (typeof analysis.tags === 'string') {
-        // If it's a string, convert to array
-        analysis.tags = analysis.tags.split(',').map(tag => tag.trim());
+        // Parse the response
+        const analysisText = response.choices[0].message.content;
+        let analysis;
+        
+        try {
+          // Parse the JSON response
+          analysis = JSON.parse(analysisText);
+          
+          // Ensure tags is always an array
+          if (!analysis.tags || !Array.isArray(analysis.tags)) {
+            analysis.tags = [];
+          } else if (typeof analysis.tags === 'string') {
+            // If it's a string, convert to array
+            analysis.tags = analysis.tags.split(',').map(tag => tag.trim());
+          }
+          
+          // Set default values for any missing fields
+          analysis = {
+            damageDetected: analysis.damageDetected || false,
+            damageType: analysis.damageType || null,
+            severity: analysis.severity || null,
+            location: analysis.location || 'Unknown location',
+            materials: analysis.materials || 'Not specified',
+            description: analysis.description || 'No description available',
+            tags: analysis.tags,
+            recommendedAction: analysis.recommendedAction || 'No recommendations provided',
+            confidenceScore: analysis.confidenceScore || 0.5
+          };
+          
+        } catch (parseError) {
+          logger.error(`Failed to parse OpenAI response: ${parseError.message}`);
+          // Fallback to a default structure if parsing fails
+          analysis = {
+            damageDetected: false,
+            damageType: null,
+            severity: null,
+            location: 'Unknown location',
+            materials: 'Not specified',
+            description: "Failed to analyze image automatically. Please add a manual description.",
+            tags: [],
+            recommendedAction: 'Manual inspection required',
+            confidenceScore: 0
+          };
+        }
+
+        return analysis;
+        
+      } catch (error) {
+        lastError = error;
+        
+        // Check if it's a rate limit error (429)
+        if (error.status === 429 || (error.message && error.message.includes('429'))) {
+          retryCount++;
+          
+          if (retryCount <= MAX_RETRIES) {
+            // Calculate delay with exponential backoff
+            const delay = Math.pow(2, retryCount) * 1000; // 2s, 4s, 8s
+            logger.warn(`Rate limit hit for photo analysis, retrying in ${delay}ms (attempt ${retryCount}/${MAX_RETRIES})`);
+            
+            // Wait before retrying
+            await new Promise(resolve => setTimeout(resolve, delay));
+          } else {
+            logger.error(`Failed to analyze photo after ${MAX_RETRIES} retries due to rate limits`);
+            throw new Error(`Rate limit exceeded after ${MAX_RETRIES} retries. Please try again later.`);
+          }
+        } else {
+          // For other errors, don't retry
+          logger.error(`Error analyzing photo: ${error.message}`);
+          throw error;
+        }
       }
-      
-      // Set default values for any missing fields
-      analysis = {
-        damageDetected: analysis.damageDetected || false,
-        damageType: analysis.damageType || null,
-        severity: analysis.severity || null,
-        location: analysis.location || 'Unknown location',
-        materials: analysis.materials || 'Not specified',
-        description: analysis.description || 'No description available',
-        tags: analysis.tags,
-        recommendedAction: analysis.recommendedAction || 'No recommendations provided',
-        confidenceScore: analysis.confidenceScore || 0.5
-      };
-      
-    } catch (parseError) {
-      logger.error(`Failed to parse OpenAI response: ${parseError.message}`);
-      // Fallback to a default structure if parsing fails
-      analysis = {
-        damageDetected: false,
-        damageType: null,
-        severity: null,
-        location: 'Unknown location',
-        materials: 'Not specified',
-        description: "Failed to analyze image automatically. Please add a manual description.",
-        tags: [],
-        recommendedAction: 'Manual inspection required',
-        confidenceScore: 0
-      };
     }
-
-    return analysis;
+    
+    // This should not be reached due to the throw in the last iteration of the loop
+    throw lastError || new Error('Failed to analyze photo after multiple attempts');
   } catch (error) {
     logger.error(`Error analyzing photo: ${error.message}`);
     throw new Error(`Failed to analyze photo: ${error.message}`);
@@ -155,19 +191,51 @@ const analyzeBatchPhotos = async (imagePaths) => {
     throw new Error('No valid image paths provided for batch analysis');
   }
 
-  logger.info(`Starting batch analysis of ${imagePaths.length} photos`);
   const results = [];
 
   try {
-    // Process photos in parallel with Promise.all
-    // This is more efficient than sequential processing
-    const analysisPromises = imagePaths.map(async (imagePath) => {
+    // Process all photos in the batch in parallel
+    // The frontend is already sending batches of 5, so we don't need to re-chunk them
+    logger.info(`Processing batch of ${imagePaths.length} photos directly (frontend already batched)`);
+    
+    // Process photos in this batch in parallel
+    const batchPromises = imagePaths.map(async (imagePath) => {
       try {
-        const analysis = await analyzePhoto(imagePath);
+        // Add retry logic with exponential backoff
+        const MAX_RETRIES = 3;
+        let retryCount = 0;
+        let lastError = null;
+        
+        while (retryCount < MAX_RETRIES) {
+          try {
+            const analysis = await analyzePhoto(imagePath);
+            return {
+              imagePath,
+              success: true,
+              data: analysis
+            };
+          } catch (error) {
+            lastError = error;
+            
+            // Check if it's a rate limit error (429)
+            if (error.message && error.message.includes('429')) {
+              retryCount++;
+              const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff: 2s, 4s, 8s
+              logger.warn(`Rate limit hit, retrying in ${delay}ms (attempt ${retryCount}/${MAX_RETRIES})`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+              // For non-rate-limit errors, don't retry
+              break;
+            }
+          }
+        }
+        
+        // If we get here, all retries failed
+        logger.error(`Error analyzing photo ${imagePath} after ${retryCount} retries: ${lastError.message}`);
         return {
           imagePath,
-          success: true,
-          data: analysis
+          success: false,
+          error: lastError.message
         };
       } catch (error) {
         logger.error(`Error analyzing photo ${imagePath}: ${error.message}`);
@@ -178,9 +246,12 @@ const analyzeBatchPhotos = async (imagePaths) => {
         };
       }
     });
-
-    const batchResults = await Promise.all(analysisPromises);
-    return batchResults;
+    
+    // Wait for all photos in this batch to complete
+    const batchResults = await Promise.all(batchPromises);
+    results.push(...batchResults);
+    
+    return results;
   } catch (error) {
     logger.error(`Error in batch photo analysis: ${error.message}`);
     throw new Error(`Failed to complete batch photo analysis: ${error.message}`);

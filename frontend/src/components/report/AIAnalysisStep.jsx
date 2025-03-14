@@ -119,8 +119,8 @@ const AIAnalysisStep = ({
       
       // Skip analysis if all photos are already analyzed
       if (unanalyzedPhotos.length > 0) {
-        // Process in batches of 20 photos
-        const BATCH_SIZE = 20;
+        // Process in batches of 5 photos
+        const BATCH_SIZE = 5;
         const batches = [];
         
         // Split unanalyzed photos into batches
@@ -128,7 +128,7 @@ const AIAnalysisStep = ({
           batches.push(unanalyzedPhotos.slice(i, i + BATCH_SIZE));
         }
         
-        console.log(`Processing ${unanalyzedPhotos.length} photos in ${batches.length} batches`);
+        console.log(`Processing ${unanalyzedPhotos.length} unanalyzed photos in ${batches.length} batches of up to ${BATCH_SIZE} each`);
         
         // Track overall photo completion
         let photosCompleted = uploadedPhotos.filter(p => p.analysis).length;
@@ -137,7 +137,7 @@ const AIAnalysisStep = ({
         // Process each batch
         for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
           const batch = batches[batchIndex];
-          console.log(`Processing batch ${batchIndex + 1}/${batches.length} with ${batch.length} photos`);
+          console.log(`Processing frontend batch ${batchIndex + 1}/${batches.length} with ${batch.length} photos`);
           
           // Mark all photos in this batch as analyzing
           batch.forEach(photo => {
@@ -154,69 +154,70 @@ const AIAnalysisStep = ({
           handlePhotoUploadComplete(updatedPhotos);
           
           try {
+            // Add a delay between batches to avoid rate limiting (except for the first batch)
+            if (batchIndex > 0) {
+              console.log(`Adding delay between frontend batches to avoid rate limiting...`);
+              // Wait for 5 seconds between batches to avoid hitting rate limits
+              await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+            
             // Analyze the batch
             const batchResult = await analyzeBatchPhotos(batch);
             
             // Process results and update photos
-            batchResult.data.forEach(result => {
-              // Find the corresponding photo by ID
-              const photoToUpdate = batch.find(p => {
-                // Extract the file ID from the photo object
-                let photoFileId;
-                if (p.uploadedData && p.uploadedData.gridfs) {
-                  photoFileId = p.uploadedData.gridfs.optimized || p.uploadedData.gridfs.original;
-                } else if (p.uploadedData && p.uploadedData.optimizedUrl) {
-                  const urlParts = p.uploadedData.optimizedUrl.split('/');
-                  photoFileId = urlParts[urlParts.length - 1];
-                } else if (p.uploadedData && p.uploadedData.thumbnailUrl) {
-                  const urlParts = p.uploadedData.thumbnailUrl.split('/');
-                  photoFileId = urlParts[urlParts.length - 1];
-                } else if (p._id) {
-                  photoFileId = p._id;
-                }
-                
-                return photoFileId === result.fileId;
-              });
-              
-              if (photoToUpdate) {
-                const photoIndex = updatedPhotos.findIndex(p => p.id === photoToUpdate.id);
-                if (photoIndex !== -1) {
-                  if (result.success) {
-                    updatedPhotos[photoIndex] = {
-                      ...updatedPhotos[photoIndex],
-                      analysis: result.data,
-                      status: 'complete'
-                    };
-                    // Increment completed count for each successful analysis
-                    photosCompleted++;
-                  } else {
-                    updatedPhotos[photoIndex] = {
-                      ...updatedPhotos[photoIndex],
-                      status: 'error',
-                      error: result.error || 'Failed to analyze photo'
-                    };
+            if (batchResult.success && batchResult.data) {
+              batchResult.data.forEach(result => {
+                if (result.success && result.fileId) {
+                  // Find the photo that matches this result
+                  const photoToUpdate = batch.find(photo => {
+                    // Use the simplified ID extraction logic that matches the backend
+                    const photoId = 
+                      photo.uploadedData?.gridfs?.original || 
+                      photo.uploadedData?.gridfs?.optimized || 
+                      photo.uploadedData?.gridfsId || 
+                      photo._id || 
+                      (photo.id && typeof photo.id === 'string' && /^[0-9a-fA-F]{24}$/.test(photo.id) ? photo.id : null);
+                    
+                    return photoId === result.fileId;
+                  });
+                  
+                  if (photoToUpdate) {
+                    // Update the photo with analysis results
+                    const photoIndex = updatedPhotos.findIndex(p => p.id === photoToUpdate.id);
+                    if (photoIndex !== -1) {
+                      updatedPhotos[photoIndex] = {
+                        ...updatedPhotos[photoIndex],
+                        analysis: result.data,
+                        status: 'analyzed'
+                      };
+                    }
                   }
-                  
-                  // Update progress based on total photos processed
-                  const progressPercent = Math.min(Math.round((photosCompleted / totalPhotos) * 100), 100);
-                  setBatchProgress(progressPercent);
-                  
-                  // Update photos array after each photo is processed to show real-time progress
-                  handlePhotoUploadComplete([...updatedPhotos]);
                 }
-              }
-            });
-            
-            // Update batch progress based on batch completion
-            const batchesCompleted = batchIndex + 1;
-            const totalBatches = batches.length;
-            const batchProgressPercent = Math.min(Math.round((batchesCompleted / totalBatches) * 100), 100);
-            
-            // Update with batch-based progress if photo-based progress isn't reliable
-            if (photosCompleted === 0) {
-              setBatchProgress(batchProgressPercent);
+              });
+            } else {
+              // Mark batch as failed
+              batch.forEach(photo => {
+                const photoIndex = updatedPhotos.findIndex(p => p.id === photo.id);
+                if (photoIndex !== -1) {
+                  updatedPhotos[photoIndex] = {
+                    ...updatedPhotos[photoIndex],
+                    status: 'error',
+                    error: batchResult.error || 'Analysis failed'
+                  };
+                }
+              });
             }
             
+            // Update photos state with analysis results
+            handlePhotoUploadComplete(updatedPhotos);
+            
+            // Update progress
+            photosCompleted += batch.filter(p => {
+              const updatedPhoto = updatedPhotos.find(up => up.id === p.id);
+              return updatedPhoto && updatedPhoto.analysis;
+            }).length;
+            
+            setBatchProgress(Math.round((photosCompleted / totalPhotos) * 100));
           } catch (batchError) {
             console.error(`Error processing batch ${batchIndex + 1}:`, batchError);
             
@@ -227,28 +228,35 @@ const AIAnalysisStep = ({
                 updatedPhotos[photoIndex] = {
                   ...updatedPhotos[photoIndex],
                   status: 'error',
-                  error: batchError.message || 'Failed to analyze photo'
+                  error: batchError.message || 'Analysis failed'
                 };
               }
             });
             
-            // Update all photos with their new status
-            handlePhotoUploadComplete([...updatedPhotos]);
+            // Update photos state with errors
+            handlePhotoUploadComplete(updatedPhotos);
           }
         }
-        
-        // Final update of all photos with their new status
-        handlePhotoUploadComplete(updatedPhotos);
       }
       
       setAnalyzing(false);
       
-      // Step 2: Generate Summary if we have analyzed photos
+      // Step 2: Generate summary after all photos are analyzed
+      // This runs whether photos were just analyzed or were already analyzed
       const analyzedPhotos = updatedPhotos.filter(photo => photo.analysis && photo.analysis.description);
       
       if (analyzedPhotos.length > 0) {
+        console.log(`Generating summary for ${analyzedPhotos.length} analyzed photos`);
         setLocalGeneratingSummary(true);
-        await handleGenerateAISummary();
+        try {
+          await handleGenerateAISummary();
+          console.log('Summary generation completed successfully');
+        } catch (summaryError) {
+          console.error('Error generating summary:', summaryError);
+          setError(`Failed to generate summary: ${summaryError.message || 'Unknown error'}`);
+        } finally {
+          setLocalGeneratingSummary(false);
+        }
       } else {
         setError('No photos could be successfully analyzed. Please check your images and try again.');
       }
@@ -440,40 +448,143 @@ const AIAnalysisStep = ({
 
   return (
     <div>
-      <h3 className="text-xl font-semibold mb-4">AI Photo Analysis & Summary</h3>
-      
-      {/* Show loading overlay when analyzing or generating summary */}
-      {(analyzing || localGeneratingSummary) && renderHeroLoadingScreen()}
+      <h3 className="text-xl font-semibold mb-4">AI Analysis</h3>
       
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 dark:border-red-700 p-4 mb-6">
+        <div className="bg-red-100 border-l-4 border-red-500 p-4 mb-6">
           <div className="flex">
             <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-red-500 dark:text-red-400" fill="currentColor" viewBox="0 0 20 20">
+              <svg className="h-5 w-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
               </svg>
             </div>
             <div className="ml-3">
-              <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+              <p className="text-sm text-red-700">{error}</p>
             </div>
           </div>
         </div>
       )}
       
-      <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 dark:border-blue-700 p-4 mb-6">
-        <div className="flex">
-          <div className="flex-shrink-0">
-            <svg className="h-5 w-5 text-blue-500 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="ml-3">
-            <p className="text-sm text-blue-700 dark:text-blue-300">
-              Optional: Use AI to analyze your photos and generate a comprehensive report summary, or continue to the next step.
-            </p>
+      {/* Loading state */}
+      {(analyzing || localGeneratingSummary) && (
+        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 animate-pulse">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-blue-700">
+                {heroLoadingMessage}
+              </p>
+              <p className="text-xs text-blue-600 mt-1">
+                {analyzing ? `Analyzing photos: ${batchProgress}% complete` : 'Generating summary...'}
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+      
+      {/* Instructions */}
+      {!analyzing && !localGeneratingSummary && !allPhotosAnalyzed && (
+        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-blue-700">
+                Click the button below to analyze your photos with AI. This will identify damage, provide descriptions, and generate a summary report.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Success message */}
+      {allPhotosAnalyzed && !analyzing && !localGeneratingSummary && (
+        <div className="bg-green-50 border-l-4 border-green-500 p-4 mb-6">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-green-700">
+                All photos have been analyzed and a summary has been generated. You can review and edit the results below.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Analysis button */}
+      {!analyzing && !localGeneratingSummary && !allPhotosAnalyzed && (
+        <div className="mb-6">
+          <button
+            type="button"
+            onClick={handleBuildSummarizedReport}
+            disabled={analyzing || localGeneratingSummary || uploadedPhotos.length === 0}
+            className={`w-full py-3 px-4 rounded-md text-white font-medium ${
+              analyzing || localGeneratingSummary || uploadedPhotos.length === 0
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-700'
+            }`}
+          >
+            Analyze Photos with AI
+          </button>
+          
+          {batchProgress > 0 && batchProgress < 100 && (
+            <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+              <div 
+                className="bg-blue-600 h-2 rounded-full" 
+                style={{ width: `${batchProgress}%` }}
+              ></div>
+            </div>
+          )}
+        </div>
+      )}
+      
+      {/* Photo grid/list toggle */}
+      {uploadedPhotos.length > 0 && (
+        <div className="flex justify-between items-center mb-4">
+          <h4 className="text-lg font-medium">
+            Photos ({uploadedPhotos.length})
+            {analyzedCount > 0 && analyzedCount < uploadedPhotos.length && (
+              <span className="text-sm font-normal text-gray-500 ml-2">
+                {analyzedCount} analyzed
+              </span>
+            )}
+          </h4>
+          
+          <div className="flex space-x-2">
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              className={`p-2 rounded ${viewMode === 'grid' ? 'bg-gray-200' : 'hover:bg-gray-100'}`}
+              aria-label="Grid view"
+            >
+              <svg className="h-5 w-5 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`p-2 rounded ${viewMode === 'list' ? 'bg-gray-200' : 'hover:bg-gray-100'}`}
+              aria-label="List view"
+            >
+              <svg className="h-5 w-5 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
       
       <div className="mb-8">
         <h4 className="font-semibold text-lg mb-2">Photo Browser</h4>
@@ -592,7 +703,7 @@ const AIAnalysisStep = ({
                                 ? 'Analyzing photo...' 
                                 : selectedPhoto.status === 'error'
                                 ? `Analysis failed: ${selectedPhoto.error}`
-                                : 'Click "Build Summarized Report with AI" to analyze this photo'}
+                                : 'Click "Analyze Photos with AI" to analyze this photo'}
                             </p>
                           </div>
                         )}
@@ -669,7 +780,7 @@ const AIAnalysisStep = ({
                             ? 'Analyzing photo...' 
                             : photo.status === 'error'
                             ? `Analysis failed: ${photo.error}`
-                            : 'Click "Build Summarized Report with AI" to analyze this photo'}
+                            : 'Click "Analyze Photos with AI" to analyze this photo'}
                         </p>
                       </div>
                     )}
@@ -708,28 +819,6 @@ const AIAnalysisStep = ({
       )}
       
       <div className="flex flex-col mt-8 mb-8">
-        <button
-          onClick={handleBuildSummarizedReport}
-          disabled={analyzing || generatingSummary || localGeneratingSummary || uploadedPhotos.length === 0}
-          className={`w-full py-3 px-4 rounded-md text-white font-medium mb-6 ${
-            analyzing || generatingSummary || localGeneratingSummary || uploadedPhotos.length === 0
-              ? 'bg-gray-400 dark:bg-gray-600 cursor-not-allowed'
-              : 'bg-purple-600 hover:bg-purple-700 dark:bg-purple-700 dark:hover:bg-purple-800'
-          }`}
-        >
-          {analyzing || localGeneratingSummary 
-            ? "Processing..." 
-            : allPhotosAnalyzed
-              ? 'Re-analyze & Build Summarized Report' 
-              : 'Build Summarized Report with AI'}
-        </button>
-        
-        <div className="text-center text-sm text-gray-500 mb-6">
-          <p>This is an optional step. You can continue to the next step without using AI.</p>
-        </div>
-      </div>
-      
-      <div className="flex justify-between mt-8">
         <button
           type="button"
           onClick={prevStep}

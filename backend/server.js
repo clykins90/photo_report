@@ -5,6 +5,35 @@ const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
 const dotenv = require('dotenv');
+
+// Load environment variables first, before any other imports
+// Try to load from root .env.local first (which might take precedence)
+const rootEnvPath = path.resolve(__dirname, '../.env.local');
+const backendEnvPath = path.resolve(__dirname, '.env');
+
+console.log('Checking for .env files:');
+console.log(`Root .env.local exists: ${fs.existsSync(rootEnvPath)}`);
+console.log(`Backend .env exists: ${fs.existsSync(backendEnvPath)}`);
+
+// Load both files to ensure all variables are set
+if (fs.existsSync(rootEnvPath)) {
+  console.log('Loading environment variables from root .env.local');
+  dotenv.config({ path: rootEnvPath });
+}
+
+if (fs.existsSync(backendEnvPath)) {
+  console.log('Loading environment variables from backend .env');
+  dotenv.config({ path: backendEnvPath });
+}
+
+// Force set USE_GRIDFS to true for testing
+process.env.USE_GRIDFS = 'true';
+
+console.log('Environment variables loaded:');
+console.log('USE_GRIDFS =', process.env.USE_GRIDFS);
+console.log('NODE_ENV =', process.env.NODE_ENV);
+console.log('MONGODB_URI =', process.env.MONGODB_URI ? 'Set (value hidden)' : 'Not set');
+
 const connectDB = require('./config/db');
 const { errorHandler } = require('./middleware/errorHandler');
 const logger = require('./utils/logger');
@@ -20,9 +49,6 @@ const companyRoutes = require('./routes/companyRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const photoRoutes = require('./routes/photoRoutes');
 const gridfsRoutes = require('./routes/gridfsRoutes');
-
-// Load environment variables
-dotenv.config();
 
 // Create Express app
 const app = express();

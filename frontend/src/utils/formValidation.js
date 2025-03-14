@@ -11,27 +11,74 @@ export const validateReportForm = (formData, step) => {
   if (step === 1) {
     if (!formData.title?.trim()) {
       errors.title = 'Report title is required';
+    } else if (formData.title.trim().length < 3) {
+      errors.title = 'Report title must be at least 3 characters';
     }
     
     if (!formData.clientName?.trim()) {
       errors.clientName = 'Client name is required';
+    } else if (formData.clientName.trim().length < 2) {
+      errors.clientName = 'Client name must be at least 2 characters';
     }
     
-    // Validate property address fields if any are filled in
-    const addressFields = Object.values(formData.propertyAddress || {});
-    const hasPartialAddress = addressFields.some(field => field && field !== 'USA');
-    const allRequiredFieldsPresent = formData.propertyAddress?.street?.trim() && 
-                                     formData.propertyAddress?.city?.trim() && 
-                                     formData.propertyAddress?.state?.trim() && 
-                                     formData.propertyAddress?.zipCode?.trim();
+    // Validate property address fields - all fields are now required
+    const addressFields = {
+      street: formData.propertyAddress?.street?.trim(),
+      city: formData.propertyAddress?.city?.trim(),
+      state: formData.propertyAddress?.state?.trim(),
+      zipCode: formData.propertyAddress?.zipCode?.trim()
+    };
     
-    if (hasPartialAddress && !allRequiredFieldsPresent) {
-      errors.propertyAddress = 'Please complete all address fields or leave them all empty';
+    // Check each address field individually
+    if (!addressFields.street) {
+      errors.propertyAddress = errors.propertyAddress || {};
+      errors.propertyAddress.street = 'Street address is required';
+    }
+    
+    if (!addressFields.city) {
+      errors.propertyAddress = errors.propertyAddress || {};
+      errors.propertyAddress.city = 'City is required';
+    }
+    
+    if (!addressFields.state) {
+      errors.propertyAddress = errors.propertyAddress || {};
+      errors.propertyAddress.state = 'State is required';
+    }
+    
+    if (!addressFields.zipCode) {
+      errors.propertyAddress = errors.propertyAddress || {};
+      errors.propertyAddress.zipCode = 'Zip code is required';
+    } else if (!/^\d{5}(-\d{4})?$/.test(addressFields.zipCode)) {
+      errors.propertyAddress = errors.propertyAddress || {};
+      errors.propertyAddress.zipCode = 'Please enter a valid zip code (e.g., 12345 or 12345-6789)';
+    }
+    
+    // If any property address errors exist, add a general error message
+    if (errors.propertyAddress) {
+      errors.propertyAddress.general = 'Please complete all address fields correctly';
     }
     
     // Validate inspection date
     if (!formData.inspectionDate) {
       errors.inspectionDate = 'Inspection date is required';
+    } else {
+      const selectedDate = new Date(formData.inspectionDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const oneYearAgo = new Date();
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+      oneYearAgo.setHours(0, 0, 0, 0);
+      
+      const oneYearFromNow = new Date();
+      oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+      oneYearFromNow.setHours(0, 0, 0, 0);
+      
+      if (selectedDate < oneYearAgo) {
+        errors.inspectionDate = 'Inspection date cannot be more than 1 year in the past';
+      } else if (selectedDate > oneYearFromNow) {
+        errors.inspectionDate = 'Inspection date cannot be more than 1 year in the future';
+      }
     }
   }
   
@@ -93,7 +140,22 @@ export const getFormErrorMessage = (errors) => {
     return '';
   }
   
-  // Check for address-related errors
+  // Check for property address errors
+  if (errors.propertyAddress) {
+    if (errors.propertyAddress.general) {
+      return errors.propertyAddress.general;
+    }
+    
+    // Return the first specific address error
+    const addressErrorKeys = ['street', 'city', 'state', 'zipCode'];
+    for (const key of addressErrorKeys) {
+      if (errors.propertyAddress[key]) {
+        return `Property Address: ${errors.propertyAddress[key]}`;
+      }
+    }
+  }
+  
+  // Check for other address-related errors (for backward compatibility)
   const addressErrors = [
     'propertyAddressStreet', 
     'propertyAddressCity', 

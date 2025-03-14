@@ -9,6 +9,47 @@ const pdfGenerationService = require('../services/pdfGenerationService');
 const reportAIService = require('../services/reportAIService');
 const crypto = require('crypto');
 const gridfs = require('../utils/gridfs'); // Add GridFS utility for photo deletion
+const mongoose = require('mongoose');
+
+/**
+ * Normalize severity value to match the schema's enum values
+ * @param {string} severity - The severity value to normalize
+ * @returns {string} - A normalized severity value
+ */
+const normalizeSeverity = (severity) => {
+  if (!severity) return 'minor';
+  
+  // Convert to lowercase for case-insensitive comparison
+  const lowerSeverity = String(severity).toLowerCase().trim();
+  
+  // Handle exact matches first
+  if (lowerSeverity === 'minor') return 'minor';
+  if (lowerSeverity === 'moderate') return 'moderate';
+  if (lowerSeverity === 'severe') return 'severe';
+  
+  // Handle combination cases
+  if (lowerSeverity.includes('moderate') && lowerSeverity.includes('severe')) {
+    return 'severe'; // Handle "moderate to severe" case
+  }
+  if (lowerSeverity.includes('minor') && lowerSeverity.includes('moderate')) {
+    return 'moderate'; // Handle "minor to moderate" case
+  }
+  
+  // Handle partial matches
+  if (lowerSeverity.includes('minor') || lowerSeverity.includes('low')) {
+    return 'minor';
+  } else if (lowerSeverity.includes('moderate') || lowerSeverity.includes('medium')) {
+    return 'moderate';
+  } else if (lowerSeverity.includes('major') || lowerSeverity.includes('high') || lowerSeverity.includes('severe')) {
+    return 'severe';
+  } else if (lowerSeverity.includes('critical')) {
+    return 'severe'; // Map critical to the highest severity level
+  }
+  
+  // Default to 'minor' if no match
+  logger.warn(`Unrecognized severity value: "${severity}" - defaulting to "minor"`);
+  return 'minor';
+};
 
 /**
  * Create a new report
@@ -76,18 +117,46 @@ const createReport = async (req, res, next) => {
             console.log('Warning: Photo missing filename, this may cause retrieval issues');
           }
           
-          // Create properly formatted photo object
+          // Handle _id field - ensure it's a valid ObjectId
+          let photoId;
+          try {
+            photoId = photo._id ? new mongoose.Types.ObjectId(photo._id) : new mongoose.Types.ObjectId();
+          } catch (err) {
+            console.log('Invalid photo _id, generating new one');
+            photoId = new mongoose.Types.ObjectId();
+          }
+          
+          // Normalize aiAnalysis if present
+          let aiAnalysis = null;
+          if (photo.aiAnalysis || photo.analysis) {
+            const analysis = photo.aiAnalysis || photo.analysis || {};
+            aiAnalysis = {
+              description: analysis.description || '',
+              tags: Array.isArray(analysis.tags) ? analysis.tags : [],
+              damageDetected: !!analysis.damageDetected,
+              confidence: analysis.confidence || 0,
+              severity: normalizeSeverity(analysis.severity)
+            };
+          }
+          
           return {
-            path: path,
-            filename: filename,
+            _id: photoId,
+            path,
+            filename,
             section: photo.section || 'Uncategorized',
-            aiAnalysis: photo.aiAnalysis || photo.analysis || null,
-            userDescription: photo.description || photo.userDescription || ''
+            userDescription: photo.userDescription || photo.description || '',
+            aiAnalysis
           };
-        })
-        .filter(photo => photo.path && photo.filename); // Only include photos with required fields
-      
-      console.log('Formatted photos:', formattedPhotos);
+        });
+    }
+    
+    // Normalize damages severity values if present
+    let normalizedDamages = [];
+    if (req.body.damages && Array.isArray(req.body.damages)) {
+      normalizedDamages = req.body.damages.map(damage => ({
+        ...damage,
+        severity: normalizeSeverity(damage.severity)
+      }));
     }
 
     // Create report with user info (which now contains company details)
@@ -103,7 +172,8 @@ const createReport = async (req, res, next) => {
         : undefined,
       materials: req.body.materials || [],
       tags: req.body.tags || [],
-      photos: formattedPhotos
+      photos: formattedPhotos,
+      damages: normalizedDamages
     });
 
     // Validate report
@@ -212,61 +282,88 @@ const getReport = async (req, res, next) => {
  */
 const updateReport = async (req, res, next) => {
   try {
-    console.log('Report update data:', req.body);
-    console.log('Auth user info:', req.user);
-
     const { id } = req.params;
     
-    // Find report
+    // Validate ID
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new ApiError(400, 'Invalid report ID');
+    }
+    
+    // Get the report
     const report = await Report.findById(id);
+    
     if (!report) {
       throw new ApiError(404, 'Report not found');
     }
-
-    // Check if user has permission
+    
+    // Check if user is authorized to update this report
     if (report.user.toString() !== req.user.id && req.user.role !== 'admin') {
       throw new ApiError(403, 'Not authorized to update this report');
     }
-
-    // Get user's company information
-    const user = await User.findById(req.user.id);
-    if (!user) {
-      throw new ApiError(404, 'User not found');
-    }
-
-    // Format photos to match the schema requirements if photos are being updated
-    let updatedPhotos = report.photos; // Default to existing photos
+    
+    // Format photos to match the schema requirements
+    let updatedPhotos = [];
+    
+    // If photos are provided in the request, process them
     if (req.body.photos && Array.isArray(req.body.photos)) {
-      console.log('Processing photos array for update:', req.body.photos);
+      console.log(`Processing ${req.body.photos.length} photos for update`);
       
       updatedPhotos = req.body.photos
         .filter(photo => photo) // Filter out null/undefined photos
         .map(photo => {
-          console.log('Processing photo for update:', photo);
-          
           // Try to extract required fields from various possible formats
           const path = photo.path || photo.url || photo.preview || '';
           
           // Use the original filename if available, don't generate a new one
-          // This will preserve UUIDs from the upload process
           const filename = photo.filename || photo.name || '';
           
-          if (!filename) {
-            console.log('Warning: Photo missing filename, this may cause retrieval issues');
+          if (!path || !filename) {
+            console.log('Warning: Photo missing required fields:', { path, filename });
           }
           
-          // Create properly formatted photo object
+          // Handle _id field - ensure it's a valid ObjectId
+          let photoId;
+          try {
+            photoId = photo._id ? new mongoose.Types.ObjectId(photo._id) : new mongoose.Types.ObjectId();
+          } catch (err) {
+            console.log('Invalid photo _id, generating new one');
+            photoId = new mongoose.Types.ObjectId();
+          }
+          
+          // Normalize aiAnalysis if present
+          let aiAnalysis = null;
+          if (photo.aiAnalysis || photo.analysis) {
+            const analysis = photo.aiAnalysis || photo.analysis || {};
+            aiAnalysis = {
+              description: analysis.description || '',
+              tags: Array.isArray(analysis.tags) ? analysis.tags : [],
+              damageDetected: !!analysis.damageDetected,
+              confidence: analysis.confidence || 0,
+              severity: normalizeSeverity(analysis.severity)
+            };
+          }
+          
           return {
-            path: path,
-            filename: filename,
+            _id: photoId,
+            path,
+            filename,
             section: photo.section || 'Uncategorized',
-            aiAnalysis: photo.aiAnalysis || photo.analysis || null,
-            userDescription: photo.description || photo.userDescription || ''
+            userDescription: photo.userDescription || photo.description || '',
+            aiAnalysis
           };
-        })
-        .filter(photo => photo.path && photo.filename); // Only include photos with required fields
-      
-      console.log('Formatted photos for update:', updatedPhotos);
+        });
+    } else {
+      // If no photos in request, keep existing ones
+      updatedPhotos = report.photos;
+    }
+    
+    // Normalize damages severity values if present
+    let normalizedDamages = report.damages;
+    if (req.body.damages && Array.isArray(req.body.damages)) {
+      normalizedDamages = req.body.damages.map(damage => ({
+        ...damage,
+        severity: normalizeSeverity(damage.severity)
+      }));
     }
 
     // Create a new object with the original report as a base, then apply updates
@@ -279,7 +376,7 @@ const updateReport = async (req, res, next) => {
       inspectionDate: req.body.inspectionDate || report.inspectionDate,
       weather: req.body.weather || report.weather,
       summary: req.body.summary !== undefined ? req.body.summary : report.summary,
-      damages: req.body.damages || report.damages,
+      damages: normalizedDamages,
       recommendations: req.body.recommendations !== undefined 
         ? (Array.isArray(req.body.recommendations) 
             ? req.body.recommendations.join('\n\n') 
@@ -327,7 +424,7 @@ const updateReport = async (req, res, next) => {
 };
 
 /**
- * Delete report
+ * Delete a report
  * @route DELETE /api/reports/:id
  * @access Private
  */
@@ -340,152 +437,98 @@ const deleteReport = async (req, res, next) => {
     }
 
     // Check if user is authorized to delete this report
-    if (
-      report.user.toString() !== req.user.id &&
-      req.user.role !== 'admin'
-    ) {
+    if (report.user.toString() !== req.user.id && req.user.role !== 'admin') {
       throw new ApiError(403, 'Not authorized to delete this report');
     }
 
-    // 1. Delete all associated photos from GridFS
+    // Explicitly delete all associated photos
     if (report.photos && report.photos.length > 0) {
       logger.info(`Deleting ${report.photos.length} photos associated with report ${report._id}`);
       
-      // Process each photo
       for (const photo of report.photos) {
+        if (!photo._id) continue;
+        
         try {
-          // Find files in GridFS - first try to find by both reportId and filename
-          const reportIdStr = report._id.toString();
+          // Convert to ObjectId if needed
+          const photoId = typeof photo._id === 'string' 
+            ? new mongoose.Types.ObjectId(photo._id) 
+            : photo._id;
           
-          // Primary query: look for files with both reportId and filename
-          let files = await gridfs.findFiles({ 
-            filename: photo.filename,
-            'metadata.reportId': reportIdStr
+          // Find all related files (original, optimized, thumbnail)
+          const files = await gridfs.findFiles({
+            $or: [
+              { _id: photoId },
+              { 'metadata.originalFileId': photoId.toString() },
+              { 'metadata.reportId': report._id.toString() }
+            ]
           });
           
-          // If no files found with reportId, fall back to filename only
-          // This handles files uploaded before reportId was implemented
-          if (!files || files.length === 0) {
-            files = await gridfs.findFiles({ filename: photo.filename });
-            logger.info(`No files found with reportId, falling back to filename match for: ${photo.filename}`);
-          }
-          
           if (files && files.length > 0) {
-            // Delete all matching files from GridFS
-            const deletionPromises = files.map(file => gridfs.deleteFile(file._id));
-            await Promise.all(deletionPromises);
-            logger.info(`Deleted ${files.length} files for photo ${photo.filename}`);
+            logger.info(`Found ${files.length} GridFS files related to photo ${photoId}`);
             
-            // Also look for any related files (thumbnails, optimized versions)
-            // Use reportId if available for more precise matching
-            const relatedQuery = reportIdStr ? 
-              { 
-                'metadata.originalName': photo.filename,
-                'metadata.reportId': reportIdStr
-              } : 
-              { 'metadata.originalName': photo.filename };
-              
-            const relatedFiles = await gridfs.findFiles(relatedQuery);
-            
-            if (relatedFiles && relatedFiles.length > 0) {
-              const relatedDeletionPromises = relatedFiles.map(file => gridfs.deleteFile(file._id));
-              await Promise.all(relatedDeletionPromises);
-              logger.info(`Deleted ${relatedFiles.length} related files for photo ${photo.filename}`);
+            // Delete each file
+            for (const file of files) {
+              await gridfs.deleteFile(file._id);
+              logger.info(`Deleted GridFS file: ${file._id}`);
             }
           } else {
-            logger.warn(`No GridFS files found for photo ${photo.filename}`);
-            
-            // Fallback to filesystem for backwards compatibility
-            if (photo.path) {
-              const filePath = path.resolve(photo.path);
-              if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-                logger.info(`Deleted photo file from filesystem: ${filePath}`);
-              }
-            }
+            logger.warn(`No GridFS files found for photo ${photoId}`);
           }
-        } catch (photoError) {
-          // Log error but continue with other photos
-          logger.error(`Error deleting photo ${photo.filename}: ${photoError.message}`);
+        } catch (err) {
+          logger.error(`Error deleting photo ${photo._id}: ${err.message}`);
+          // Continue with other photos even if one fails
         }
       }
     }
 
-    // 2. Delete associated PDF file if exists
-    if (report.pdfPath) {
-      try {
-        const pdfPath = path.resolve(report.pdfPath);
-        if (fs.existsSync(pdfPath)) {
-          fs.unlinkSync(pdfPath);
-          logger.info(`Deleted PDF file: ${pdfPath}`);
-        } else {
-          logger.warn(`PDF file not found: ${pdfPath}`);
-        }
-      } catch (pdfError) {
-        // Log error but continue with report deletion
-        logger.error(`Error deleting PDF file: ${pdfError.message}`);
-      }
-    }
-
-    // 3. Delete the report itself
-    await Report.deleteOne({ _id: report._id });
-    logger.info(`Report ${report._id} deleted successfully`);
+    // Now delete the report
+    await Report.findByIdAndDelete(req.params.id);
 
     res.status(200).json({
       success: true,
       data: {},
+      message: 'Report deleted successfully'
     });
   } catch (error) {
-    logger.error(`Error deleting report: ${error.message}`);
+    logger.error(`Error deleting report: ${error.message}`, error);
     next(error);
   }
 };
 
 /**
- * Add photos to report
+ * Add photos to a report
  * @route POST /api/reports/:id/photos
  * @access Private
  */
 const addPhotos = async (req, res, next) => {
   try {
-    // Check if files exist
+    logger.info(`Received request to add photos to report ${req.params.id}`);
+    
+    // Check if any files were uploaded
     if (!req.files || req.files.length === 0) {
-      throw new ApiError(400, 'Please upload at least one photo');
+      throw new ApiError(400, 'No photos uploaded');
     }
-
+    
+    // Check user authorization for report modification
     const report = await Report.findById(req.params.id);
-
     if (!report) {
       throw new ApiError(404, 'Report not found');
     }
-
-    // Check if user is authorized to update this report
-    if (
-      report.user.toString() !== req.user.id &&
-      req.user.role !== 'admin'
-    ) {
-      throw new ApiError(403, 'Not authorized to update this report');
+    
+    // Ensure user has permission to modify this report
+    if (report.user.toString() !== req.user.id && req.user.role !== 'admin') {
+      throw new ApiError(403, 'Not authorized to modify this report');
     }
-
-    // Process uploaded files
-    const newPhotos = req.files.map((file, index) => ({
-      path: `/uploads/${file.filename}`,
-      filename: file.originalname,
-      order: report.photos.length + index + 1,
-      section: req.body.section || 'Uncategorized',
-      userDescription: req.body.description || '',
-    }));
-
-    // Add new photos to report
-    report.photos = [...report.photos, ...newPhotos];
-    await report.save();
-
-    res.status(200).json({
-      success: true,
-      data: {
-        photos: newPhotos,
-      },
-    });
+    
+    // Add reportId to the request body so the photo upload can link photos to the report
+    req.body.reportId = req.params.id;
+    
+    // Use our consolidated photo upload function
+    const uploadPhotos = require('../controllers/photoController').uploadPhotos;
+    await uploadPhotos(req, res, next);
+    
+    // The photo upload function will take care of everything including the response
+    
   } catch (error) {
     next(error);
   }
@@ -513,6 +556,46 @@ const generatePdf = async (req, res, next) => {
     }
 
     logger.info(`Found report with ${report.photos?.length || 0} photos`);
+    
+    // If the report has photos with blob URLs, we need to try to resolve them to actual GridFS files
+    if (report.photos && report.photos.length > 0) {
+      const blobPhotos = report.photos.filter(p => p.path && p.path.startsWith('blob:'));
+      
+      if (blobPhotos.length > 0) {
+        logger.info(`Report has ${blobPhotos.length} photos with blob URLs that need to be resolved`);
+        
+        // Try to find actual files in GridFS by filename
+        const gridfs = require('../utils/gridfs');
+        const allFiles = await gridfs.findFiles({});
+        logger.info(`Found ${allFiles.length} files in GridFS to match against`);
+        
+        // Create a map of filenames to GridFS IDs
+        const filenameMap = {};
+        allFiles.forEach(file => {
+          if (file.filename) {
+            filenameMap[file.filename] = file._id;
+          }
+        });
+        
+        // Update any photos that have a filename but still have a blob URL
+        let updatedPhotos = false;
+        blobPhotos.forEach(photo => {
+          if (photo.filename && filenameMap[photo.filename]) {
+            logger.info(`Replacing blob URL with GridFS ID for photo ${photo.filename}`);
+            photo.gridfsId = filenameMap[photo.filename].toString();
+            // Set a flag to indicate updates were made
+            updatedPhotos = true;
+          }
+        });
+        
+        // If we updated any photos, save the report back to the database
+        if (updatedPhotos) {
+          logger.info(`Saving updated report with GridFS IDs to database`);
+          await report.save();
+          logger.info(`Successfully saved report with updated GridFS IDs`);
+        }
+      }
+    }
     
     // Generate the PDF using pdfGenerationService
     const pdfBuffer = await pdfGenerationService.generatePdf(report);

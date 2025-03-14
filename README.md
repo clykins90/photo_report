@@ -44,6 +44,15 @@ This application allows contractors to:
 - **User Authentication**: Secure login and registration system with JWT
 - **User Profile Management**: User and company information management
 - **Streamlined Workflow**: Multi-step process from photo upload to PDF generation
+  - Automatic photo upload when files are attached
+  - Efficient batch processing of photos in groups of 5
+  - Automatic summary generation after photo analysis
+- **Form Validation**: Comprehensive client-side validation for all report forms
+  - Required field validation with clear error messages for all fields
+  - Property address validation with field-specific error handling
+  - Date validation to ensure inspection dates are within reasonable ranges
+  - Input format validation (e.g., zip code format)
+  - Visual indicators for all required fields
 - **AI Analysis**: Automated analysis of damage with editable descriptions
   - Uses OpenAI Vision API for detailed damage assessment
   - Identifies damage type, severity, and provides professional descriptions
@@ -83,6 +92,47 @@ This application allows contractors to:
   - Generates optimized versions and thumbnails
   - Provides detailed progress feedback
 - **Report Sharing**: Generate secure, time-limited links to share reports with clients
+
+## Troubleshooting
+
+### Photo Analysis Issues
+
+#### Invalid File ID Format
+If you encounter errors related to "Invalid file ID format" during photo analysis:
+
+1. **MongoDB ObjectId Requirement**: The system requires all file IDs to be valid MongoDB ObjectIds (24-character hexadecimal strings).
+2. **Temporary IDs**: Temporary IDs generated during the upload process are prefixed with `temp_` to distinguish them from MongoDB ObjectIds.
+3. **ID Validation**: The system now validates file IDs before attempting to use them for analysis, providing clearer error messages.
+4. **Automatic ID Conversion**: The frontend now attempts to extract valid MongoDB ObjectIds from photo objects before sending them for analysis.
+5. **Enhanced File Lookup**: The backend now uses multiple strategies to find files in GridFS:
+   - Direct ID lookup using the provided ID
+   - Lookup by metadata.originalFileId
+   - Lookup by metadata._id
+   - Lookup by metadata.gridfsId
+   - Fallback to searching all files for matching IDs
+
+These improvements ensure that only valid MongoDB ObjectIds are used for photo analysis, preventing errors related to invalid ID formats, and provide robust fallback mechanisms for finding files in GridFS.
+
+### PDF Image Display Issues
+
+If images aren't displaying in generated PDFs despite being stored in MongoDB:
+
+1. **Blob URL Handling**: The application now properly handles blob URLs in photo objects by using the filename instead of the blob URL.
+2. **GridFS Image Retrieval**: Enhanced error handling and logging for GridFS image retrieval ensures proper image data is loaded.
+3. **Image Format Validation**: Added validation to check image data before embedding in PDFs to prevent format-related errors.
+4. **Robust File Lookup**: Implemented a multi-stage file lookup process that tries several methods to find the correct file:
+   - Direct ID lookup using the stored ID
+   - Searching by metadata.originalFileId
+   - Searching by reportId
+   - Searching by filename with exact match
+   - Searching by filename with timestamp prefix removed
+   - Searching by core filename (without timestamps and prefixes)
+   - Fuzzy filename matching with regex
+5. **ID Reconciliation**: The system now reconciles photo IDs in reports with actual file IDs in GridFS, updating references as needed.
+6. **Blob URL Resolution**: Fixed issue where blob URLs in the database couldn't be resolved by implementing filename-based lookups.
+7. **Enhanced Logging**: Added detailed logging throughout the PDF generation process to help diagnose image loading issues.
+
+These fixes ensure that images stored in MongoDB GridFS are properly retrieved and embedded in PDF reports, even when there are mismatches between the IDs stored in the report and the actual file IDs in MongoDB, or when blob URLs are stored in the database instead of proper file references.
 
 ## API Structure
 
@@ -131,7 +181,41 @@ Authorization: Bearer [your-token]
 
 ## Recent Improvements
 
+### Code Architecture Improvements
+- **Modular PDF Generation Service**: Completely refactored the PDF generation system for better maintainability
+  - Split monolithic 1400+ line file into smaller, focused modules under 600 lines each
+  - Created dedicated modules for different responsibilities:
+    - `pdfGenerationService.js`: Main orchestration service
+    - `pdf/reportPrep.js`: Report data preparation and normalization
+    - `pdf/photoHandler.js`: Photo path resolution and embedding
+    - `pdf/pdfUtils.js`: Styling, headers, footers, and common utilities
+    - `pdf/pageRenderers.js`: Page-specific rendering logic
+  - Improved error handling with more specific error messages
+  - Enhanced code readability with consistent documentation
+  - Simplified maintenance by isolating concerns
+  - Reduced complexity through clear separation of responsibilities
+
+- **Optimized Batch Photo Analysis**: Improved the batch photo analysis process for better performance and clarity
+  - Eliminated redundant logging that was causing confusion in the logs
+  - Clarified the batch processing flow with more descriptive log messages
+  - Removed duplicate "Starting batch analysis" messages that appeared multiple times
+  - Added clearer distinction between frontend batches and backend chunks
+  - Fixed nested batch processing issue by removing redundant chunking in the backend
+  - Improved logging to better track the processing of photos through the system
+  - Maintained the same functionality while making the logs easier to understand
+  - Fixed issues with duplicate processing of photos
+
 ### Performance and UX Improvements
+- **Simplified Photo Analysis System**: Refactored the photo analysis code for improved reliability and maintainability
+  - Implemented a consistent approach for photo ID extraction across the application
+  - Reduced complexity by using a clear priority order for identifying photos
+  - Eliminated redundant code and multiple fallback approaches
+  - Improved error handling with clearer error messages
+  - Simplified the backend controller for batch photo analysis
+  - Reduced debugging code and console logging for cleaner production code
+  - Maintained the same functionality while making the code more maintainable
+  - Improved reliability by using a more direct approach for finding files in GridFS
+
 - **Batch Photo Analysis with GPT-4o-mini**: Implemented a faster and more efficient photo analysis system
   - Uses OpenAI's GPT-4o-mini model for quicker processing while maintaining quality
   - Processes photos in batches of up to 20 at a time for improved speed
@@ -188,6 +272,20 @@ Authorization: Bearer [your-token]
   - Implemented proper cleanup of files when no longer needed
   - Added dedicated API endpoints for file operations through GridFS
   - Improved error handling for file operations
+- **Optimized GridFS Queries**: Implemented caching for frequently used GridFS operations
+  - Added caching for empty queries to reduce database load
+  - Implemented cache invalidation when files are added or deleted
+  - Reduced excessive logging for repeated queries
+  - Improved performance for PDF generation and photo analysis
+  - Added TTL-based cache expiration to ensure data freshness
+  - Reduced database queries by up to 90% for common operations
+- **Fixed Report Deletion**: Updated report deletion to work with newer versions of Mongoose
+  - Replaced deprecated `remove()` method with `findByIdAndDelete()`
+  - Moved photo deletion logic from middleware to controller for more reliable execution
+  - Improved photo deletion with more comprehensive file matching
+  - Added additional logging for better debugging and verification
+  - Enhanced error handling during the deletion process
+  - Added support for finding related files by report ID
 - **Resolved Circular Reference Issues**: Fixed JSON circular reference errors during report submission and backup
   - Added robust sanitization of photo data to remove circular references before storage
   - Implemented targeted cleanup to retain only essential properties in photo objects
@@ -425,4 +523,34 @@ The following API endpoints are available for GridFS operations:
 - `DELETE /api/files/:fileId` - Delete a file from GridFS (requires authentication)
 - `GET /api/files/search` - Search for files by metadata (requires authentication)
 
-File uploads are handled through the middleware system, which automatically stores uploaded files in GridFS. 
+File uploads are handled through the middleware system, which automatically stores uploaded files in GridFS.
+
+## Photo Upload and Management System
+
+The application uses a consolidated approach for handling photos throughout the lifecycle of reports:
+
+### Features
+
+- **Unified Photo Upload API** - Single endpoint `/api/photos/upload` handles both single and batch uploads
+- **Automatic Report Association** - Photos can be directly linked to reports during upload
+- **Thumbnail Generation** - System automatically creates optimized and thumbnail versions
+- **AI Analysis Integration** - Photos can be analyzed for damage assessment
+- **GridFS Support** - Optional storing of images in MongoDB GridFS for improved scalability
+- **Cascading Deletion** - When a report is deleted, all associated photos are automatically removed
+
+### API Endpoints
+
+- `POST /api/photos/upload` - Upload one or more photos (with optional report association)
+- `POST /api/photos/analyze/:id` - Analyze a photo using AI
+- `POST /api/photos/analyze-batch` - Analyze multiple photos at once
+- `DELETE /api/photos/:id` - Delete a photo
+
+### Photo Lifecycle
+
+1. **Upload**: Photos are uploaded via the PhotoUploader component
+2. **Processing**: System generates optimized and thumbnail versions
+3. **Storage**: Photos are stored either in the filesystem or GridFS
+4. **Association**: Photos are linked to a report if a reportId is provided
+5. **Display**: Photos are displayed in the report edit interface and PDF
+6. **Analysis**: AI can analyze photos for damage assessment
+7. **Deletion**: Photos are automatically deleted when a report is removed

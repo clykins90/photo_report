@@ -24,7 +24,7 @@ const BasicInfoStep = ({ formData, handleChange, nextStep }) => {
       
       <div className="mb-4">
         <label className="block text-foreground text-sm font-bold mb-2" htmlFor="title">
-          Report Title
+          Report Title <span className="text-red-500">*</span>
         </label>
         <input
           className={`shadow appearance-none border ${errors.title ? 'border-red-500' : 'border-input'} rounded w-full py-2 px-3 bg-background text-foreground leading-tight focus:outline-none focus:shadow-outline`}
@@ -43,7 +43,7 @@ const BasicInfoStep = ({ formData, handleChange, nextStep }) => {
       
       <div className="mb-4">
         <label className="block text-foreground text-sm font-bold mb-2" htmlFor="clientName">
-          Client Name
+          Client Name <span className="text-red-500">*</span>
         </label>
         <input
           className={`shadow appearance-none border ${errors.clientName ? 'border-red-500' : 'border-input'} rounded w-full py-2 px-3 bg-background text-foreground leading-tight focus:outline-none focus:shadow-outline`}
@@ -62,62 +62,79 @@ const BasicInfoStep = ({ formData, handleChange, nextStep }) => {
       
       <div className="mb-4">
         <label className="block text-foreground text-sm font-bold mb-2">
-          Property Address
+          Property Address <span className="text-red-500">*</span>
         </label>
+        
+        {errors.propertyAddress?.general && (
+          <p className="text-red-500 text-xs italic mb-2">{errors.propertyAddress.general}</p>
+        )}
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <input
-              className={`shadow appearance-none border ${errors.propertyAddress ? 'border-red-500' : 'border-input'} rounded w-full py-2 px-3 bg-background text-foreground leading-tight focus:outline-none focus:shadow-outline`}
+              className={`shadow appearance-none border ${errors.propertyAddress?.street ? 'border-red-500' : 'border-input'} rounded w-full py-2 px-3 bg-background text-foreground leading-tight focus:outline-none focus:shadow-outline`}
               type="text"
               name="propertyAddress.street"
               value={formData.propertyAddress.street}
               onChange={handleChange}
               placeholder="Street Address"
+              required
             />
+            {errors.propertyAddress?.street && (
+              <p className="text-red-500 text-xs italic mt-1">{errors.propertyAddress.street}</p>
+            )}
           </div>
           
           <div>
             <input
-              className={`shadow appearance-none border ${errors.propertyAddress ? 'border-red-500' : 'border-input'} rounded w-full py-2 px-3 bg-background text-foreground leading-tight focus:outline-none focus:shadow-outline`}
+              className={`shadow appearance-none border ${errors.propertyAddress?.city ? 'border-red-500' : 'border-input'} rounded w-full py-2 px-3 bg-background text-foreground leading-tight focus:outline-none focus:shadow-outline`}
               type="text"
               name="propertyAddress.city"
               value={formData.propertyAddress.city}
               onChange={handleChange}
               placeholder="City"
+              required
             />
+            {errors.propertyAddress?.city && (
+              <p className="text-red-500 text-xs italic mt-1">{errors.propertyAddress.city}</p>
+            )}
           </div>
           
           <div>
             <input
-              className={`shadow appearance-none border ${errors.propertyAddress ? 'border-red-500' : 'border-input'} rounded w-full py-2 px-3 bg-background text-foreground leading-tight focus:outline-none focus:shadow-outline`}
+              className={`shadow appearance-none border ${errors.propertyAddress?.state ? 'border-red-500' : 'border-input'} rounded w-full py-2 px-3 bg-background text-foreground leading-tight focus:outline-none focus:shadow-outline`}
               type="text"
               name="propertyAddress.state"
               value={formData.propertyAddress.state}
               onChange={handleChange}
               placeholder="State"
+              required
             />
+            {errors.propertyAddress?.state && (
+              <p className="text-red-500 text-xs italic mt-1">{errors.propertyAddress.state}</p>
+            )}
           </div>
           
           <div>
             <input
-              className={`shadow appearance-none border ${errors.propertyAddress ? 'border-red-500' : 'border-input'} rounded w-full py-2 px-3 bg-background text-foreground leading-tight focus:outline-none focus:shadow-outline`}
+              className={`shadow appearance-none border ${errors.propertyAddress?.zipCode ? 'border-red-500' : 'border-input'} rounded w-full py-2 px-3 bg-background text-foreground leading-tight focus:outline-none focus:shadow-outline`}
               type="text"
               name="propertyAddress.zipCode"
               value={formData.propertyAddress.zipCode}
               onChange={handleChange}
               placeholder="Zip Code"
+              required
             />
+            {errors.propertyAddress?.zipCode && (
+              <p className="text-red-500 text-xs italic mt-1">{errors.propertyAddress.zipCode}</p>
+            )}
           </div>
         </div>
-        {errors.propertyAddress && (
-          <p className="text-red-500 text-xs italic mt-1">{errors.propertyAddress}</p>
-        )}
       </div>
       
       <div className="mb-4">
         <label className="block text-foreground text-sm font-bold mb-2" htmlFor="inspectionDate">
-          Inspection Date
+          Inspection Date <span className="text-red-500">*</span>
         </label>
         <input
           className={`shadow appearance-none border ${errors.inspectionDate ? 'border-red-500' : 'border-input'} rounded w-full py-2 px-3 bg-background text-foreground leading-tight focus:outline-none focus:shadow-outline`}
@@ -136,6 +153,7 @@ const BasicInfoStep = ({ formData, handleChange, nextStep }) => {
       <div className="mb-4">
         <label className="block text-foreground text-sm font-bold mb-2">
           Weather Conditions
+          <span className="text-sm font-normal ml-2">(Optional)</span>
         </label>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

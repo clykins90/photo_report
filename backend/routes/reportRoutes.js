@@ -14,7 +14,7 @@ const {
   generateSummary
 } = require('../controllers/reportController');
 const { protect } = require('../middleware/auth');
-const { uploadMultiple } = require('../middleware/tempUpload');
+const { uploadMany } = require('../middleware/uploadMiddleware');
 
 const router = express.Router();
 
@@ -34,7 +34,7 @@ router.route('/:id')
 // @route   POST /api/reports/:id/photos
 // @desc    Add photos to report
 // @access  Private
-router.post('/:id/photos', uploadMultiple('photos', 20), addPhotos);
+router.post('/:id/photos', uploadMany('photos', 20), addPhotos);
 
 // @route   POST /api/reports/:id/generate-pdf
 // @desc    Generate a PDF for a report

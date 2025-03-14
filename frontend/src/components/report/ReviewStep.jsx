@@ -25,20 +25,6 @@ const ReviewStep = ({
     setValidationErrors(errors);
   }, [formData]);
   
-  // Debug function to show user and company info
-  const showDebugInfo = () => {
-    console.log("Current User:", user);
-    console.log("User ID:", user?._id);
-    console.log("Company ID:", user?.company);
-    
-    alert(`User ID: ${user?._id || 'Not found'}\nCompany ID: ${user?.company || 'Not found'}`);
-  };
-  
-  // Check if we're in development mode
-  const isDevelopment = import.meta.env.MODE === 'development' || 
-                        window.location.hostname === 'localhost' || 
-                        window.location.hostname === '127.0.0.1';
-  
   // Get the best available image URL for a photo (same function as in AIAnalysisStep)
   const getBestImageUrl = (photo) => {
     const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
@@ -132,21 +118,6 @@ const ReviewStep = ({
               </div>
             </div>
           </div>
-        </div>
-      )}
-      
-      {isDevelopment && (
-        <div className="mb-4 p-2 bg-secondary/20 rounded">
-          <button 
-            type="button"
-            onClick={showDebugInfo}
-            className="text-xs bg-purple-500 hover:bg-purple-700 text-white py-1 px-2 rounded"
-          >
-            Debug: Check User/Company IDs
-          </button>
-          <p className="text-xs text-muted-foreground mt-1">
-            Developer mode: Click to check user and company IDs in console
-          </p>
         </div>
       )}
       

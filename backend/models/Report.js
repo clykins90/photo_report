@@ -1,5 +1,47 @@
 const mongoose = require('mongoose');
 
+// Photo subdocument schema
+const PhotoSchema = new mongoose.Schema({
+  _id: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+  },
+  path: {
+    type: String,
+    required: true,
+  },
+  filename: {
+    type: String,
+    required: true,
+  },
+  thumbnailUrl: {
+    type: String,
+  },
+  optimizedUrl: {
+    type: String,
+  },
+  section: {
+    type: String,
+    enum: ['Exterior', 'Interior', 'Roof', 'Attic', 'Other', 'Damage', 'Uncategorized'],
+    default: 'Uncategorized'
+  },
+  userDescription: {
+    type: String,
+    default: ''
+  },
+  aiAnalysis: {
+    description: String,
+    tags: [String],
+    damageDetected: Boolean,
+    confidence: Number,
+    severity: {
+      type: String,
+      enum: ['minor', 'moderate', 'severe', 'critical', 'unknown'],
+      default: 'unknown'
+    }
+  }
+});
+
 const reportSchema = new mongoose.Schema(
   {
     user: {
@@ -88,52 +130,7 @@ const reportSchema = new mongoose.Schema(
         },
       },
     ],
-    photos: [
-      {
-        path: {
-          type: String,
-          required: true,
-        },
-        filename: {
-          type: String,
-          required: true,
-        },
-        section: {
-          type: String,
-          default: 'Uncategorized',
-        },
-        aiAnalysis: {
-          damageDetected: {
-            type: Boolean,
-            default: false,
-          },
-          damageType: {
-            type: String,
-            trim: true,
-          },
-          severity: {
-            type: String,
-            enum: ['minor', 'moderate', 'severe', null],
-            default: null,
-          },
-          description: {
-            type: String,
-            trim: true,
-          },
-          tags: [String],
-          confidenceScore: {
-            type: Number,
-            min: 0,
-            max: 1,
-            default: 0,
-          },
-        },
-        userDescription: {
-          type: String,
-          trim: true,
-        },
-      },
-    ],
+    photos: [PhotoSchema],
     recommendations: {
       type: String,
       trim: true,
@@ -163,6 +160,9 @@ const reportSchema = new mongoose.Schema(
 
 // Index for faster queries
 reportSchema.index({ user: 1 });
+
+// Note: Photo deletion is now handled explicitly in the reportController.js
+// The pre-findOneAndDelete hook has been removed to avoid potential issues
 
 const Report = mongoose.model('Report', reportSchema);
 

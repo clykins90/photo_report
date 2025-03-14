@@ -1,6 +1,6 @@
 const express = require('express');
 const { 
-  uploadBatchPhotos, 
+  uploadPhotos, 
   uploadSinglePhoto, 
   deletePhoto,
   analyzePhoto,
@@ -8,8 +8,7 @@ const {
   getPhoto
 } = require('../controllers/photoController');
 const { protect } = require('../middleware/auth');
-const { uploadMultiple, uploadSingle } = require('../middleware/tempUpload');
-const { uploadMultipleToGridFS, uploadSingleToGridFS } = require('../middleware/gridfsUpload');
+const { uploadMany, uploadSingle } = require('../middleware/uploadMiddleware');
 const { validateImageFiles, validateSingleImage } = require('../middleware/fileValidator');
 const logger = require('../utils/logger');
 
@@ -30,87 +29,43 @@ router.get('/:filename', getPhoto);
 // All protected routes require authentication
 router.use(protect);
 
-// @route   POST /api/photos/batch
-// @desc    Upload and process a batch of photos
+// @route   POST /api/photos/upload
+// @desc    Main endpoint for uploading photos (single or batch)
 // @access  Private
 router.post(
-  '/batch',
+  '/upload',
   (req, res, next) => {
-    logger.info('Starting batch photo upload process');
+    logger.info('Starting photo upload process');
     next();
   },
-  uploadMultiple('photos', 50),
+  uploadMany('photos', 50),
   validateImageFiles(),
-  uploadBatchPhotos
-);
-
-// @route   POST /api/photos/batch/gridfs
-// @desc    Upload and process a batch of photos directly to GridFS
-// @access  Private
-router.post(
-  '/batch/gridfs',
-  (req, res, next) => {
-    logger.info('Starting batch photo upload process with GridFS');
-    next();
-  },
-  uploadMultipleToGridFS('photos', 50),
-  validateImageFiles(),
-  uploadBatchPhotos
+  uploadPhotos
 );
 
 // @route   POST /api/photos/single
-// @desc    Upload and process a single photo
+// @desc    Legacy endpoint for single photo upload (maintained for backward compatibility)
 // @access  Private
 router.post(
   '/single',
-  (req, res, next) => {
-    logger.info('Starting single photo upload process');
-    next();
-  },
   uploadSingle('photo'),
   validateSingleImage(),
   uploadSinglePhoto
 );
 
-// @route   POST /api/photos/single/gridfs
-// @desc    Upload and process a single photo directly to GridFS
+// @route   POST /api/photos/analyze/:id
+// @desc    Analyze a photo using AI
 // @access  Private
-router.post(
-  '/single/gridfs',
-  (req, res, next) => {
-    logger.info('Starting single photo upload process with GridFS');
-    next();
-  },
-  uploadSingleToGridFS('photo'),
-  validateSingleImage(),
-  uploadSinglePhoto
-);
-
-// Main ID-based routes (preferred)
-// @route   POST /api/photos/analyze-by-id/:id
-// @desc    Analyze a photo using AI with file ID
-// @access  Private
-router.post('/analyze-by-id/:id', analyzePhoto);
+router.post('/analyze/:id', analyzePhoto);
 
 // @route   POST /api/photos/analyze-batch
-// @desc    Analyze multiple photos (up to 20) at once using AI
+// @desc    Analyze multiple photos at once using AI
 // @access  Private
 router.post('/analyze-batch', analyzeBatchPhotos);
 
-// @route   DELETE /api/photos/delete-by-id/:id
-// @desc    Delete a photo by ID
+// @route   DELETE /api/photos/:id
+// @desc    Delete a photo
 // @access  Private
-router.delete('/delete-by-id/:id', deletePhoto);
-
-// Legacy filename-based routes (maintained for backward compatibility)
-// @route   POST /api/photos/analyze/:filename
-// @desc    Analyze a photo using AI with filename
-// @access  Private
-router.post('/analyze/:filename', analyzePhoto);
-
-// @route   DELETE /api/photos/:filename
-// @desc    Delete a photo by filename
-// @access  Private
-router.delete('/:filename', deletePhoto);
+router.delete('/:id', deletePhoto);
 
 module.exports = router; 
