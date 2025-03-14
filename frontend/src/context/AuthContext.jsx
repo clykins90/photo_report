@@ -171,8 +171,18 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       setLoading(true);
+      
+      // Enhanced logging for debugging
+      console.log('Login attempt details:', {
+        email,
+        apiBaseUrl: api.defaults.baseURL,
+        environment: import.meta.env.MODE
+      });
+      
       const res = await api.post('/api/auth/login', { email, password });
       
+      console.log('Login successful, response:', res.status, res.statusText);
+
       // Ensure the logged in user has a valid company property
       let userData = res.data.data.user;
       
@@ -235,7 +245,28 @@ export const AuthProvider = ({ children }) => {
       setError(null);
       return res.data;
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed');
+      console.error('Login error details:', {
+        message: err.message,
+        status: err.response?.status,
+        statusText: err.response?.statusText,
+        data: err.response?.data,
+        url: err.config?.url,
+        baseURL: err.config?.baseURL,
+        fullURL: err.config?.baseURL + err.config?.url,
+        headers: err.response?.headers,
+        networkError: !err.response
+      });
+      
+      // Set a more descriptive error message based on the status code
+      if (err.response?.status === 404) {
+        setError('API endpoint not found. Please check your network connection or try again later.');
+      } else if (err.response?.status === 401) {
+        setError(err.response?.data?.message || 'Invalid credentials');
+      } else if (!err.response) {
+        setError('Network error. Please check your connection and try again.');
+      } else {
+        setError(err.response?.data?.message || 'Login failed');
+      }
       throw err;
     } finally {
       setLoading(false);

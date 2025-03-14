@@ -53,6 +53,13 @@ const gridfsRoutes = require('./routes/gridfsRoutes');
 // Create Express app
 const app = express();
 
+// Add verbose logging for debugging on Vercel
+app.use((req, res, next) => {
+  console.log(`Incoming request: ${req.method} ${req.originalUrl}`);
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  next();
+});
+
 // Set server timeout for large uploads
 app.timeout = config.serverTimeout || 300000; // 5 minutes default
 
@@ -109,21 +116,23 @@ if (!isVercel) {
   logger.info('Running in Vercel environment, skipping directory creation');
 }
 
-// Middleware
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-  contentSecurityPolicy: {
-    directives: {
-      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      'img-src': ["'self'", 'data:', 'blob:', '*'],
-    },
-  },
-})); // Security headers
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173', '*'],
+// Set security headers using Helmet
+// Modify CSP for development environments
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+  })
+);
+
+// Set up CORS - in production restrict to your domain
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://photo-report.vercel.app', 'https://photo-report-app.vercel.app'] 
+    : '*',
   credentials: true,
-  exposedHeaders: ['Content-Disposition']
-})); // Enable CORS
+  optionsSuccessStatus: 200,
+};
+app.use(cors(corsOptions));
 
 // Configure body parser for larger payloads
 app.use(express.json({ limit: config.maxRequestSize || '50mb' }));

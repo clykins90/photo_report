@@ -15,10 +15,15 @@ const api = axios.create({
 
 // Fix for double /api prefix in URLs
 const fixApiPath = (url) => {
-  // If we're in production and the baseURL is already '/api'
-  if (import.meta.env.VITE_API_URL === '/api' && url.startsWith('/api/')) {
+  // Check if we're in production with a relative baseURL
+  const isRelativeBaseUrl = api.defaults.baseURL === '/api';
+  
+  // If baseURL is already '/api' and the URL also starts with '/api/'
+  if (isRelativeBaseUrl && url.startsWith('/api/')) {
+    // Log the transformation for debugging
+    console.log(`Fixing API path: ${url} → ${url.substring(4)}`);
     // Remove the leading /api from the URL since it's already in baseURL
-    return url.substring(4); // Remove '/api' prefix
+    return url.substring(4);
   }
   return url;
 };
@@ -37,7 +42,7 @@ api.interceptors.request.use(
     
     // Reduce logging for photo uploads which can be verbose
     if (!isPhotoUpload || !isFormData) {
-      console.log('API Request:', config.method.toUpperCase(), config.url);
+      console.log('API Request:', config.method.toUpperCase(), config.url, 'to', config.baseURL + config.url);
     }
     
     const token = localStorage.getItem('token');
