@@ -71,15 +71,17 @@ const PhotoUploader = ({
     }
   }, [addFiles, reportId]);
   
-  // Notify parent when photos change
+  // Notify parent when photos change, but only for non-upload changes
   useEffect(() => {
-    if (onUploadComplete && !uploading && !analyzing) {
+    // Skip calling onUploadComplete during or right after uploads
+    // This avoids duplicate calls since we're handling it directly in uploadFilesToServer
+    if (onUploadComplete && !uploading && !analyzing && !uploadProgress) {
       // Only pass photos with valid MongoDB IDs to the parent component
       const validPhotos = getValidPhotos();
-      console.log('PhotoUploader sending valid photos to parent:', validPhotos.length);
+      console.log('PhotoUploader sending valid photos to parent (from useEffect):', validPhotos.length);
       onUploadComplete(validPhotos);
     }
-  }, [photos, uploading, analyzing, onUploadComplete, getValidPhotos]);
+  }, [photos, uploading, analyzing, uploadProgress, onUploadComplete, getValidPhotos]);
   
   // Upload files to server
   const uploadFilesToServer = async (filesToUpload) => {
@@ -121,11 +123,16 @@ const PhotoUploader = ({
         console.log('Photos returned:', photos.length);
         console.log('ID mappings:', Object.keys(idMapping).length);
         
+        // Create a local array to track updated photos with valid IDs
+        const updatedPhotos = [];
+        
         if (photos.length > 0) {
           // Update our photo collection with the server data
           photos.forEach(serverPhoto => {
             if (serverPhoto.clientId) {
               updatePhotoAfterUpload(serverPhoto.clientId, serverPhoto);
+              // Add to our local array of updated photos
+              updatedPhotos.push(serverPhoto);
             }
           });
         } else if (Object.keys(idMapping).length > 0) {
@@ -155,6 +162,8 @@ const PhotoUploader = ({
               
               console.log('Created photo object from ID mapping:', photoData);
               updatePhotoAfterUpload(clientId, photoData);
+              // Add to our local array of updated photos
+              updatedPhotos.push(photoData);
             } else {
               console.warn(`No matching file found for clientId ${clientId}`);
               
@@ -184,6 +193,8 @@ const PhotoUploader = ({
                 
                 console.log('Created photo object from alternative match:', photoData);
                 updatePhotoAfterUpload(matchingFile.clientId || clientId, photoData);
+                // Add to our local array of updated photos
+                updatedPhotos.push(photoData);
               } else {
                 // Create a minimal photo object with just the server ID
                 console.log(`Creating minimal photo object for clientId ${clientId}`);
@@ -199,22 +210,28 @@ const PhotoUploader = ({
                 console.log('Created minimal photo object:', photoData);
                 // Add this as a new photo since we couldn't find a matching one
                 setPhotos(prev => [...prev, photoData]);
+                // Also add to our local array of updated photos
+                updatedPhotos.push(photoData);
               }
             }
           });
         } else {
           setError('No photos or ID mappings returned from server');
         }
+        
+        // After upload completes, notify parent with the updated photos
+        // Use the local array instead of waiting for state to update
+        if (onUploadComplete && updatedPhotos.length > 0) {
+          console.log('Upload complete, sending updated photos to parent:', updatedPhotos.length);
+          onUploadComplete(updatedPhotos);
+        } else {
+          console.warn('No updated photos available to send to parent');
+        }
       } else {
         setError(result.error || 'Failed to upload photos');
       }
       
-      // After upload completes, notify parent with valid photos
-      if (onUploadComplete) {
-        const validPhotos = getValidPhotos();
-        console.log('Upload complete, sending valid photos to parent:', validPhotos.length);
-        onUploadComplete(validPhotos);
-      }
+      // Remove the duplicate call to onUploadComplete since we're now handling it above
     } catch (err) {
       setError(`Upload error: ${err.message}`);
     } finally {
