@@ -46,12 +46,13 @@ export const uploadChunkedPhoto = async (file, reportId, clientId, progressCallb
       totalChunks
     });
 
-    if (!initResponse.data.success) {
+    // Check if initialization was successful by looking for status or fileId
+    if (!initResponse.data.fileId || initResponse.data.status !== 'initialized') {
       throw new Error(initResponse.data.error || 'Failed to initialize chunked upload');
     }
 
-    const { uploadId } = initResponse.data;
-    photoLogger.info(`Upload session initialized with ID: ${uploadId}`);
+    const fileId = initResponse.data.fileId;
+    photoLogger.info(`Upload session initialized with ID: ${fileId}`);
 
     // Track uploaded chunks
     const uploadedChunks = new Set();
@@ -76,7 +77,7 @@ export const uploadChunkedPhoto = async (file, reportId, clientId, progressCallb
           // Create form data for this chunk
           const formData = new FormData();
           formData.append('chunk', chunk);
-          formData.append('uploadId', uploadId);
+          formData.append('fileId', fileId);  // Use fileId instead of uploadId
           formData.append('chunkIndex', chunkIndex);
           formData.append('totalChunks', totalChunks);
 
@@ -87,7 +88,8 @@ export const uploadChunkedPhoto = async (file, reportId, clientId, progressCallb
             }
           });
 
-          if (response.data.success) {
+          // Check for success in the response
+          if (response.data && (response.data.success || response.data.progress)) {
             uploadedChunks.add(chunkIndex);
             
             // Update progress
@@ -99,7 +101,7 @@ export const uploadChunkedPhoto = async (file, reportId, clientId, progressCallb
             success = true;
             photoLogger.debug(`Chunk ${chunkIndex + 1}/${totalChunks} uploaded successfully`);
           } else {
-            throw new Error(response.data.error || `Failed to upload chunk ${chunkIndex}`);
+            throw new Error(response.data?.error || `Failed to upload chunk ${chunkIndex}`);
           }
         } catch (error) {
           retries++;
@@ -135,7 +137,7 @@ export const uploadChunkedPhoto = async (file, reportId, clientId, progressCallb
 
     // Complete the upload
     const completeResponse = await api.post('/photos/complete-upload', {
-      uploadId,
+      fileId,
       reportId,
       clientId,
       filename: file.name,
