@@ -194,9 +194,35 @@ const PhotoUploader = ({
             // Collect all uploaded photos for the callback
             const uploadedPhotos = completedUploads
               .filter(upload => upload.result?.photo)
-              .map(upload => upload.result.photo);
+              .map(upload => {
+                console.log('Raw upload result:', upload.result);
+                const photo = upload.result.photo;
+                
+                // Ensure the photo has a valid MongoDB ID
+                // Sometimes the ID might be in a different format or field
+                if (!photo._id && photo.id) {
+                  photo._id = photo.id;
+                } else if (!photo._id && photo.fileId) {
+                  photo._id = photo.fileId;
+                }
+                
+                // Ensure the ID is a string
+                if (photo._id && typeof photo._id !== 'string') {
+                  photo._id = photo._id.toString();
+                }
+                
+                return photo;
+              });
             
             console.log('Calling onUploadComplete with photos:', uploadedPhotos);
+            console.log('Photo details:', uploadedPhotos.map(photo => ({
+              _id: photo._id,
+              id: photo.id,
+              fileId: photo.fileId,
+              status: photo.status,
+              hasValidId: photo._id && typeof photo._id === 'string' && /^[0-9a-fA-F]{24}$/.test(photo._id),
+              keys: Object.keys(photo)
+            })));
             
             // Call the completion callback with the uploaded photos
             if (onUploadComplete && uploadedPhotos.length > 0) {
@@ -638,6 +664,11 @@ const PhotoUploader = ({
                     {file.status === 'uploading' && (
                       <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                         Uploading
+                      </span>
+                    )}
+                    {file.status === 'uploaded' && (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        Uploaded
                       </span>
                     )}
                     {file.status === 'analyzing' && (

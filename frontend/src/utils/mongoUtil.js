@@ -8,8 +8,28 @@
  * @returns {boolean} - Whether the ID is valid
  */
 export const isValidObjectId = (id) => {
-  // Must be a string and match the format of 24 hex characters
-  return id && typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+  // If it's not a value, it's not valid
+  if (!id) return false;
+  
+  // Convert to string if it's not already
+  const idStr = typeof id !== 'string' ? String(id) : id;
+  
+  // Standard MongoDB ObjectId is a 24-character hex string
+  if (/^[0-9a-fA-F]{24}$/.test(idStr)) {
+    return true;
+  }
+  
+  // Some systems might use UUIDs which are 36 characters with hyphens
+  if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(idStr)) {
+    return true;
+  }
+  
+  // Some systems might use UUIDs without hyphens (32 chars)
+  if (/^[0-9a-fA-F]{32}$/.test(idStr)) {
+    return true;
+  }
+  
+  return false;
 };
 
 /**
@@ -50,6 +70,25 @@ export const extractPhotoObjectId = (photo) => {
   // Try serverId next
   if (photo.serverId && isValidObjectId(photo.serverId)) {
     return photo.serverId;
+  }
+  
+  // Try fileId next
+  if (photo.fileId && isValidObjectId(photo.fileId)) {
+    return photo.fileId;
+  }
+  
+  // Try photoId next
+  if (photo.photoId && isValidObjectId(photo.photoId)) {
+    return photo.photoId;
+  }
+  
+  // If we have a path that contains an ID, try to extract it
+  if (photo.path && typeof photo.path === 'string') {
+    const pathParts = photo.path.split('/');
+    const potentialId = pathParts[pathParts.length - 1];
+    if (isValidObjectId(potentialId)) {
+      return potentialId;
+    }
   }
   
   return null;
