@@ -268,6 +268,23 @@ if (require.main === module) {
   app.listen(PORT, () => {
     logger.info(`Server running on port ${PORT}`);
   });
+  
+  // Set up scheduled cleanup for abandoned chunked uploads
+  // Run every 30 minutes
+  const CLEANUP_INTERVAL = 30 * 60 * 1000; // 30 minutes in milliseconds
+  
+  setInterval(async () => {
+    try {
+      const cleanedCount = await gridfs.cleanupChunkedUploads(60); // Clean uploads older than 60 minutes
+      if (cleanedCount > 0) {
+        logger.info(`Cleaned up ${cleanedCount} abandoned chunked upload sessions`);
+      }
+    } catch (error) {
+      logger.error(`Error during chunked upload cleanup: ${error.message}`);
+    }
+  }, CLEANUP_INTERVAL);
+  
+  logger.info(`Scheduled chunked upload cleanup to run every ${CLEANUP_INTERVAL / 60000} minutes`);
 }
 
 // Export the Express app for serverless functions

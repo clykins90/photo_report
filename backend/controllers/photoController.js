@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const fs = require('fs');
 const fsPromises = fs.promises;
 const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
 const gridfs = require('../utils/gridfs');
 const Report = require('../models/Report');
@@ -392,9 +393,153 @@ const analyzePhotos = async (req, res) => {
   }
 };
 
+/**
+ * Initialize a chunked upload
+ * @route POST /api/photos/upload-chunk/init
+ * @access Private
+ */
+const initChunkedUpload = async (req, res) => {
+  try {
+    // Validate request
+    if (!req.body.reportId) {
+      return res.status(400).json({ error: 'Report ID is required' });
+    }
+    
+    if (!req.body.totalChunks || parseInt(req.body.totalChunks) <= 0) {
+      return res.status(400).json({ error: 'Valid total chunks count is required' });
+    }
+    
+    if (!req.body.filename) {
+      return res.status(400).json({ error: 'Filename is required' });
+    }
+    
+    const reportId = req.body.reportId;
+    const totalChunks = parseInt(req.body.totalChunks);
+    const filename = req.body.filename;
+    const contentType = req.body.contentType || 'application/octet-stream';
+    const clientId = req.body.clientId || null;
+    
+    // Find report
+    const report = await Report.findById(reportId);
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+    
+    // Generate a unique file ID
+    const fileId = uuidv4();
+    
+    // Initialize chunked upload session
+    const session = await gridfs.createChunkedUploadSession(fileId, {
+      totalChunks,
+      filename: `${reportId}_${Date.now()}_${filename}`,
+      contentType,
+      metadata: {
+        reportId,
+        originalName: filename,
+        uploadDate: new Date(),
+        clientId
+      }
+    });
+    
+    logger.info(`Initialized chunked upload for file ${filename} with ${totalChunks} chunks`);
+    
+    res.status(200).json({
+      fileId,
+      totalChunks,
+      filename,
+      status: 'initialized'
+    });
+  } catch (error) {
+    logger.error(`Error initializing chunked upload: ${error.message}`);
+    res.status(500).json({ error: 'Failed to initialize chunked upload' });
+  }
+};
+
+/**
+ * Upload a chunk
+ * @route POST /api/photos/upload-chunk
+ * @access Private
+ */
+const uploadChunk = async (req, res) => {
+  try {
+    // Validation is done in middleware
+    const { fileId, chunkIndex, totalChunks } = req.body;
+    
+    // Write chunk to session
+    const chunkStatus = await gridfs.writeChunk(fileId, chunkIndex, req.file.buffer);
+    
+    logger.info(`Uploaded chunk ${chunkIndex + 1}/${totalChunks} for file ${fileId}`);
+    
+    res.status(200).json(chunkStatus);
+  } catch (error) {
+    logger.error(`Error uploading chunk: ${error.message}`);
+    res.status(500).json({ error: 'Failed to upload chunk' });
+  }
+};
+
+/**
+ * Complete a chunked upload
+ * @route POST /api/photos/complete-upload
+ * @access Private
+ */
+const completeChunkedUpload = async (req, res) => {
+  try {
+    // Validate request
+    if (!req.body.fileId) {
+      return res.status(400).json({ error: 'File ID is required' });
+    }
+    
+    if (!req.body.reportId) {
+      return res.status(400).json({ error: 'Report ID is required' });
+    }
+    
+    const fileId = req.body.fileId;
+    const reportId = req.body.reportId;
+    
+    // Find report
+    const report = await Report.findById(reportId);
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+    
+    // Complete the chunked upload
+    const fileInfo = await gridfs.completeChunkedUpload(fileId);
+    
+    // Create photo object for the report
+    const photo = {
+      _id: fileInfo.id,
+      fileId: fileInfo.id,
+      filename: fileInfo.filename,
+      originalName: fileInfo.metadata.originalName,
+      contentType: fileInfo.contentType,
+      path: `/api/photos/${fileInfo.id}`,
+      status: 'pending',
+      uploadDate: new Date(),
+      clientId: fileInfo.metadata.clientId
+    };
+    
+    // Add photo to report
+    report.photos.push(photo);
+    await report.save();
+    
+    logger.info(`Completed chunked upload for file ${fileId}, added to report ${reportId}`);
+    
+    res.status(200).json({
+      success: true,
+      photo
+    });
+  } catch (error) {
+    logger.error(`Error completing chunked upload: ${error.message}`);
+    res.status(500).json({ error: 'Failed to complete chunked upload' });
+  }
+};
+
 module.exports = {
   uploadPhotos,
   getPhoto,
   deletePhoto,
-  analyzePhotos
+  analyzePhotos,
+  initChunkedUpload,
+  uploadChunk,
+  completeChunkedUpload
 }; 

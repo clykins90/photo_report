@@ -10,6 +10,9 @@ const buckets = {
   pdf_report: null
 };
 
+// Store temporary chunks
+const tempChunks = {};
+
 /**
  * Initialize a GridFS bucket
  * @param {string} bucketName - Name of the bucket to initialize
@@ -395,6 +398,168 @@ const downloadFile = async (fileId, bucketName = 'photos') => {
   }
 };
 
+/**
+ * Create a new chunked upload session
+ * @param {string} fileId - Unique ID for the file being uploaded
+ * @param {Object} options - Upload options
+ * @param {string} bucketName - Name of the bucket to use
+ * @returns {Promise<Object>} Session information
+ */
+const createChunkedUploadSession = async (fileId, options = {}, bucketName = 'photos') => {
+  try {
+    // Initialize bucket if needed
+    await initGridFS(bucketName);
+    
+    // Create a new entry in tempChunks
+    tempChunks[fileId] = {
+      chunks: new Array(options.totalChunks || 0).fill(null),
+      metadata: options.metadata || {},
+      filename: options.filename || `chunked_${Date.now()}`,
+      contentType: options.contentType || 'application/octet-stream',
+      totalChunks: options.totalChunks || 0,
+      receivedChunks: 0,
+      complete: false,
+      createdAt: new Date(),
+      bucketName
+    };
+    
+    logger.info(`Created chunked upload session for file ${fileId} with ${options.totalChunks} chunks`);
+    
+    return {
+      fileId,
+      filename: tempChunks[fileId].filename,
+      totalChunks: tempChunks[fileId].totalChunks,
+      status: 'initialized'
+    };
+  } catch (error) {
+    logger.error(`Error creating chunked upload session: ${error.message}`);
+    throw error;
+  }
+};
+
+/**
+ * Write a chunk to a chunked upload session
+ * @param {string} fileId - ID of the file being uploaded
+ * @param {number} chunkIndex - Index of the chunk
+ * @param {Buffer} chunkData - Chunk data
+ * @returns {Promise<Object>} Chunk status
+ */
+const writeChunk = async (fileId, chunkIndex, chunkData) => {
+  try {
+    // Check if session exists
+    if (!tempChunks[fileId]) {
+      throw new Error(`Chunked upload session not found for file ID: ${fileId}`);
+    }
+    
+    const session = tempChunks[fileId];
+    
+    // Validate chunk index
+    if (chunkIndex < 0 || chunkIndex >= session.totalChunks) {
+      throw new Error(`Invalid chunk index: ${chunkIndex}`);
+    }
+    
+    // Store chunk
+    session.chunks[chunkIndex] = chunkData;
+    session.receivedChunks++;
+    
+    logger.info(`Received chunk ${chunkIndex + 1}/${session.totalChunks} for file ${fileId}`);
+    
+    return {
+      fileId,
+      chunkIndex,
+      receivedChunks: session.receivedChunks,
+      totalChunks: session.totalChunks,
+      progress: Math.round((session.receivedChunks / session.totalChunks) * 100),
+      complete: session.receivedChunks === session.totalChunks
+    };
+  } catch (error) {
+    logger.error(`Error writing chunk: ${error.message}`);
+    throw error;
+  }
+};
+
+/**
+ * Complete a chunked upload by combining chunks and storing in GridFS
+ * @param {string} fileId - ID of the file being uploaded
+ * @param {Object} options - Additional options for the final file
+ * @returns {Promise<Object>} File information
+ */
+const completeChunkedUpload = async (fileId, options = {}) => {
+  try {
+    // Check if session exists
+    if (!tempChunks[fileId]) {
+      throw new Error(`Chunked upload session not found for file ID: ${fileId}`);
+    }
+    
+    const session = tempChunks[fileId];
+    
+    // Check if all chunks are received
+    if (session.receivedChunks !== session.totalChunks) {
+      throw new Error(`Cannot complete upload: only ${session.receivedChunks}/${session.totalChunks} chunks received`);
+    }
+    
+    // Combine chunks into a single buffer
+    let totalSize = 0;
+    session.chunks.forEach(chunk => {
+      totalSize += chunk.length;
+    });
+    
+    const combinedBuffer = Buffer.concat(session.chunks, totalSize);
+    
+    // Update metadata with any new options
+    const metadata = {
+      ...session.metadata,
+      ...(options.metadata || {})
+    };
+    
+    // Upload the combined file to GridFS
+    const uploadResult = await uploadBuffer(combinedBuffer, {
+      filename: options.filename || session.filename,
+      contentType: options.contentType || session.contentType,
+      metadata
+    }, session.bucketName);
+    
+    logger.info(`Completed chunked upload for file ${fileId}, final size: ${totalSize} bytes`);
+    
+    // Clean up the temporary chunks
+    delete tempChunks[fileId];
+    
+    return uploadResult;
+  } catch (error) {
+    logger.error(`Error completing chunked upload: ${error.message}`);
+    throw error;
+  }
+};
+
+/**
+ * Clean up abandoned chunked upload sessions
+ * @param {number} maxAgeMinutes - Maximum age in minutes before cleanup
+ * @returns {Promise<number>} Number of sessions cleaned up
+ */
+const cleanupChunkedUploads = async (maxAgeMinutes = 60) => {
+  try {
+    const now = new Date();
+    const maxAge = maxAgeMinutes * 60 * 1000; // Convert to milliseconds
+    let cleanedCount = 0;
+    
+    for (const fileId in tempChunks) {
+      const session = tempChunks[fileId];
+      const sessionAge = now - session.createdAt;
+      
+      if (sessionAge > maxAge) {
+        delete tempChunks[fileId];
+        cleanedCount++;
+        logger.info(`Cleaned up abandoned chunked upload session for file ${fileId}, age: ${Math.round(sessionAge / 60000)} minutes`);
+      }
+    }
+    
+    return cleanedCount;
+  } catch (error) {
+    logger.error(`Error cleaning up chunked uploads: ${error.message}`);
+    return 0;
+  }
+};
+
 module.exports = {
   initGridFS,
   uploadFile,
@@ -404,5 +569,9 @@ module.exports = {
   findFiles,
   uploadPdfReport,
   streamPdfReport,
-  downloadFile
+  downloadFile,
+  createChunkedUploadSession,
+  writeChunk,
+  completeChunkedUpload,
+  cleanupChunkedUploads
 }; 

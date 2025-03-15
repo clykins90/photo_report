@@ -3,10 +3,14 @@ const {
   uploadPhotos, 
   getPhoto,
   deletePhoto,
-  analyzePhotos
+  analyzePhotos,
+  initChunkedUpload,
+  uploadChunk,
+  completeChunkedUpload
 } = require('../controllers/photoController');
 const { protect } = require('../middleware/auth');
 const { uploadMany } = require('../middleware/uploadMiddleware');
+const { uploadChunk: uploadChunkMiddleware, validateChunk } = require('../middleware/chunkMiddleware');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -33,6 +37,26 @@ router.post(
   uploadMany('photos', 20),
   uploadPhotos
 );
+
+// @route   POST /api/photos/upload-chunk/init
+// @desc    Initialize a chunked upload
+// @access  Private
+router.post('/upload-chunk/init', initChunkedUpload);
+
+// @route   POST /api/photos/upload-chunk
+// @desc    Upload a chunk
+// @access  Private
+router.post(
+  '/upload-chunk',
+  uploadChunkMiddleware(),
+  validateChunk,
+  uploadChunk
+);
+
+// @route   POST /api/photos/complete-upload
+// @desc    Complete a chunked upload
+// @access  Private
+router.post('/complete-upload', completeChunkedUpload);
 
 // @route   POST /api/photos/analyze
 // @desc    Analyze photos using AI
