@@ -102,7 +102,23 @@ export const extractPhotoObjectId = (photo) => {
 export const filterPhotosWithValidIds = (photos) => {
   if (!photos || !Array.isArray(photos)) return [];
   
-  return photos.filter(photo => extractPhotoObjectId(photo) !== null);
+  console.log(`Filtering ${photos.length} photos for valid MongoDB IDs`);
+  
+  // Add detailed debugging for the first photo
+  if (photos.length > 0) {
+    const firstPhoto = photos[0];
+    console.log('First photo in filterPhotosWithValidIds:', {
+      _id: firstPhoto._id,
+      fileId: firstPhoto.fileId,
+      clientId: firstPhoto.clientId,
+      hasValidId: extractPhotoObjectId(firstPhoto) !== null
+    });
+  }
+  
+  const validPhotos = photos.filter(photo => extractPhotoObjectId(photo) !== null);
+  console.log(`Found ${validPhotos.length} photos with valid MongoDB IDs`);
+  
+  return validPhotos;
 };
 
 export default {

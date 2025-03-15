@@ -73,15 +73,24 @@ const usePhotoUploadState = (initialPhotos = []) => {
 
   // Update photo after server upload with MongoDB ID
   const updatePhotoAfterUpload = useCallback((clientId, serverData) => {
+    console.log(`Updating photo with clientId ${clientId} with server data:`, serverData);
+    
     setPhotos(prevPhotos => {
       return prevPhotos.map(photo => {
         if (photo.clientId === clientId) {
-          return { 
+          const updatedPhoto = { 
             ...photo, 
             ...serverData, 
             status: 'uploaded',
             uploadProgress: 100
           };
+          console.log(`Updated photo with MongoDB ID:`, {
+            clientId,
+            _id: updatedPhoto._id,
+            fileId: updatedPhoto.fileId,
+            isValid: updatedPhoto._id ? /^[0-9a-fA-F]{24}$/.test(updatedPhoto._id) : false
+          });
+          return updatedPhoto;
         }
         return photo;
       });

@@ -74,9 +74,12 @@ const PhotoUploader = ({
   // Notify parent when photos change
   useEffect(() => {
     if (onUploadComplete && !uploading && !analyzing) {
-      onUploadComplete(photos);
+      // Only pass photos with valid MongoDB IDs to the parent component
+      const validPhotos = getValidPhotos();
+      console.log('PhotoUploader sending valid photos to parent:', validPhotos.length);
+      onUploadComplete(validPhotos);
     }
-  }, [photos, uploading, analyzing, onUploadComplete]);
+  }, [photos, uploading, analyzing, onUploadComplete, getValidPhotos]);
   
   // Upload files to server
   const uploadFilesToServer = async (filesToUpload) => {
@@ -134,27 +137,83 @@ const PhotoUploader = ({
             // Find original file with this clientId
             const originalFile = filesToUpload.find(f => f.clientId === clientId);
             
-            // Create a minimal photo object with the server ID
-            const photoData = {
-              _id: serverId,
-              fileId: serverId,
-              clientId: clientId,
-              status: 'uploaded',
-              uploadProgress: 100,
-              filename: originalFile?.name || 'unknown',
-              originalName: originalFile?.name || 'unknown',
-              contentType: originalFile?.type || 'image/jpeg',
-              path: `/api/photos/${serverId}`
-            };
-            
-            console.log('Created photo object from ID mapping:', photoData);
-            updatePhotoAfterUpload(clientId, photoData);
+            if (originalFile) {
+              console.log(`Found matching file for clientId ${clientId}:`, originalFile);
+              
+              // Create a minimal photo object with the server ID
+              const photoData = {
+                _id: serverId,
+                fileId: serverId,
+                clientId: clientId,
+                status: 'uploaded',
+                uploadProgress: 100,
+                filename: originalFile.name || 'unknown',
+                originalName: originalFile.name || 'unknown',
+                contentType: originalFile.type || 'image/jpeg',
+                path: `/api/photos/${serverId}`
+              };
+              
+              console.log('Created photo object from ID mapping:', photoData);
+              updatePhotoAfterUpload(clientId, photoData);
+            } else {
+              console.warn(`No matching file found for clientId ${clientId}`);
+              
+              // Try to find a file by name or other properties
+              const matchingFile = filesToUpload.find(f => {
+                // Try to match by name if available
+                if (f.name && f.name.includes(clientId)) return true;
+                // Try other matching strategies if needed
+                return false;
+              });
+              
+              if (matchingFile) {
+                console.log(`Found alternative matching file for clientId ${clientId}:`, matchingFile);
+                
+                // Create a photo object with the server ID
+                const photoData = {
+                  _id: serverId,
+                  fileId: serverId,
+                  clientId: matchingFile.clientId || clientId,
+                  status: 'uploaded',
+                  uploadProgress: 100,
+                  filename: matchingFile.name || 'unknown',
+                  originalName: matchingFile.name || 'unknown',
+                  contentType: matchingFile.type || 'image/jpeg',
+                  path: `/api/photos/${serverId}`
+                };
+                
+                console.log('Created photo object from alternative match:', photoData);
+                updatePhotoAfterUpload(matchingFile.clientId || clientId, photoData);
+              } else {
+                // Create a minimal photo object with just the server ID
+                console.log(`Creating minimal photo object for clientId ${clientId}`);
+                const photoData = {
+                  _id: serverId,
+                  fileId: serverId,
+                  clientId: clientId,
+                  status: 'uploaded',
+                  uploadProgress: 100,
+                  path: `/api/photos/${serverId}`
+                };
+                
+                console.log('Created minimal photo object:', photoData);
+                // Add this as a new photo since we couldn't find a matching one
+                setPhotos(prev => [...prev, photoData]);
+              }
+            }
           });
         } else {
           setError('No photos or ID mappings returned from server');
         }
       } else {
         setError(result.error || 'Failed to upload photos');
+      }
+      
+      // After upload completes, notify parent with valid photos
+      if (onUploadComplete) {
+        const validPhotos = getValidPhotos();
+        console.log('Upload complete, sending valid photos to parent:', validPhotos.length);
+        onUploadComplete(validPhotos);
       }
     } catch (err) {
       setError(`Upload error: ${err.message}`);
