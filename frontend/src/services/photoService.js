@@ -275,11 +275,13 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
       }
     };
     
-    // Results containers
+    // Results containers - using standardized format
     const results = {
       success: true,
-      photos: [],
-      idMapping: {}
+      data: {
+        photos: [],
+        idMapping: {}
+      }
     };
     
     // Upload large files using chunked upload
@@ -304,9 +306,22 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
             }
           );
           
-          if (response.success && response.photo) {
-            results.photos.push(response.photo);
-            results.idMapping[clientId] = response.photo._id;
+          // Extract photo from either standard or legacy response format
+          let responsePhoto = null;
+          if (response.success) {
+            // Handle both response formats
+            if (response.data && response.data.photo) {
+              // New format
+              responsePhoto = response.data.photo;
+            } else if (response.photo) {
+              // Legacy format
+              responsePhoto = response.photo;
+            }
+          }
+          
+          if (responsePhoto) {
+            results.data.photos.push(responsePhoto);
+            results.data.idMapping[clientId] = responsePhoto._id;
             updateProgress(0, true); // Mark this file as complete
           } else {
             throw new Error(response.error || `Failed to upload file ${file.name}`);
@@ -379,10 +394,24 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
           const response = await api.post('/photos/upload', formData, config);
           
           if (response.data.success) {
+            // Extract the standardized data
+            let batchPhotos = [];
+            let batchIdMapping = {};
+            
+            if (response.data.data) {
+              // New format
+              batchPhotos = response.data.data.photos || [];
+              batchIdMapping = response.data.data.idMapping || {};
+            } else {
+              // Legacy format
+              batchPhotos = response.data.photos || [];
+              batchIdMapping = response.data.idMapping || {};
+            }
+            
             // Return the results from this batch
             return {
-              photos: response.data.photos || [],
-              idMapping: response.data.idMapping || {}
+              photos: batchPhotos,
+              idMapping: batchIdMapping
             };
           } else {
             throw new Error(response.data.error || `Failed to upload batch of ${batch.length} files`);
@@ -394,8 +423,8 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
         
         // Combine results from all batches
         batchResults.forEach(result => {
-          results.photos = [...results.photos, ...result.photos];
-          Object.assign(results.idMapping, result.idMapping);
+          results.data.photos = [...results.data.photos, ...result.photos];
+          Object.assign(results.data.idMapping, result.idMapping);
         });
         
         // Mark these batches as complete

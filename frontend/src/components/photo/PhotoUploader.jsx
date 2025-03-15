@@ -109,13 +109,50 @@ const PhotoUploader = ({
         fileMetadata
       );
       
-      if (result.success && result.photos) {
-        // Update our photo collection with the server data
-        result.photos.forEach(serverPhoto => {
-          if (serverPhoto.clientId) {
-            updatePhotoAfterUpload(serverPhoto.clientId, serverPhoto);
-          }
-        });
+      if (result.success) {
+        // Get photos and idMapping from response
+        const photos = result.photos || [];
+        const idMapping = result.idMapping || {};
+        
+        console.log('Upload result:', result);
+        console.log('Photos returned:', photos.length);
+        console.log('ID mappings:', Object.keys(idMapping).length);
+        
+        if (photos.length > 0) {
+          // Update our photo collection with the server data
+          photos.forEach(serverPhoto => {
+            if (serverPhoto.clientId) {
+              updatePhotoAfterUpload(serverPhoto.clientId, serverPhoto);
+            }
+          });
+        } else if (Object.keys(idMapping).length > 0) {
+          // If we have id mapping but no photos, construct photo objects from the mapping
+          console.log('No photos in response but found ID mappings - creating photo objects');
+          
+          // Match the clientIds with the original files to get necessary metadata
+          Object.entries(idMapping).forEach(([clientId, serverId]) => {
+            // Find original file with this clientId
+            const originalFile = filesToUpload.find(f => f.clientId === clientId);
+            
+            // Create a minimal photo object with the server ID
+            const photoData = {
+              _id: serverId,
+              fileId: serverId,
+              clientId: clientId,
+              status: 'uploaded',
+              uploadProgress: 100,
+              filename: originalFile?.name || 'unknown',
+              originalName: originalFile?.name || 'unknown',
+              contentType: originalFile?.type || 'image/jpeg',
+              path: `/api/photos/${serverId}`
+            };
+            
+            console.log('Created photo object from ID mapping:', photoData);
+            updatePhotoAfterUpload(clientId, photoData);
+          });
+        } else {
+          setError('No photos or ID mappings returned from server');
+        }
       } else {
         setError(result.error || 'Failed to upload photos');
       }

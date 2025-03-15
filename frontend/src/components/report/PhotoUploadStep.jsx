@@ -17,15 +17,17 @@ const PhotoUploadStep = ({
   const handleUploadComplete = (newPhotos) => {
     console.log('PhotoUploadStep handleUploadComplete received:', newPhotos.length);
     
-    // Only call onUploadComplete if we have photos with valid MongoDB IDs
-    if (onUploadComplete && newPhotos && newPhotos.length > 0) {
-      // Filter photos to only those with valid MongoDB IDs
-      const validPhotos = filterPhotosWithValidIds(newPhotos);
+    // Only continue if we have photos
+    if (newPhotos && newPhotos.length > 0) {
+      // Sample the first photo to debug
+      console.log('First photo:', newPhotos[0]);
       
+      // Filter to only photos with valid MongoDB IDs
+      const validPhotos = filterPhotosWithValidIds(newPhotos);
       console.log('Photos with valid IDs:', validPhotos.length);
       
-      if (validPhotos.length > 0) {
-        // Call parent handler
+      // If we have valid photos, call the parent handler
+      if (validPhotos.length > 0 && onUploadComplete) {
         onUploadComplete(validPhotos);
       } else {
         console.warn('No photos with valid MongoDB IDs found. Check server response format.');
