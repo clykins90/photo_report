@@ -50,6 +50,9 @@ This application allows contractors to:
 ### Photo Storage and Processing
 - MongoDB GridFS for efficient storage of large photo collections
 - Optimized photo upload process with batch processing
+- Chunked upload support for large files to prevent timeouts
+- Concurrent uploads for both regular and chunked files
+- Configurable batch sizes and concurrency levels
 - Automatic thumbnail generation for faster loading
 - Secure photo access with proper authentication
 - AI-powered photo analysis using OpenAI's Vision API
@@ -98,6 +101,16 @@ The photo service has been simplified to focus on the core functionality:
 - `POST /api/photos/upload`: Upload multiple photos for a report
   - Accepts client-generated IDs for reliable file tracking
   - Returns a mapping of client IDs to server IDs
+  - Automatically uses regular upload for small files (< 5MB)
+- `POST /api/photos/upload-chunk/init`: Initialize a chunked upload session
+  - Creates a new upload session for large files
+  - Returns an upload ID for tracking chunks
+- `POST /api/photos/upload-chunk`: Upload a single chunk of a file
+  - Accepts chunk index, total chunks, and upload ID
+  - Stores chunks temporarily until all are received
+- `POST /api/photos/complete-upload`: Complete a chunked upload
+  - Combines all chunks into the final file
+  - Stores the file in GridFS and associates it with the report
 - `GET /api/photos/:id`: Retrieve a photo (original or thumbnail)
 - `POST /api/photos/analyze`: Analyze photos with AI
   - Can analyze by reportId (all unanalyzed photos in a report)

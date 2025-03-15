@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { uploadBatchPhotos, analyzePhotos, getPhotoUrl } from '../../services/photoService';
+import useUploadManager from '../../hooks/useUploadManager';
 
 // Helper function to extract the filename from a file object
 const extractFilename = (file) => {
@@ -34,6 +35,14 @@ const PhotoUploader = ({
   // Store temporary URLs to avoid creating them during render
   const tempUrlCache = useRef(new Map());
 
+  // Initialize the upload manager
+  const uploadManager = useUploadManager({
+    maxConcurrentUploads: 3,
+    chunkSize: 500 * 1024, // 500KB chunks
+    concurrentChunks: 3,
+    autoStart: false // We'll start manually after preparing the files
+  });
+
   // Helper to check if a blob URL is valid
   const isBlobUrlValid = (url) => {
     if (!url || !url.startsWith('blob:')) return false;
@@ -48,6 +57,7 @@ const PhotoUploader = ({
     
     // Check if we already have a URL for this file
     const fileId = file.name || file.path || Math.random().toString();
+    
     if (tempUrlCache.current.has(fileId)) {
       return tempUrlCache.current.get(fileId);
     }
@@ -62,113 +72,107 @@ const PhotoUploader = ({
       return null;
     }
   };
-
+  
   // Helper to safely revoke blob URLs
   const safelyRevokeBlobUrl = (url) => {
     if (url && url.startsWith('blob:') && activeBlobUrls.current.has(url)) {
       try {
         URL.revokeObjectURL(url);
         activeBlobUrls.current.delete(url);
+        
+        // Also remove from cache if it exists there
+        for (const [key, value] of tempUrlCache.current.entries()) {
+          if (value === url) {
+            tempUrlCache.current.delete(key);
+            break;
+          }
+        }
       } catch (e) {
-        console.warn('Failed to revoke blob URL:', e);
+        console.error('Failed to revoke blob URL:', e);
       }
     }
   };
-
-  // Initialize with any provided photos
+  
+  // Clean up blob URLs when component unmounts
   useEffect(() => {
-    if (initialPhotos.length > 0) {
-      // Ensure all initial photos have the necessary properties
-      const processedPhotos = initialPhotos.map(photo => {
-        // Create a new object instead of modifying the original
-        const processedPhoto = { ...photo };
-        
-        // If the photo doesn't have a proper ID, generate one
-        if (!processedPhoto.id) {
-          processedPhoto.id = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    return () => {
+      // Clean up all blob URLs
+      activeBlobUrls.current.forEach(url => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          console.error('Failed to revoke blob URL during cleanup:', e);
         }
-        
-        // Store the filename in a separate property instead of modifying name
-        if (!processedPhoto.displayName) {
-          if (processedPhoto.name) {
-            processedPhoto.displayName = processedPhoto.name;
-          } else if (processedPhoto.handle && processedPhoto.handle.name) {
-            processedPhoto.displayName = processedPhoto.handle.name;
-          } else if (processedPhoto.path) {
-            processedPhoto.displayName = processedPhoto.path.split('/').pop();
-          } else if (processedPhoto.relativePath) {
-            processedPhoto.displayName = processedPhoto.relativePath.split('/').pop();
-          } else if (processedPhoto.filename) {
-            processedPhoto.displayName = processedPhoto.filename;
-          }
-        }
-        
-        return processedPhoto;
       });
-      
-      setFiles(processedPhotos);
+      activeBlobUrls.current.clear();
+      tempUrlCache.current.clear();
+    };
+  }, []);
+  
+  // Initialize with any photos passed in
+  useEffect(() => {
+    if (initialPhotos && initialPhotos.length > 0) {
+      setFiles(initialPhotos.map(photo => ({
+        id: photo._id || photo.id || `photo_${Math.random().toString(36).substring(2, 9)}`,
+        name: photo.filename || extractFilename(photo),
+        size: photo.size || 0,
+        type: photo.contentType || photo.type || 'image/jpeg',
+        preview: getPhotoUrl(photo._id || photo.id, 'thumbnail'),
+        status: 'uploaded',
+        progress: 100,
+        analysis: photo.analysis || null,
+        originalFile: photo,
+        clientId: photo.clientId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+      })));
     }
   }, [initialPhotos]);
-
-  // Prepare image URLs in advance to avoid creating them during render
+  
+  // Auto-upload when reportId becomes available
   useEffect(() => {
-    // Pre-create and cache blob URLs for all files that need them
-    files.forEach(file => {
-      if (file.originalFile && !file.preview && !tempUrlCache.current.has(file.originalFile.name || file.id)) {
-        const url = createAndTrackBlobUrl(file.originalFile);
-        if (url) {
-          // Update the file with the preview URL without triggering a full state update
-          file.preview = url;
-        }
+    if (reportId && files.length > 0 && showUploadControls) {
+      const pendingFiles = files.filter(file => file.status === 'pending');
+      
+      if (pendingFiles.length > 0) {
+        uploadFilesToServer(pendingFiles);
       }
-    });
-  }, [files]);
+    }
+  }, [files, reportId, showUploadControls]);
 
+  // Handle file drops
   const onDrop = useCallback(async (acceptedFiles) => {
     if (!showUploadControls) return; // Don't allow new files if in analyze-only mode
     
     // Add preview to each file
     const newFiles = acceptedFiles.map(file => {
-      // First check if we already have a URL for this file
-      const fileId = file.name || file.path || Math.random().toString();
-      let previewUrl = null;
-      
-      if (tempUrlCache.current.has(fileId)) {
-        previewUrl = tempUrlCache.current.get(fileId);
-      } else {
-        // Only create a new blob URL if we don't have one cached
-        previewUrl = createAndTrackBlobUrl(file);
-      }
-      
       // Generate a client ID for reliable tracking
       const clientId = `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       
+      // Create a preview URL
+      const previewUrl = createAndTrackBlobUrl(file);
+      
       // Create a new object with the file properties we need
       return {
-        // Original file reference
-        originalFile: file,
-        // Use a client ID for reliable tracking
         id: clientId,
-        clientId: clientId, // Store the client ID explicitly
-        // Use the cached or newly created blob URL
+        name: file.name || extractFilename(file),
+        size: file.size,
+        type: file.type,
         preview: previewUrl,
-        // Set initial status
         status: 'pending', // Mark as pending until uploaded to server
+        progress: 0,
         analysis: null,
-        // Store the name in a separate property
-        displayName: file.name || extractFilename(file)
+        originalFile: file,
+        clientId: clientId
       };
     });
     
     // Add new files to state
-    const updatedFiles = [...files, ...newFiles];
-    setFiles(updatedFiles);
+    setFiles(prev => [...prev, ...newFiles]);
     
     // If reportId is available, upload to server
     if (reportId && newFiles.length > 0) {
       await uploadFilesToServer(newFiles);
     }
-  }, [files, reportId, showUploadControls]);
+  }, [reportId, showUploadControls]);
 
   // Separate function to upload files to server when reportId is available
   const uploadFilesToServer = async (filesToUpload) => {
@@ -177,14 +181,6 @@ const PhotoUploader = ({
     setUploadProgress(0);
     
     try {
-      // Get original file objects
-      const originalFiles = filesToUpload.map(file => file.originalFile);
-      
-      // Prepare metadata with client IDs
-      const fileMetadata = filesToUpload.map(file => ({
-        clientId: file.clientId
-      }));
-      
       // Update files to 'uploading' status but preserve all other properties
       setFiles(prev => prev.map(file => {
         if (filesToUpload.some(newFile => newFile.id === file.id)) {
@@ -196,106 +192,114 @@ const PhotoUploader = ({
         return file;
       }));
       
-      // Upload files in batch with client IDs
-      const response = await uploadBatchPhotos(
-        originalFiles, 
+      // Prepare metadata with client IDs
+      const fileMetadata = filesToUpload.map(file => ({
+        clientId: file.clientId
+      }));
+      
+      // Add files to the upload manager queue
+      uploadManager.addToQueue(
+        filesToUpload.map(file => file.originalFile),
         reportId,
-        (progress) => {
-          setUploadProgress(progress);
-        },
-        fileMetadata // Pass the metadata with client IDs
+        fileMetadata
       );
       
-      if (!response.success) {
-        throw new Error(response.error || 'Upload failed');
-      }
+      // Start the upload process
+      uploadManager.processQueue();
       
-      console.log('Upload response:', response);
-      
-      // Check if we have photos in the response
-      if (!response.photos || !Array.isArray(response.photos) || response.photos.length === 0) {
-        console.error('No photos returned in upload response:', response);
-        throw new Error('Server did not return photo information');
-      }
-      
-      // Log the ID mapping for debugging
-      console.log('Client ID to Server ID mapping:', response.idMapping);
-      
-      // Call onUploadComplete with the updated files
-      if (onUploadComplete) {
-        // Instead of using the current files state which might be stale,
-        // use the response data directly to create updated files
-        const updatedFiles = filesToUpload.map(file => {
-          // Get the server ID for this file
-          const serverId = response.idMapping[file.clientId];
-          // Find the corresponding server file
-          const serverFile = serverId ? 
-            response.photos.find(photo => photo._id === serverId) : 
-            null;
+      // Set up a progress tracking interval
+      const progressInterval = setInterval(() => {
+        const overallProgress = uploadManager.getOverallProgress();
+        setUploadProgress(overallProgress);
+        
+        // Check if all uploads are complete
+        if (overallProgress === 100 && 
+            uploadManager.queue.length === 0 && 
+            uploadManager.activeUploads.length === 0) {
+          clearInterval(progressInterval);
           
-          if (serverFile) {
-            return {
-              ...file,
-              status: 'complete',
-              _id: serverFile._id, // Ensure MongoDB ID is set
-              id: serverFile._id,  // Update ID to match MongoDB ID
-              fileId: serverFile.fileId || serverFile._id,
-              filename: serverFile.filename,
-              originalName: serverFile.originalName,
-              // Keep the preview URL if it's still valid
-              preview: file.preview && isBlobUrlValid(file.preview) ? 
-                file.preview : 
-                `/api/photos/${serverFile._id}?size=thumbnail`,
-              displayName: file.displayName || serverFile.originalName || serverFile.filename,
-              section: serverFile.section || file.section || 'Uncategorized',
-              path: serverFile.path
-            };
-          } else {
-            // If no server file found, keep original but mark as error
-            return {
-              ...file,
-              status: 'error',
-              error: 'File was uploaded but server did not return matching ID'
-            };
+          // Process completed uploads
+          const completedUploads = uploadManager.completed;
+          if (completedUploads.length > 0) {
+            // Update file statuses based on completed uploads
+            setFiles(prev => prev.map(file => {
+              const completedUpload = completedUploads.find(
+                upload => upload.clientId === file.clientId
+              );
+              
+              if (completedUpload) {
+                return {
+                  ...file,
+                  status: 'uploaded',
+                  progress: 100,
+                  // Update with server data if available
+                  ...(completedUpload.result?.photo ? {
+                    id: completedUpload.result.photo._id,
+                    serverId: completedUpload.result.photo._id,
+                    analysis: completedUpload.result.photo.analysis || null
+                  } : {})
+                };
+              }
+              return file;
+            }));
+            
+            // Collect all uploaded photos for the callback
+            const uploadedPhotos = completedUploads
+              .filter(upload => upload.result?.photo)
+              .map(upload => upload.result.photo);
+            
+            // Call the completion callback with the uploaded photos
+            if (onUploadComplete && uploadedPhotos.length > 0) {
+              onUploadComplete(uploadedPhotos);
+            }
           }
-        });
-        
-        // Update the files state with the updated files
-        setFiles(prev => {
-          // Merge the updated files with any existing files not in this upload batch
-          const existingFiles = prev.filter(file => 
-            !filesToUpload.some(newFile => newFile.id === file.id)
-          );
-          return [...existingFiles, ...updatedFiles];
-        });
-        
-        // Add debugging to see what's being passed to the parent
-        console.log('Calling onUploadComplete with files:', updatedFiles);
-        
-        // Call onUploadComplete with the updated files
-        onUploadComplete(updatedFiles);
-      }
-    } catch (err) {
-      console.error('Upload failed:', err.message);
-      setError(err.message || 'Failed to upload photos');
+          
+          // Handle any failed uploads
+          const failedUploads = uploadManager.failed;
+          if (failedUploads.length > 0) {
+            // Update file statuses for failed uploads
+            setFiles(prev => prev.map(file => {
+              const failedUpload = failedUploads.find(
+                upload => upload.clientId === file.clientId
+              );
+              
+              if (failedUpload) {
+                return {
+                  ...file,
+                  status: 'error',
+                  error: failedUpload.error || 'Upload failed'
+                };
+              }
+              return file;
+            }));
+            
+            // Set an error message if any uploads failed
+            setError(`Failed to upload ${failedUploads.length} file(s). Please try again.`);
+          }
+          
+          setUploading(false);
+        }
+      }, 500);
       
-      // Update status of failed files but keep the preview URLs
-      setFiles(prev => {
-        const updatedFiles = prev.map(file => {
-          if (filesToUpload.some(newFile => newFile.id === file.id)) {
-            return {
-              ...file,
-              status: 'error',
-              error: err.message || 'Upload failed'
-            };
-          }
-          return file;
-        });
-        
-        return updatedFiles;
-      });
-    } finally {
+      // Clean up interval on component unmount
+      return () => clearInterval(progressInterval);
+      
+    } catch (err) {
+      console.error('Upload error:', err);
+      setError(err.message || 'Failed to upload files');
       setUploading(false);
+      
+      // Update status of files that were being uploaded
+      setFiles(prev => prev.map(file => {
+        if (filesToUpload.some(newFile => newFile.id === file.id)) {
+          return {
+            ...file,
+            status: 'error',
+            error: err.message || 'Upload failed'
+          };
+        }
+        return file;
+      }));
     }
   };
 
@@ -523,23 +527,6 @@ const PhotoUploader = ({
       )
     );
   };
-
-  // Clean up all created object URLs on unmount ONLY
-  useEffect(() => {
-    // This effect should only run on unmount
-    return () => {
-      // We'll only clean up when the component is fully unmounted
-      activeBlobUrls.current.forEach(url => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch (e) {
-          console.warn('Failed to revoke blob URL during cleanup:', e);
-        }
-      });
-      activeBlobUrls.current.clear();
-      tempUrlCache.current.clear();
-    };
-  }, []); // Empty dependency array means this only runs on mount/unmount
 
   return (
     <div className="space-y-4">
