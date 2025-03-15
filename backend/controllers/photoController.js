@@ -111,25 +111,43 @@ const uploadPhotos = async (req, res) => {
       }
     });
     
-    // Add photos to report
-    report.photos = [...report.photos, ...uploadedPhotos];
-    await report.save();
-    
-    logger.info(`Successfully uploaded ${uploadedPhotos.length} photos to report ${reportId}`);
-    
-    // Return success response
-    return apiResponse.send(res, apiResponse.success(
-      {
-        photos: uploadedPhotos,
-        idMapping
-      },
-      `Successfully uploaded ${uploadedPhotos.length} photos`,
-      {
-        total: req.files.length,
-        successful: uploadedPhotos.length,
-        failed: req.files.length - uploadedPhotos.length
+    // Add photos to report - use findOneAndUpdate to avoid version conflicts
+    try {
+      // Use findOneAndUpdate instead of save to avoid version conflicts
+      const updatedReport = await Report.findOneAndUpdate(
+        { _id: reportId },
+        { $push: { photos: { $each: uploadedPhotos } } },
+        { new: true }
+      );
+      
+      if (!updatedReport) {
+        logger.error(`Report not found during update: ${reportId}`);
+        return apiResponse.send(res, apiResponse.error('Report not found during update', null, 404));
       }
-    ));
+      
+      logger.info(`Successfully uploaded ${uploadedPhotos.length} photos to report ${reportId}`);
+      
+      // Return success response
+      return apiResponse.send(res, apiResponse.success(
+        {
+          photos: uploadedPhotos,
+          idMapping
+        },
+        `Successfully uploaded ${uploadedPhotos.length} photos`,
+        {
+          total: req.files.length,
+          successful: uploadedPhotos.length,
+          failed: req.files.length - uploadedPhotos.length
+        }
+      ));
+    } catch (error) {
+      logger.error(`Error updating report with photos: ${error.message}`);
+      return apiResponse.send(res, apiResponse.error(
+        'Failed to update report with photos',
+        { message: error.message },
+        500
+      ));
+    }
   } catch (error) {
     logger.error(`Error uploading photos: ${error.message}`);
     return apiResponse.send(res, apiResponse.error(

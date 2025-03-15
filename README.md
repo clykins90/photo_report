@@ -876,3 +876,11 @@ The backend has been optimized for performance and reliability:
    - Comprehensive error catching and reporting
    - Detailed error messages with appropriate HTTP status codes
    - Graceful degradation when services are unavailable
+
+## Changelog
+
+### March 15, 2025
+- **Fixed**: Photo upload error "No matching document found for id version 1 modifiedPaths photos"
+  - Updated photo upload process to use `findOneAndUpdate` instead of `save()` to avoid version conflicts
+  - Added better error handling for report updates during photo uploads
+  - Improved error reporting for failed photo uploads
