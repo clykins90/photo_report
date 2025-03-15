@@ -11,20 +11,21 @@ const PhotoUploadStep = ({
 }) => {
   // Add debugging to see what photos are being passed in
   useEffect(() => {
-    console.log('PhotoUploadStep received photos:', uploadedPhotos);
+    console.log('PhotoUploadStep received photos:', uploadedPhotos.length);
   }, [uploadedPhotos]);
 
-  const handleUploadComplete = (uploadedPhotos) => {
-    console.log('PhotoUploadStep handleUploadComplete received:', uploadedPhotos);
+  const handleUploadComplete = (newPhotos) => {
+    console.log('PhotoUploadStep handleUploadComplete received:', newPhotos.length);
     
     // Only call onUploadComplete if we have photos with valid MongoDB IDs
-    if (onUploadComplete && uploadedPhotos && uploadedPhotos.length > 0) {
+    if (onUploadComplete && newPhotos && newPhotos.length > 0) {
       // Filter photos to only those with valid MongoDB IDs
-      const validPhotos = filterPhotosWithValidIds(uploadedPhotos);
+      const validPhotos = filterPhotosWithValidIds(newPhotos);
       
-      console.log('Photos with valid IDs:', validPhotos);
+      console.log('Photos with valid IDs:', validPhotos.length);
       
       if (validPhotos.length > 0) {
+        // Call parent handler
         onUploadComplete(validPhotos);
       } else {
         console.warn('No photos with valid MongoDB IDs found. Check server response format.');

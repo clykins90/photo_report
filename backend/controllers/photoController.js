@@ -7,6 +7,8 @@ const logger = require('../utils/logger');
 const gridfs = require('../utils/gridfs');
 const Report = require('../models/Report');
 const photoAnalysisService = require('../services/photoAnalysisService');
+const photoFileManager = require('../utils/photoFileManager');
+const apiResponse = require('../utils/apiResponse');
 
 /**
  * Upload photos for a report
@@ -17,11 +19,11 @@ const uploadPhotos = async (req, res) => {
   try {
     // Validate request
     if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: 'No photos uploaded' });
+      return apiResponse.send(res, apiResponse.error('No photos uploaded', null, 400));
     }
     
     if (!req.body.reportId) {
-      return res.status(400).json({ error: 'Report ID is required' });
+      return apiResponse.send(res, apiResponse.error('Report ID is required', null, 400));
     }
     
     const reportId = req.body.reportId;
@@ -30,7 +32,7 @@ const uploadPhotos = async (req, res) => {
     // Find report
     const report = await Report.findById(reportId);
     if (!report) {
-      return res.status(404).json({ error: 'Report not found' });
+      return apiResponse.send(res, apiResponse.error('Report not found', null, 404));
     }
     
     // Get client ID - support both array and single value
@@ -41,105 +43,100 @@ const uploadPhotos = async (req, res) => {
       (Array.isArray(req.body.clientIds) ? req.body.clientIds : [req.body.clientIds]) : 
       [];
     
-    logger.info(`Received client ID: ${clientId}, and ${clientIds.length} client IDs for ${req.files.length} files`);
+    logger.debug(`Received client ID: ${clientId}, and ${clientIds.length} client IDs for ${req.files.length} files`);
     
-    // Process each file
-    const uploadedPhotos = [];
-    const idMapping = {};
-    const uploadPromises = [];
-    
-    // Create an array of promises for parallel processing
-    for (let i = 0; i < req.files.length; i++) {
-      const file = req.files[i];
-      
-      // Determine the client ID for this file:
-      // 1. Use the specific clientId if only one file is being uploaded
-      // 2. Otherwise use the clientIds array if available
-      const fileClientId = (req.files.length === 1 && clientId) ? 
-                           clientId : 
-                           (i < clientIds.length ? clientIds[i] : null);
-      
-      // Create a promise for this file upload
-      const uploadPromise = (async () => {
-        try {
-          // Upload file to GridFS
-          const fileInfo = await gridfs.uploadBuffer(file.buffer, {
-            filename: `${reportId}_${Date.now()}_${file.originalname}`,
-            contentType: file.mimetype,
-            metadata: {
-              reportId,
-              originalName: file.originalname,
-              uploadDate: new Date(),
-              clientId: fileClientId // Store the client ID in metadata
-            }
-          });
-          
-          // Create photo object directly for the report
-          const photo = {
-            _id: fileInfo.id,
-            fileId: fileInfo.id,
-            filename: fileInfo.filename,
+    // Process each file in parallel
+    const processFile = async (file, index) => {
+      try {
+        // Determine the client ID for this file
+        const fileClientId = (req.files.length === 1 && clientId) ? 
+                          clientId : 
+                          (index < clientIds.length ? clientIds[index] : null);
+        
+        // Upload file to GridFS
+        const fileInfo = await gridfs.uploadBuffer(file.buffer, {
+          filename: `${reportId}_${Date.now()}_${file.originalname}`,
+          contentType: file.mimetype,
+          metadata: {
+            reportId,
             originalName: file.originalname,
-            contentType: file.mimetype,
-            path: `/api/photos/${fileInfo.id}`,
-            status: 'pending',
             uploadDate: new Date(),
-            clientId: fileClientId // Include the client ID in the photo object
-          };
-          
-          // Add photo to uploadedPhotos array
-          uploadedPhotos.push(photo);
-          
-          // Create mapping from client ID to server ID if client ID was provided
-          if (fileClientId) {
-            idMapping[fileClientId] = fileInfo.id;
+            clientId: fileClientId
           }
-          
-          // If file was saved to temp directory, clean it up
-          if (file.path) {
-            try {
-              await fsPromises.unlink(file.path);
-              logger.debug(`Deleted temporary file: ${file.path}`);
-            } catch (unlinkError) {
-              logger.warn(`Failed to delete temporary file ${file.path}: ${unlinkError.message}`);
-            }
-          }
-          
-          return photo;
-        } catch (fileError) {
-          logger.error(`Error processing file ${file.originalname}: ${fileError.message}`);
-          return null;
+        });
+        
+        // Create photo object directly for the report
+        const photo = {
+          _id: fileInfo.id,
+          fileId: fileInfo.id,
+          filename: fileInfo.filename,
+          originalName: file.originalname,
+          contentType: file.mimetype,
+          path: `/api/photos/${fileInfo.id}`,
+          status: 'pending',
+          uploadDate: new Date(),
+          clientId: fileClientId
+        };
+        
+        // Clean up temp file if it exists
+        if (file.path) {
+          await photoFileManager.cleanupTempFile(file.path);
         }
-      })();
-      
-      uploadPromises.push(uploadPromise);
-    }
+        
+        return {
+          photo,
+          clientId: fileClientId,
+          id: fileInfo.id
+        };
+      } catch (error) {
+        logger.error(`Error processing file ${file.originalname}: ${error.message}`);
+        return null;
+      }
+    };
     
-    // Wait for all uploads to complete in parallel
-    await Promise.all(uploadPromises);
+    // Process files in parallel with a reasonable batch size
+    const uploadResults = await Promise.all(
+      req.files.map((file, index) => processFile(file, index))
+    );
     
-    // Filter out any failed uploads
-    const successfulPhotos = uploadedPhotos.filter(photo => photo !== null);
+    // Filter out failed uploads and extract photos
+    const successfulUploads = uploadResults.filter(result => result !== null);
+    const uploadedPhotos = successfulUploads.map(result => result.photo);
+    
+    // Create mapping from client ID to server ID
+    const idMapping = {};
+    successfulUploads.forEach(result => {
+      if (result.clientId) {
+        idMapping[result.clientId] = result.id;
+      }
+    });
     
     // Add photos to report
-    report.photos = [...report.photos, ...successfulPhotos];
+    report.photos = [...report.photos, ...uploadedPhotos];
     await report.save();
     
-    logger.info(`Successfully uploaded ${successfulPhotos.length} photos to report ${reportId}`);
+    logger.info(`Successfully uploaded ${uploadedPhotos.length} photos to report ${reportId}`);
     
-    // Return success response with uploaded photos and ID mapping
-    return res.status(200).json({
-      success: true,
-      photos: successfulPhotos,
-      idMapping,
-      message: `Successfully uploaded ${successfulPhotos.length} photos`
-    });
+    // Return success response
+    return apiResponse.send(res, apiResponse.success(
+      {
+        photos: uploadedPhotos,
+        idMapping
+      },
+      `Successfully uploaded ${uploadedPhotos.length} photos`,
+      {
+        total: req.files.length,
+        successful: uploadedPhotos.length,
+        failed: req.files.length - uploadedPhotos.length
+      }
+    ));
   } catch (error) {
     logger.error(`Error uploading photos: ${error.message}`);
-    return res.status(500).json({ 
-      error: 'Failed to upload photos',
-      message: error.message
-    });
+    return apiResponse.send(res, apiResponse.error(
+      'Failed to upload photos',
+      { message: error.message },
+      500
+    ));
   }
 };
 
@@ -153,41 +150,45 @@ const getPhoto = async (req, res) => {
     const photoId = req.params.id;
     const size = req.query.size || 'original'; // 'original', 'thumbnail'
     
-    logger.info(`API Request: GET /${photoId} ${JSON.stringify(req.query)}`);
+    logger.debug(`Getting photo ${photoId} with size ${size}`);
     
     // Validate that the ID is a valid MongoDB ObjectId
     if (!mongoose.Types.ObjectId.isValid(photoId)) {
       logger.error(`Invalid ObjectId format: ${photoId}`);
-      return res.status(400).json({ error: 'Invalid photo ID format' });
+      return apiResponse.send(res, apiResponse.error('Invalid photo ID format', null, 400));
     }
 
     // First try to find the photo in a report
     let fileId = photoId;
     
-    // If thumbnail is requested, check if it exists in GridFS with a modified filename
-    if (size === 'thumbnail') {
-      try {
+    // If thumbnail is requested, try to serve a thumbnail
+    try {
+      if (size === 'thumbnail') {
         const thumbnailId = `thumb_${fileId}`;
         // Only proceed if thumbnailId is a valid ObjectId
         if (mongoose.Types.ObjectId.isValid(thumbnailId)) {
-          await gridfs.streamToResponse(thumbnailId, res);
-        } else {
-          // Fall back to original if thumbnail ID is not valid
-          await gridfs.streamToResponse(fileId, res);
+          try {
+            await gridfs.streamToResponse(thumbnailId, res);
+            return; // Successfully streamed thumbnail
+          } catch (thumbError) {
+            logger.debug(`Thumbnail not found for ${fileId}, serving original`);
+            // Fall back to original if error occurs
+          }
         }
-      } catch (error) {
-        // If thumbnail doesn't exist, fall back to original
-        logger.info(`Thumbnail not found for ${fileId}, serving original: ${error.message}`);
-        await gridfs.streamToResponse(fileId, res);
       }
-    } else {
+      
       // Stream the original photo
       await gridfs.streamToResponse(fileId, res);
+    } catch (error) {
+      logger.error(`Error streaming photo ${photoId}: ${error.message}`);
+      if (!res.headersSent) {
+        apiResponse.send(res, apiResponse.error('Photo not found', null, 404));
+      }
     }
   } catch (error) {
-    logger.error(`Error getting photo: ${error.message}`);
+    logger.error(`Error in getPhoto: ${error.message}`);
     if (!res.headersSent) {
-      res.status(404).json({ error: 'Photo not found' });
+      apiResponse.send(res, apiResponse.error('Error retrieving photo', { message: error.message }, 500));
     }
   }
 };
@@ -201,15 +202,20 @@ const deletePhoto = async (req, res) => {
   try {
     const photoId = req.params.id;
 
+    // Validate photo ID
+    if (!mongoose.Types.ObjectId.isValid(photoId)) {
+      return apiResponse.send(res, apiResponse.error('Invalid photo ID format', null, 400));
+    }
+
     // Find the report containing this photo
     const report = await Report.findOne({ "photos._id": new mongoose.Types.ObjectId(photoId) });
     if (!report) {
-      return res.status(404).json({ error: 'Photo not found in any report' });
+      return apiResponse.send(res, apiResponse.error('Photo not found in any report', null, 404));
     }
 
     // Check if user owns the report (if authentication is implemented)
     if (req.user && report.user && report.user.toString() !== req.user.id) {
-      return res.status(401).json({ error: 'Not authorized to delete this photo' });
+      return apiResponse.send(res, apiResponse.error('Not authorized to delete this photo', null, 401));
     }
 
     // Remove photo reference from report
@@ -222,18 +228,25 @@ const deletePhoto = async (req, res) => {
     // Also try to delete thumbnail if it exists
     try {
       const thumbnailId = `thumb_${photoId}`;
-      await gridfs.deleteFile(thumbnailId);
+      if (mongoose.Types.ObjectId.isValid(thumbnailId)) {
+        await gridfs.deleteFile(thumbnailId);
+      }
     } catch (error) {
       // Ignore errors if thumbnail doesn't exist
-      logger.info(`No thumbnail found for ${photoId} or error deleting it: ${error.message}`);
+      logger.debug(`No thumbnail found for ${photoId} or error deleting it: ${error.message}`);
     }
 
-    return res.status(200).json({
-      message: 'Photo deleted successfully'
-    });
+    return apiResponse.send(res, apiResponse.success(
+      { photoId },
+      'Photo deleted successfully'
+    ));
   } catch (error) {
     logger.error(`Error deleting photo: ${error.message}`);
-    return res.status(500).json({ error: error.message });
+    return apiResponse.send(res, apiResponse.error(
+      'Failed to delete photo',
+      { message: error.message },
+      500
+    ));
   }
 };
 
@@ -245,117 +258,80 @@ const deletePhoto = async (req, res) => {
 const analyzePhotos = async (req, res) => {
   // Start timing the function execution
   const startTime = Date.now();
-  logger.info(`[TIMING] Starting photo analysis at: ${new Date().toISOString()}`);
+  logger.info(`Starting photo analysis at: ${new Date().toISOString()}`);
   
   try {
-    let photos = [];
-    let reportId = req.params.reportId;
-    let report = null;
+    const reportId = req.params.reportId;
     
-    // Log the request for debugging
-    console.log(`Photo analysis request for report ${reportId}:`, {
-      body: req.body,
-      query: req.query,
-      params: req.params
-    });
-    
+    // Validate report ID
     if (!reportId) {
-      return res.status(400).json({ error: 'Report ID is required' });
+      return apiResponse.send(res, apiResponse.error('Report ID is required', null, 400));
     }
     
-    logger.info(`[TIMING] Finding report - elapsed: ${(Date.now() - startTime)/1000}s`);
-    report = await Report.findById(reportId);
+    // Find report
+    const report = await Report.findById(reportId);
     if (!report) {
-      return res.status(404).json({ error: 'Report not found' });
+      return apiResponse.send(res, apiResponse.error('Report not found', null, 404));
     }
     
-    // Log the report photos for debugging
-    console.log(`Found report with ${report.photos?.length || 0} photos`);
-    logger.info(`[TIMING] Found report - elapsed: ${(Date.now() - startTime)/1000}s`);
+    logger.info(`Found report with ${report.photos?.length || 0} photos`);
+    
+    // Determine which photos to analyze
+    let photosToAnalyze = [];
     
     // Check if specific photo ID is provided
     if (req.body.photoId) {
       const photo = report.photos.find(p => p._id.toString() === req.body.photoId);
       if (!photo) {
-        return res.status(404).json({ error: 'Photo not found in report' });
+        return apiResponse.send(res, apiResponse.error('Photo not found in report', null, 404));
       }
-      photos = [photo];
+      photosToAnalyze = [photo];
     } 
     // Check if array of photo IDs is provided
     else if (req.body.photoIds && Array.isArray(req.body.photoIds)) {
-      photos = report.photos.filter(p => req.body.photoIds.includes(p._id.toString()));
-      console.log(`Found ${photos.length} photos matching the provided photoIds`);
+      photosToAnalyze = report.photos.filter(p => req.body.photoIds.includes(p._id.toString()));
       
-      // Limit to 1 photo per batch to avoid timeouts on Vercel
-      const batchSize = 1;
-      if (photos.length > batchSize) {
-        logger.info(`Limiting analysis to ${batchSize} photo per batch to avoid timeouts`);
-        photos = photos.slice(0, batchSize);
+      // Limit batch size to avoid timeouts (configurable)
+      const batchSize = parseInt(req.query.batchSize) || 1;
+      if (photosToAnalyze.length > batchSize) {
+        logger.info(`Limiting analysis to ${batchSize} photos per batch`);
+        photosToAnalyze = photosToAnalyze.slice(0, batchSize);
       }
     } 
     // If no specific photos requested, analyze all unanalyzed photos
     else {
-      photos = report.photos.filter(p => !p.aiAnalysis || !p.aiAnalysis.description);
-      console.log(`Found ${photos.length} unanalyzed photos`);
+      photosToAnalyze = report.photos.filter(p => !p.aiAnalysis || !p.aiAnalysis.description);
       
-      // Limit to 1 photo per batch to avoid timeouts on Vercel
-      const batchSize = 1;
-      if (photos.length > batchSize) {
-        logger.info(`Limiting analysis to ${batchSize} photo per batch to avoid timeouts`);
-        photos = photos.slice(0, batchSize);
+      // Limit batch size to avoid timeouts (configurable)
+      const batchSize = parseInt(req.query.batchSize) || 1;
+      if (photosToAnalyze.length > batchSize) {
+        logger.info(`Limiting analysis to ${batchSize} photos per batch`);
+        photosToAnalyze = photosToAnalyze.slice(0, batchSize);
       }
     }
     
-    if (photos.length === 0) {
-      return res.status(404).json({ error: 'No photos found to analyze' });
+    if (photosToAnalyze.length === 0) {
+      return apiResponse.send(res, apiResponse.error('No photos found to analyze', null, 404));
     }
     
-    logger.info(`[TIMING] Starting analysis of ${photos.length} photos - elapsed: ${(Date.now() - startTime)/1000}s`);
+    logger.info(`Starting analysis of ${photosToAnalyze.length} photos`);
     
-    const results = [];
-    
-    for (const photo of photos) {
+    // Define the photo processing function
+    const processPhoto = async (photo) => {
       try {
-        // Add a clear separator for each photo in the logs
-        console.log("\n===========================================================");
-        console.log(`[PHOTO ANALYSIS] STARTING ANALYSIS FOR PHOTO: ${photo._id}`);
-        console.log(`[PHOTO ANALYSIS] TIMESTAMP: ${new Date().toISOString()}`);
-        console.log("===========================================================\n");
+        logger.info(`Processing photo ${photo._id}`);
         
-        logger.info(`[TIMING] Processing photo ${photo._id} - elapsed: ${(Date.now() - startTime)/1000}s`);
-        
-        // Create a temporary file in /tmp directory
-        const tempFilePath = `/tmp/${photo._id}.jpg`;
-        
-        // Get the file from GridFS and save to temp file
-        const bucket = await gridfs.initGridFS();
-        logger.info(`[TIMING] GridFS initialized - elapsed: ${(Date.now() - startTime)/1000}s`);
-        
-        const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(photo._id));
-        const writeStream = fs.createWriteStream(tempFilePath);
-        
-        logger.info(`[TIMING] Starting file download - elapsed: ${(Date.now() - startTime)/1000}s`);
-        await new Promise((resolve, reject) => {
-          downloadStream.pipe(writeStream)
-            .on('error', reject)
-            .on('finish', resolve);
-        });
-        logger.info(`[TIMING] File download complete - elapsed: ${(Date.now() - startTime)/1000}s`);
-        
-        // Get file stats to log the file size
-        const fileStats = await fsPromises.stat(tempFilePath);
-        console.log(`[PHOTO ANALYSIS] Downloaded file size: ${Math.round(fileStats.size/1024)} KB (${Math.round(fileStats.size/1024/1024 * 100) / 100} MB)`);
+        // Download the photo to a temp file
+        const tempFileInfo = await photoFileManager.downloadToTempFile(photo._id);
         
         // Analyze the photo
-        console.log(`[PHOTO ANALYSIS] Starting OpenAI analysis at ${new Date().toISOString()}`);
-        logger.info(`[TIMING] Starting AI analysis - elapsed: ${(Date.now() - startTime)/1000}s`);
+        logger.info(`Starting AI analysis for photo ${photo._id}`);
         const analysisStartTime = Date.now();
-        const analysisResult = await photoAnalysisService.analyzePhoto(tempFilePath);
+        const analysisResult = await photoAnalysisService.analyzePhoto(tempFileInfo.path);
         const analysisTime = (Date.now() - analysisStartTime)/1000;
-        console.log(`[PHOTO ANALYSIS] Completed OpenAI analysis in ${analysisTime}s at ${new Date().toISOString()}`);
-        logger.info(`[TIMING] AI analysis complete - elapsed: ${(Date.now() - startTime)/1000}s`);
+        logger.info(`Completed AI analysis in ${analysisTime}s`);
         
-        // Find the photo in the report and update it
+        // Update photo in the report
         const photoIndex = report.photos.findIndex(p => p._id.toString() === photo._id.toString());
         if (photoIndex !== -1) {
           report.photos[photoIndex].aiAnalysis = analysisResult;
@@ -363,64 +339,64 @@ const analyzePhotos = async (req, res) => {
           report.photos[photoIndex].analysisDate = new Date();
         }
         
-        // Save the updated report
-        console.log(`[PHOTO ANALYSIS] Saving analysis results to database at ${new Date().toISOString()}`);
-        logger.info(`[TIMING] Saving report - elapsed: ${(Date.now() - startTime)/1000}s`);
-        await report.save();
-        logger.info(`[TIMING] Report saved - elapsed: ${(Date.now() - startTime)/1000}s`);
+        // Clean up the temp file
+        await photoFileManager.cleanupTempFile(tempFileInfo.path);
         
-        results.push({
+        return {
           photoId: photo._id,
           status: 'success',
           analysis: analysisResult
-        });
-        
-        // Clean up temp file
-        try {
-          await fsPromises.unlink(tempFilePath);
-          logger.debug(`Deleted temporary file: ${tempFilePath}`);
-        } catch (unlinkError) {
-          logger.warn(`Failed to delete temporary file ${tempFilePath}: ${unlinkError.message}`);
-        }
-        
-        // Add a clear end separator for this photo
-        console.log("\n===========================================================");
-        console.log(`[PHOTO ANALYSIS] COMPLETED ANALYSIS FOR PHOTO: ${photo._id}`);
-        console.log(`[PHOTO ANALYSIS] TOTAL TIME: ${(Date.now() - analysisStartTime)/1000}s`);
-        console.log(`[PHOTO ANALYSIS] TIMESTAMP: ${new Date().toISOString()}`);
-        console.log("===========================================================\n");
+        };
       } catch (error) {
         logger.error(`Error analyzing photo ${photo._id}: ${error.message}`);
-        logger.error(`[TIMING] Error occurred at elapsed time: ${(Date.now() - startTime)/1000}s`);
-        console.log(`[PHOTO ANALYSIS] ERROR analyzing photo ${photo._id}: ${error.message}`);
-        results.push({
+        return {
           photoId: photo._id,
           status: 'error',
           error: error.message
-        });
+        };
       }
-    }
+    };
+    
+    // Process photos with parallel processing utility
+    const results = await photoFileManager.processPhotosInParallel(
+      photosToAnalyze,
+      processPhoto,
+      {
+        batchSize: 1, // Process one at a time for now due to API limits
+        shouldAbortOnError: false
+      }
+    );
+    
+    // Save the updated report
+    await report.save();
     
     const totalTime = (Date.now() - startTime)/1000;
-    logger.info(`[TIMING] Total execution time: ${totalTime}s`);
+    logger.info(`Total execution time: ${totalTime}s`);
     
-    return res.status(200).json({
-      message: `Analyzed ${results.length} photos in ${totalTime}s`,
-      results,
-      executionTime: totalTime,
-      batchComplete: true,
-      totalPhotosRemaining: req.body.photoIds ? 
-        req.body.photoIds.length - photos.length : 
-        report.photos.filter(p => !p.aiAnalysis || !p.aiAnalysis.description).length - photos.length
-    });
+    // Calculate remaining photos
+    const remainingCount = req.body.photoIds ? 
+      req.body.photoIds.length - photosToAnalyze.length : 
+      report.photos.filter(p => !p.aiAnalysis || !p.aiAnalysis.description).length - photosToAnalyze.length;
+    
+    // Return success response
+    return apiResponse.send(res, apiResponse.success(
+      { results },
+      `Analyzed ${results.length} photos in ${totalTime}s`,
+      {
+        executionTime: totalTime,
+        batchComplete: true,
+        totalPhotosRemaining: remainingCount
+      }
+    ));
   } catch (error) {
     const errorTime = (Date.now() - startTime)/1000;
     logger.error(`Error in analyzePhotos: ${error.message}`);
-    logger.error(`[TIMING] Error occurred at elapsed time: ${errorTime}s`);
-    return res.status(500).json({ 
-      error: error.message,
-      executionTime: errorTime
-    });
+    
+    return apiResponse.send(res, apiResponse.error(
+      'Failed to analyze photos',
+      { message: error.message, executionTime: errorTime },
+      500
+    ));
   }
 };
 
@@ -433,15 +409,15 @@ const initChunkedUpload = async (req, res) => {
   try {
     // Validate request
     if (!req.body.reportId) {
-      return res.status(400).json({ error: 'Report ID is required' });
+      return apiResponse.send(res, apiResponse.error('Report ID is required', null, 400));
     }
     
     if (!req.body.totalChunks || parseInt(req.body.totalChunks) <= 0) {
-      return res.status(400).json({ error: 'Valid total chunks count is required' });
+      return apiResponse.send(res, apiResponse.error('Valid total chunks count is required', null, 400));
     }
     
     if (!req.body.filename) {
-      return res.status(400).json({ error: 'Filename is required' });
+      return apiResponse.send(res, apiResponse.error('Filename is required', null, 400));
     }
     
     const reportId = req.body.reportId;
@@ -453,7 +429,7 @@ const initChunkedUpload = async (req, res) => {
     // Find report
     const report = await Report.findById(reportId);
     if (!report) {
-      return res.status(404).json({ error: 'Report not found' });
+      return apiResponse.send(res, apiResponse.error('Report not found', null, 404));
     }
     
     // Generate a unique file ID
@@ -474,15 +450,15 @@ const initChunkedUpload = async (req, res) => {
     
     logger.info(`Initialized chunked upload for file ${filename} with ${totalChunks} chunks`);
     
-    res.status(200).json({
+    return apiResponse.send(res, apiResponse.success({
       fileId,
       totalChunks,
       filename,
       status: 'initialized'
-    });
+    }));
   } catch (error) {
     logger.error(`Error initializing chunked upload: ${error.message}`);
-    res.status(500).json({ error: 'Failed to initialize chunked upload' });
+    return apiResponse.send(res, apiResponse.error('Failed to initialize chunked upload', { message: error.message }, 500));
   }
 };
 
@@ -501,10 +477,10 @@ const uploadChunk = async (req, res) => {
     
     logger.info(`Uploaded chunk ${chunkIndex + 1}/${totalChunks} for file ${fileId}`);
     
-    res.status(200).json(chunkStatus);
+    return apiResponse.send(res, apiResponse.success(chunkStatus));
   } catch (error) {
     logger.error(`Error uploading chunk: ${error.message}`);
-    res.status(500).json({ error: 'Failed to upload chunk' });
+    return apiResponse.send(res, apiResponse.error('Failed to upload chunk', { message: error.message }, 500));
   }
 };
 
@@ -517,11 +493,11 @@ const completeChunkedUpload = async (req, res) => {
   try {
     // Validate request
     if (!req.body.fileId) {
-      return res.status(400).json({ error: 'File ID is required' });
+      return apiResponse.send(res, apiResponse.error('File ID is required', null, 400));
     }
     
     if (!req.body.reportId) {
-      return res.status(400).json({ error: 'Report ID is required' });
+      return apiResponse.send(res, apiResponse.error('Report ID is required', null, 400));
     }
     
     const fileId = req.body.fileId;
@@ -530,7 +506,7 @@ const completeChunkedUpload = async (req, res) => {
     // Find report
     const report = await Report.findById(reportId);
     if (!report) {
-      return res.status(404).json({ error: 'Report not found' });
+      return apiResponse.send(res, apiResponse.error('Report not found', null, 404));
     }
     
     // Complete the chunked upload
@@ -555,13 +531,12 @@ const completeChunkedUpload = async (req, res) => {
     
     logger.info(`Completed chunked upload for file ${fileId}, added to report ${reportId}`);
     
-    res.status(200).json({
-      success: true,
+    return apiResponse.send(res, apiResponse.success({
       photo
-    });
+    }, 'Chunked upload completed successfully'));
   } catch (error) {
     logger.error(`Error completing chunked upload: ${error.message}`);
-    res.status(500).json({ error: 'Failed to complete chunked upload' });
+    return apiResponse.send(res, apiResponse.error('Failed to complete chunked upload', { message: error.message }, 500));
   }
 };
 
