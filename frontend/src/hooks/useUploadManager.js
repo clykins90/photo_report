@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { uploadChunkedPhoto } from '../services/photoService';
+import { uploadChunkedPhoto, uploadBatchPhotos } from '../services/photoService';
 
 /**
  * Custom hook for managing chunked file uploads with queue management
@@ -18,6 +18,9 @@ const useUploadManager = (options = {}) => {
   };
 
   const config = { ...defaultOptions, ...options };
+  
+  // Define threshold for chunked uploads
+  const CHUNKED_UPLOAD_THRESHOLD = 5 * 1024 * 1024; // 5MB
   
   // Upload queue and active uploads tracking
   const [queue, setQueue] = useState([]);
@@ -115,67 +118,30 @@ const useUploadManager = (options = {}) => {
         setQueue([...queueRef.current]);
         setActiveUploads([...activeUploadsRef.current]);
         
-        // Start uploads in parallel
-        const uploadPromises = itemsToProcess.map(async (item) => {
-          item.status = 'uploading';
-          
-          try {
-            // Track progress for this specific upload
-            const updateItemProgress = (itemProgress) => {
-              // Update progress in state
-              setProgress(prev => ({
-                ...prev,
-                [item.id]: itemProgress
-              }));
-              
-              // Also update the item's progress property
-              item.progress = itemProgress;
-            };
-            
-            // Start the chunked upload
-            const result = await uploadChunkedPhoto(
-              item.file,
-              item.reportId,
-              item.clientId,
-              updateItemProgress,
-              {
-                chunkSize: config.chunkSize,
-                concurrentChunks: config.concurrentChunks,
-                maxRetries: config.maxRetries,
-                retryDelay: config.retryDelay
-              }
-            );
-            
-            // Upload completed successfully
-            item.status = 'completed';
-            item.result = result;
-            item.completedAt = new Date();
-            
-            // Move from active to completed
-            activeUploadsRef.current = activeUploadsRef.current.filter(i => i.id !== item.id);
-            completedRef.current = [...completedRef.current, item];
-            
-            // Update state
-            setActiveUploads([...activeUploadsRef.current]);
-            setCompleted([...completedRef.current]);
-            
-          } catch (error) {
-            // Upload failed
-            item.status = 'failed';
-            item.error = error.message || 'Upload failed';
-            item.failedAt = new Date();
-            
-            // Move from active to failed
-            activeUploadsRef.current = activeUploadsRef.current.filter(i => i.id !== item.id);
-            failedRef.current = [...failedRef.current, item];
-            
-            // Update state
-            setActiveUploads([...activeUploadsRef.current]);
-            setFailed([...failedRef.current]);
-            
-            console.error('Upload failed:', item.file.name, error);
+        // Group files by size for batch processing
+        const largeFiles = [];
+        const smallFiles = [];
+        
+        itemsToProcess.forEach(item => {
+          if (item.file.size > CHUNKED_UPLOAD_THRESHOLD) {
+            largeFiles.push(item);
+          } else {
+            smallFiles.push(item);
           }
         });
+        
+        // Start uploads in parallel
+        const uploadPromises = [];
+        
+        // Process large files with chunked upload
+        largeFiles.forEach(item => {
+          uploadPromises.push(processLargeFile(item));
+        });
+        
+        // Process small files with batch upload if there are any
+        if (smallFiles.length > 0) {
+          uploadPromises.push(processSmallFiles(smallFiles));
+        }
         
         // Wait for all uploads to complete
         await Promise.all(uploadPromises);
@@ -201,9 +167,158 @@ const useUploadManager = (options = {}) => {
       }
     };
     
+    // Process a large file using chunked upload
+    const processLargeFile = async (item) => {
+      item.status = 'uploading';
+      
+      try {
+        // Track progress for this specific upload
+        const updateItemProgress = (itemProgress) => {
+          // Update progress in state
+          setProgress(prev => ({
+            ...prev,
+            [item.id]: itemProgress
+          }));
+          
+          // Also update the item's progress property
+          item.progress = itemProgress;
+        };
+        
+        // Start the chunked upload
+        const result = await uploadChunkedPhoto(
+          item.file,
+          item.reportId,
+          item.clientId,
+          updateItemProgress,
+          {
+            chunkSize: config.chunkSize,
+            concurrentChunks: config.concurrentChunks,
+            maxRetries: config.maxRetries,
+            retryDelay: config.retryDelay
+          }
+        );
+        
+        // Upload completed successfully
+        item.status = 'completed';
+        item.result = result;
+        item.completedAt = new Date();
+        
+        // Move from active to completed
+        activeUploadsRef.current = activeUploadsRef.current.filter(i => i.id !== item.id);
+        completedRef.current = [...completedRef.current, item];
+        
+        // Update state
+        setActiveUploads([...activeUploadsRef.current]);
+        setCompleted([...completedRef.current]);
+        
+      } catch (error) {
+        // Upload failed
+        item.status = 'failed';
+        item.error = error.message || 'Upload failed';
+        item.failedAt = new Date();
+        
+        // Move from active to failed
+        activeUploadsRef.current = activeUploadsRef.current.filter(i => i.id !== item.id);
+        failedRef.current = [...failedRef.current, item];
+        
+        // Update state
+        setActiveUploads([...activeUploadsRef.current]);
+        setFailed([...failedRef.current]);
+        
+        console.error('Upload failed:', item.file.name, error);
+      }
+    };
+    
+    // Process small files using batch upload
+    const processSmallFiles = async (items) => {
+      try {
+        // Mark all items as uploading
+        items.forEach(item => {
+          item.status = 'uploading';
+        });
+        
+        // Prepare files and metadata for batch upload
+        const files = items.map(item => item.file);
+        const reportId = items[0].reportId; // All items should have the same reportId
+        const fileMetadata = items.map(item => ({
+          clientId: item.clientId,
+          ...item.metadata
+        }));
+        
+        // Track progress for all items in this batch
+        const updateBatchProgress = (batchProgress) => {
+          // Update progress for each item
+          items.forEach(item => {
+            setProgress(prev => ({
+              ...prev,
+              [item.id]: batchProgress
+            }));
+            
+            // Also update the item's progress property
+            item.progress = batchProgress;
+          });
+        };
+        
+        // Start the batch upload
+        const result = await uploadBatchPhotos(files, reportId, updateBatchProgress, fileMetadata);
+        
+        if (result.success) {
+          // Process each item with its corresponding result
+          items.forEach(item => {
+            const photoId = result.idMapping[item.clientId];
+            const photo = result.photos.find(p => p._id === photoId);
+            
+            if (photo) {
+              // Upload completed successfully
+              item.status = 'completed';
+              item.result = { success: true, photo };
+              item.completedAt = new Date();
+              
+              // Move from active to completed
+              activeUploadsRef.current = activeUploadsRef.current.filter(i => i.id !== item.id);
+              completedRef.current = [...completedRef.current, item];
+            } else {
+              // Photo not found in results
+              item.status = 'failed';
+              item.error = 'Photo not found in upload results';
+              item.failedAt = new Date();
+              
+              // Move from active to failed
+              activeUploadsRef.current = activeUploadsRef.current.filter(i => i.id !== item.id);
+              failedRef.current = [...failedRef.current, item];
+            }
+          });
+          
+          // Update state
+          setActiveUploads([...activeUploadsRef.current]);
+          setCompleted([...completedRef.current]);
+          setFailed([...failedRef.current]);
+        } else {
+          throw new Error(result.error || 'Batch upload failed');
+        }
+      } catch (error) {
+        // All uploads in this batch failed
+        items.forEach(item => {
+          item.status = 'failed';
+          item.error = error.message || 'Upload failed';
+          item.failedAt = new Date();
+          
+          // Move from active to failed
+          activeUploadsRef.current = activeUploadsRef.current.filter(i => i.id !== item.id);
+          failedRef.current = [...failedRef.current, item];
+        });
+        
+        // Update state
+        setActiveUploads([...activeUploadsRef.current]);
+        setFailed([...failedRef.current]);
+        
+        console.error('Batch upload failed:', error);
+      }
+    };
+    
     // Start processing
-    await processItems();
-  }, [config.chunkSize, config.concurrentChunks, config.maxConcurrentUploads, config.maxRetries, config.retryDelay]);
+    processItems();
+  }, [isProcessing, config.chunkSize, config.concurrentChunks, config.maxRetries, config.retryDelay, config.maxConcurrentUploads]);
   
   /**
    * Retry failed uploads

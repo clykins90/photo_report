@@ -723,46 +723,24 @@ File uploads are handled through the middleware system, which automatically stor
 
 ## Photo Upload Optimization
 
-The application includes several optimizations to improve photo upload performance:
+The application uses an optimized approach for photo uploads:
 
-### Small File Optimization
+1. **Size-Based Upload Strategy**:
+   - Small files (< 5MB): Uses regular batch upload for efficiency
+   - Large files (≥ 5MB): Uses chunked upload to prevent timeouts and handle large files reliably
 
-- Files smaller than 1MB are uploaded directly in a single request instead of using the chunked upload process
-- This reduces the number of HTTP requests and server-side processing for small files
-- The threshold is configurable via the `smallFileThreshold` option (default: 1MB)
+2. **Upload Manager**:
+   - Intelligently routes files to the appropriate upload method based on size
+   - Groups small files together for batch processing
+   - Processes large files individually with chunked upload
+   - Manages concurrent uploads for both methods
+   - Provides unified progress tracking across all upload types
 
-### Concurrent Upload Processing
-
-- Multiple photos can be uploaded concurrently rather than sequentially
-- The maximum number of concurrent uploads is configurable (default: 3)
-- This significantly reduces the total time required for batch uploads
-
-### Chunked Upload for Large Files
-
-- Files larger than the threshold are automatically uploaded in chunks
-- Chunk size is configurable (default: 500KB)
-- Multiple chunks can be uploaded concurrently (default: 3 concurrent chunks)
-- This prevents timeouts and improves reliability for large files
-
-### Upload Manager
-
-The application uses a sophisticated upload manager that:
-
-- Maintains a queue of files to be uploaded
-- Processes multiple uploads concurrently
-- Tracks progress for each file individually
-- Provides detailed status information
-- Handles retries automatically for failed uploads
-- Supports cancellation of pending uploads
-
-### Performance Improvements
-
-These optimizations result in:
-
-- Up to 3x faster uploads for batches of small files through concurrent processing
-- Reduced server load by eliminating unnecessary chunking for small files
-- More responsive UI with accurate progress reporting
-- Improved reliability with automatic retry mechanisms
+3. **Benefits**:
+   - Faster uploads for small files by avoiding unnecessary chunking overhead
+   - Reliable uploads for large files with automatic retry and chunk tracking
+   - Efficient use of network resources with appropriate concurrency
+   - Consistent user experience with unified progress reporting
 
 ## Photo Upload and Management System
 
