@@ -33,21 +33,29 @@ const uploadPhotos = async (req, res) => {
       return res.status(404).json({ error: 'Report not found' });
     }
     
-    // Get client IDs if provided
+    // Get client ID - support both array and single value
+    let clientId = req.body.clientId || null;
+    
+    // If clientIds was provided as an array, use that instead
     const clientIds = req.body.clientIds ? 
       (Array.isArray(req.body.clientIds) ? req.body.clientIds : [req.body.clientIds]) : 
       [];
     
-    logger.info(`Received ${clientIds.length} client IDs for ${req.files.length} files`);
+    logger.info(`Received client ID: ${clientId}, and ${clientIds.length} client IDs for ${req.files.length} files`);
     
     // Process each file
     const uploadedPhotos = [];
-    const idMapping = {}; // Map client IDs to server IDs
+    const idMapping = {};
     
     for (let i = 0; i < req.files.length; i++) {
       const file = req.files[i];
-      // Get the client ID for this file if available
-      const clientId = i < clientIds.length ? clientIds[i] : null;
+      
+      // Determine the client ID for this file:
+      // 1. Use the specific clientId if only one file is being uploaded
+      // 2. Otherwise use the clientIds array if available
+      const fileClientId = (req.files.length === 1 && clientId) ? 
+                           clientId : 
+                           (i < clientIds.length ? clientIds[i] : null);
       
       try {
         // Upload file to GridFS
@@ -58,7 +66,7 @@ const uploadPhotos = async (req, res) => {
             reportId,
             originalName: file.originalname,
             uploadDate: new Date(),
-            clientId // Store the client ID in metadata
+            clientId: fileClientId // Store the client ID in metadata
           }
         });
         
@@ -72,15 +80,15 @@ const uploadPhotos = async (req, res) => {
           path: `/api/photos/${fileInfo.id}`,
           status: 'pending',
           uploadDate: new Date(),
-          clientId // Include the client ID in the photo object
+          clientId: fileClientId // Include the client ID in the photo object
         };
         
         // Add photo to uploadedPhotos array
         uploadedPhotos.push(photo);
         
         // Create mapping from client ID to server ID if client ID was provided
-        if (clientId) {
-          idMapping[clientId] = fileInfo.id;
+        if (fileClientId) {
+          idMapping[fileClientId] = fileInfo.id;
         }
         
         // If file was saved to temp directory, clean it up
@@ -101,14 +109,21 @@ const uploadPhotos = async (req, res) => {
     report.photos = [...report.photos, ...uploadedPhotos];
     await report.save();
     
+    logger.info(`Successfully uploaded ${uploadedPhotos.length} photos to report ${reportId}`);
+    
+    // Return success response with uploaded photos and ID mapping
     return res.status(200).json({
-      message: `Successfully uploaded ${uploadedPhotos.length} photos`,
+      success: true,
       photos: uploadedPhotos,
-      idMapping // Include the ID mapping in the response
+      idMapping,
+      message: `Successfully uploaded ${uploadedPhotos.length} photos`
     });
   } catch (error) {
-    logger.error(`Error in uploadPhotos: ${error.message}`);
-    return res.status(500).json({ error: error.message });
+    logger.error(`Error uploading photos: ${error.message}`);
+    return res.status(500).json({ 
+      error: 'Failed to upload photos',
+      message: error.message
+    });
   }
 };
 

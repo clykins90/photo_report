@@ -96,98 +96,113 @@ const useUploadManager = (options = {}) => {
     
     setIsProcessing(true);
     
-    const processNext = async () => {
-      // Check if we can start more uploads
-      if (activeUploadsRef.current.length < config.maxConcurrentUploads && queueRef.current.length > 0) {
-        // Get the next item from the queue
-        const nextItem = queueRef.current[0];
+    // Process multiple items concurrently
+    const processItems = async () => {
+      // Calculate how many new uploads we can start
+      const availableSlots = Math.max(0, config.maxConcurrentUploads - activeUploadsRef.current.length);
+      
+      if (availableSlots > 0 && queueRef.current.length > 0) {
+        // Get the next batch of items to process
+        const itemsToProcess = queueRef.current.slice(0, availableSlots);
         
-        // Remove from queue and add to active uploads
-        queueRef.current = queueRef.current.slice(1);
-        activeUploadsRef.current = [...activeUploadsRef.current, nextItem];
+        // Remove these items from the queue
+        queueRef.current = queueRef.current.slice(availableSlots);
         
-        // Update state (this will trigger a re-render)
+        // Add them to active uploads
+        activeUploadsRef.current = [...activeUploadsRef.current, ...itemsToProcess];
+        
+        // Update state
         setQueue([...queueRef.current]);
         setActiveUploads([...activeUploadsRef.current]);
         
-        // Start the upload
-        nextItem.status = 'uploading';
-        
-        try {
-          // Track progress for this specific upload
-          const updateItemProgress = (itemProgress) => {
-            // Update progress in state
-            setProgress(prev => ({
-              ...prev,
-              [nextItem.id]: itemProgress
-            }));
+        // Start uploads in parallel
+        const uploadPromises = itemsToProcess.map(async (item) => {
+          item.status = 'uploading';
+          
+          try {
+            // Track progress for this specific upload
+            const updateItemProgress = (itemProgress) => {
+              // Update progress in state
+              setProgress(prev => ({
+                ...prev,
+                [item.id]: itemProgress
+              }));
+              
+              // Also update the item's progress property
+              item.progress = itemProgress;
+            };
             
-            // Also update the item's progress property
-            nextItem.progress = itemProgress;
-          };
-          
-          // Start the chunked upload
-          const result = await uploadChunkedPhoto(
-            nextItem.file,
-            nextItem.reportId,
-            nextItem.clientId,
-            updateItemProgress,
-            {
-              chunkSize: config.chunkSize,
-              concurrentChunks: config.concurrentChunks,
-              maxRetries: config.maxRetries,
-              retryDelay: config.retryDelay
-            }
-          );
-          
-          // Upload completed successfully
-          nextItem.status = 'completed';
-          nextItem.result = result;
-          nextItem.completedAt = new Date();
-          
-          // Move from active to completed
-          activeUploadsRef.current = activeUploadsRef.current.filter(item => item.id !== nextItem.id);
-          completedRef.current = [...completedRef.current, nextItem];
-          
-          // Update state
-          setActiveUploads([...activeUploadsRef.current]);
-          setCompleted([...completedRef.current]);
-          
-        } catch (error) {
-          // Upload failed
-          nextItem.status = 'failed';
-          nextItem.error = error.message || 'Upload failed';
-          nextItem.failedAt = new Date();
-          
-          // Move from active to failed
-          activeUploadsRef.current = activeUploadsRef.current.filter(item => item.id !== nextItem.id);
-          failedRef.current = [...failedRef.current, nextItem];
-          
-          // Update state
-          setActiveUploads([...activeUploadsRef.current]);
-          setFailed([...failedRef.current]);
-          
-          console.error('Upload failed:', nextItem.file.name, error);
-        }
+            // Start the chunked upload
+            const result = await uploadChunkedPhoto(
+              item.file,
+              item.reportId,
+              item.clientId,
+              updateItemProgress,
+              {
+                chunkSize: config.chunkSize,
+                concurrentChunks: config.concurrentChunks,
+                maxRetries: config.maxRetries,
+                retryDelay: config.retryDelay
+              }
+            );
+            
+            // Upload completed successfully
+            item.status = 'completed';
+            item.result = result;
+            item.completedAt = new Date();
+            
+            // Move from active to completed
+            activeUploadsRef.current = activeUploadsRef.current.filter(i => i.id !== item.id);
+            completedRef.current = [...completedRef.current, item];
+            
+            // Update state
+            setActiveUploads([...activeUploadsRef.current]);
+            setCompleted([...completedRef.current]);
+            
+          } catch (error) {
+            // Upload failed
+            item.status = 'failed';
+            item.error = error.message || 'Upload failed';
+            item.failedAt = new Date();
+            
+            // Move from active to failed
+            activeUploadsRef.current = activeUploadsRef.current.filter(i => i.id !== item.id);
+            failedRef.current = [...failedRef.current, item];
+            
+            // Update state
+            setActiveUploads([...activeUploadsRef.current]);
+            setFailed([...failedRef.current]);
+            
+            console.error('Upload failed:', item.file.name, error);
+          }
+        });
         
-        // Process next item
-        return processNext();
-      } else if (activeUploadsRef.current.length === 0 && queueRef.current.length === 0) {
-        // All uploads are complete
-        setIsProcessing(false);
-        return;
+        // Wait for all uploads to complete
+        await Promise.all(uploadPromises);
+        
+        // Check if we can process more items
+        if (queueRef.current.length > 0) {
+          return processItems();
+        }
       }
       
-      // If we can't start more uploads but there are still active ones,
-      // we'll wait for them to complete in their own promises
-      if (activeUploadsRef.current.length > 0) {
-        // We'll check again after a short delay
-        setTimeout(processNext, 500);
+      // If there are no more items to process and no active uploads, we're done
+      if (activeUploadsRef.current.length === 0 && queueRef.current.length === 0) {
+        setIsProcessing(false);
+      } else if (activeUploadsRef.current.length > 0) {
+        // If there are still active uploads, check again after a delay
+        setTimeout(() => {
+          if (activeUploadsRef.current.length > 0 || queueRef.current.length > 0) {
+            processItems();
+          } else {
+            setIsProcessing(false);
+          }
+        }, 500);
       }
     };
     
     // Start processing
-    await processNext();
+    await processItems();
   }, [config.chunkSize, config.concurrentChunks, config.maxConcurrentUploads, config.maxRetries, config.retryDelay]);
   
   /**
