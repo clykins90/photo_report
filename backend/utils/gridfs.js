@@ -10,18 +10,33 @@ const buckets = {
   pdf_report: null
 };
 
+// Cache expiration timestamps
+const bucketTimestamps = {
+  photos: null,
+  pdf_report: null
+};
+
+// Cache TTL in milliseconds (30 minutes)
+const BUCKET_CACHE_TTL = 30 * 60 * 1000;
+
 // Store temporary chunks
 const tempChunks = {};
 
 /**
  * Initialize a GridFS bucket
  * @param {string} bucketName - Name of the bucket to initialize
+ * @param {boolean} forceRefresh - Force refresh the bucket even if cached
  * @returns {GridFSBucket} The GridFS bucket instance
  */
-const initGridFS = async (bucketName = 'photos') => {
+const initGridFS = async (bucketName = 'photos', forceRefresh = false) => {
   try {
-    // If bucket already exists, return it
-    if (buckets[bucketName]) {
+    // Check if bucket exists in cache and is not expired
+    const now = Date.now();
+    if (!forceRefresh && 
+        buckets[bucketName] && 
+        bucketTimestamps[bucketName] && 
+        now - bucketTimestamps[bucketName] < BUCKET_CACHE_TTL) {
+      // Bucket exists and is not expired, return it
       return buckets[bucketName];
     }
     
@@ -29,16 +44,22 @@ const initGridFS = async (bucketName = 'photos') => {
     if (mongoose.connection.readyState !== 1) {
       logger.info('MongoDB not connected, attempting to connect...');
       
-      // Try to connect with retry logic
+      // Try to connect with optimized retry logic
       let retries = 3;
       let connected = false;
       
       while (retries > 0 && !connected) {
         try {
+          // Use optimized connection options
           await mongoose.connect(process.env.MONGODB_URI, {
             serverSelectionTimeoutMS: 5000,
             connectTimeoutMS: 10000,
             socketTimeoutMS: 45000,
+            // Add connection pooling options
+            maxPoolSize: 10,           // Maximum number of connections in the pool
+            minPoolSize: 2,            // Minimum number of connections in the pool
+            maxIdleTimeMS: 30000,      // How long a connection can remain idle before being removed
+            waitQueueTimeoutMS: 10000  // How long to wait for a connection from the pool
           });
           connected = true;
           logger.info(`MongoDB connected: ${mongoose.connection.host}`);
@@ -46,8 +67,8 @@ const initGridFS = async (bucketName = 'photos') => {
           retries--;
           if (retries > 0) {
             logger.warn(`MongoDB connection failed, retrying... (${retries} attempts left)`);
-            // Wait before retrying
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Wait before retrying with exponential backoff
+            await new Promise(resolve => setTimeout(resolve, 1000 * (4 - retries)));
           } else {
             throw connError;
           }
@@ -55,15 +76,21 @@ const initGridFS = async (bucketName = 'photos') => {
       }
     }
     
-    // Initialize GridFS bucket with retry logic
+    // Initialize GridFS bucket with optimized retry logic
     let retries = 2;
     let error;
     
     while (retries >= 0) {
       try {
+        // Create new bucket with optimized chunk size
         buckets[bucketName] = new GridFSBucket(mongoose.connection.db, {
-          bucketName: bucketName
+          bucketName: bucketName,
+          chunkSizeBytes: 1024 * 1024 // 1MB chunks for better performance
         });
+        
+        // Update timestamp
+        bucketTimestamps[bucketName] = Date.now();
+        
         logger.info(`GridFS bucket '${bucketName}' initialized successfully`);
         return buckets[bucketName];
       } catch (bucketError) {
@@ -72,7 +99,7 @@ const initGridFS = async (bucketName = 'photos') => {
         
         if (retries >= 0) {
           logger.warn(`Failed to initialize GridFS bucket, retrying... (${retries} attempts left)`);
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 500 * (3 - retries)));
         }
       }
     }
@@ -151,6 +178,7 @@ const uploadFile = async (filePath, options = {}, bucketName = 'photos') => {
  */
 const uploadBuffer = async (buffer, options = {}, bucketName = 'photos') => {
   try {
+    // Get bucket from cache or initialize
     const bucket = await initGridFS(bucketName);
     if (!bucket) {
       throw new Error(`GridFS bucket '${bucketName}' not initialized`);
@@ -159,37 +187,111 @@ const uploadBuffer = async (buffer, options = {}, bucketName = 'photos') => {
     const filename = options.filename || `file_${Date.now()}`;
     const contentType = options.contentType || 'application/octet-stream';
     
-    return new Promise((resolve, reject) => {
-      // Create upload stream
-      const uploadStream = bucket.openUploadStream(filename, {
-        contentType,
-        metadata: options.metadata || {}
-      });
-
-      // Create readable stream from buffer
-      const { Readable } = require('stream');
-      const readStream = new Readable();
-      readStream.push(buffer);
-      readStream.push(null); // Mark end of stream
-      
-      // Handle errors
-      readStream.on('error', reject);
-      uploadStream.on('error', reject);
-      
-      // On finish, resolve with file info
-      uploadStream.on('finish', () => {
-        resolve({
-          id: uploadStream.id,
-          filename,
+    // Use a more efficient approach for small files (< 16MB)
+    if (buffer.length < 16 * 1024 * 1024) {
+      return new Promise((resolve, reject) => {
+        // Create upload stream with optimized chunk size
+        // Default MongoDB chunk size is 255KB, we'll use 1MB for better performance with larger files
+        const uploadStream = bucket.openUploadStream(filename, {
           contentType,
-          metadata: options.metadata,
-          bucketName
+          metadata: options.metadata || {},
+          chunkSizeBytes: 1024 * 1024 // 1MB chunks
         });
+
+        // Use direct buffer upload instead of creating a readable stream
+        // This avoids the overhead of the stream pipeline
+        uploadStream.once('finish', () => {
+          resolve({
+            id: uploadStream.id,
+            filename,
+            contentType,
+            metadata: options.metadata,
+            bucketName
+          });
+        });
+        
+        uploadStream.on('error', (err) => {
+          logger.error(`GridFS upload stream error: ${err.message}`);
+          reject(err);
+        });
+        
+        // Write buffer directly to the upload stream
+        uploadStream.write(buffer);
+        uploadStream.end();
       });
-      
-      // Pipe read stream to upload stream
-      readStream.pipe(uploadStream);
-    });
+    } else {
+      // For larger files, use streaming approach with optimized settings
+      return new Promise((resolve, reject) => {
+        // Create upload stream with optimized chunk size
+        const uploadStream = bucket.openUploadStream(filename, {
+          contentType,
+          metadata: options.metadata || {},
+          chunkSizeBytes: 1024 * 1024 // 1MB chunks
+        });
+
+        // Create readable stream from buffer
+        const { Readable } = require('stream');
+        const readStream = new Readable({
+          // Set high watermark to improve streaming performance
+          highWaterMark: 1024 * 1024, // 1MB
+          read() {} // Implementation required but not used
+        });
+        
+        // Push the buffer in chunks to avoid memory issues
+        const chunkSize = 1024 * 1024; // 1MB chunks
+        let offset = 0;
+        
+        // Function to push chunks efficiently
+        const pushChunks = () => {
+          while (offset < buffer.length) {
+            const end = Math.min(offset + chunkSize, buffer.length);
+            const chunk = buffer.slice(offset, end);
+            
+            // If we can't push more (backpressure), wait for drain event
+            if (!readStream.push(chunk)) {
+              readStream.once('drain', pushChunks);
+              return;
+            }
+            
+            offset = end;
+            
+            // If we've pushed all chunks, end the stream
+            if (offset >= buffer.length) {
+              readStream.push(null);
+              break;
+            }
+          }
+        };
+        
+        // Start pushing chunks
+        pushChunks();
+        
+        // Handle errors
+        readStream.on('error', (err) => {
+          logger.error(`Read stream error: ${err.message}`);
+          reject(err);
+        });
+        
+        uploadStream.on('error', (err) => {
+          logger.error(`Upload stream error: ${err.message}`);
+          reject(err);
+        });
+        
+        // On finish, resolve with file info
+        uploadStream.on('finish', () => {
+          resolve({
+            id: uploadStream.id,
+            filename,
+            contentType,
+            metadata: options.metadata,
+            bucketName
+          });
+        });
+        
+        // Pipe read stream to upload stream
+        readStream.pipe(uploadStream);
+      });
+    }
   } catch (error) {
     logger.error(`Error in GridFS buffer upload to '${bucketName}': ${error.message}`);
     throw error;
@@ -498,13 +600,11 @@ const completeChunkedUpload = async (fileId, options = {}) => {
       throw new Error(`Cannot complete upload: only ${session.receivedChunks}/${session.totalChunks} chunks received`);
     }
     
-    // Combine chunks into a single buffer
-    let totalSize = 0;
-    session.chunks.forEach(chunk => {
-      totalSize += chunk.length;
-    });
-    
-    const combinedBuffer = Buffer.concat(session.chunks, totalSize);
+    // Get bucket
+    const bucket = await initGridFS(session.bucketName);
+    if (!bucket) {
+      throw new Error(`GridFS bucket '${session.bucketName}' not initialized`);
+    }
     
     // Update metadata with any new options
     const metadata = {
@@ -512,21 +612,92 @@ const completeChunkedUpload = async (fileId, options = {}) => {
       ...(options.metadata || {})
     };
     
-    // Upload the combined file to GridFS
-    const uploadResult = await uploadBuffer(combinedBuffer, {
-      filename: options.filename || session.filename,
-      contentType: options.contentType || session.contentType,
-      metadata
-    }, session.bucketName);
+    // Create upload stream
+    const uploadStream = bucket.openUploadStream(
+      options.filename || session.filename,
+      {
+        contentType: options.contentType || session.contentType,
+        metadata,
+        chunkSizeBytes: 1024 * 1024 // 1MB chunks for better performance
+      }
+    );
     
-    logger.info(`Completed chunked upload for file ${fileId}, final size: ${totalSize} bytes`);
-    
-    // Clean up the temporary chunks
-    delete tempChunks[fileId];
-    
-    return uploadResult;
+    // Process chunks in batches to avoid memory issues
+    return new Promise((resolve, reject) => {
+      let chunkIndex = 0;
+      
+      // Process next chunk
+      const processNextChunk = () => {
+        if (chunkIndex >= session.totalChunks) {
+          // All chunks processed, end the stream
+          uploadStream.end();
+          return;
+        }
+        
+        const chunk = session.chunks[chunkIndex];
+        
+        // Check if chunk exists
+        if (!chunk) {
+          uploadStream.destroy(new Error(`Missing chunk at index ${chunkIndex}`));
+          return;
+        }
+        
+        // Write chunk to stream
+        const canContinue = uploadStream.write(chunk);
+        
+        // Free memory by removing the chunk after writing
+        session.chunks[chunkIndex] = null;
+        
+        // Move to next chunk
+        chunkIndex++;
+        
+        // If we can continue writing immediately, process next chunk
+        // Otherwise wait for drain event
+        if (canContinue && chunkIndex < session.totalChunks) {
+          // Use setImmediate to avoid stack overflow for large files
+          setImmediate(processNextChunk);
+        } else if (chunkIndex < session.totalChunks) {
+          uploadStream.once('drain', processNextChunk);
+        }
+      };
+      
+      // Handle upload completion
+      uploadStream.on('finish', () => {
+        logger.info(`Completed chunked upload for file ${fileId}, final size: ${uploadStream.bytesWritten} bytes`);
+        
+        // Clean up the temporary chunks
+        delete tempChunks[fileId];
+        
+        resolve({
+          id: uploadStream.id,
+          filename: options.filename || session.filename,
+          contentType: options.contentType || session.contentType,
+          metadata,
+          bucketName: session.bucketName
+        });
+      });
+      
+      // Handle errors
+      uploadStream.on('error', (err) => {
+        logger.error(`Error in chunked upload stream: ${err.message}`);
+        
+        // Clean up on error
+        delete tempChunks[fileId];
+        
+        reject(err);
+      });
+      
+      // Start processing chunks
+      processNextChunk();
+    });
   } catch (error) {
     logger.error(`Error completing chunked upload: ${error.message}`);
+    
+    // Clean up on error
+    if (tempChunks[fileId]) {
+      delete tempChunks[fileId];
+    }
+    
     throw error;
   }
 };

@@ -46,7 +46,9 @@ const uploadPhotos = async (req, res) => {
     // Process each file
     const uploadedPhotos = [];
     const idMapping = {};
+    const uploadPromises = [];
     
+    // Create an array of promises for parallel processing
     for (let i = 0; i < req.files.length; i++) {
       const file = req.files[i];
       
@@ -57,66 +59,80 @@ const uploadPhotos = async (req, res) => {
                            clientId : 
                            (i < clientIds.length ? clientIds[i] : null);
       
-      try {
-        // Upload file to GridFS
-        const fileInfo = await gridfs.uploadBuffer(file.buffer, {
-          filename: `${reportId}_${Date.now()}_${file.originalname}`,
-          contentType: file.mimetype,
-          metadata: {
-            reportId,
+      // Create a promise for this file upload
+      const uploadPromise = (async () => {
+        try {
+          // Upload file to GridFS
+          const fileInfo = await gridfs.uploadBuffer(file.buffer, {
+            filename: `${reportId}_${Date.now()}_${file.originalname}`,
+            contentType: file.mimetype,
+            metadata: {
+              reportId,
+              originalName: file.originalname,
+              uploadDate: new Date(),
+              clientId: fileClientId // Store the client ID in metadata
+            }
+          });
+          
+          // Create photo object directly for the report
+          const photo = {
+            _id: fileInfo.id,
+            fileId: fileInfo.id,
+            filename: fileInfo.filename,
             originalName: file.originalname,
+            contentType: file.mimetype,
+            path: `/api/photos/${fileInfo.id}`,
+            status: 'pending',
             uploadDate: new Date(),
-            clientId: fileClientId // Store the client ID in metadata
+            clientId: fileClientId // Include the client ID in the photo object
+          };
+          
+          // Add photo to uploadedPhotos array
+          uploadedPhotos.push(photo);
+          
+          // Create mapping from client ID to server ID if client ID was provided
+          if (fileClientId) {
+            idMapping[fileClientId] = fileInfo.id;
           }
-        });
-        
-        // Create photo object directly for the report
-        const photo = {
-          _id: fileInfo.id,
-          fileId: fileInfo.id,
-          filename: fileInfo.filename,
-          originalName: file.originalname,
-          contentType: file.mimetype,
-          path: `/api/photos/${fileInfo.id}`,
-          status: 'pending',
-          uploadDate: new Date(),
-          clientId: fileClientId // Include the client ID in the photo object
-        };
-        
-        // Add photo to uploadedPhotos array
-        uploadedPhotos.push(photo);
-        
-        // Create mapping from client ID to server ID if client ID was provided
-        if (fileClientId) {
-          idMapping[fileClientId] = fileInfo.id;
-        }
-        
-        // If file was saved to temp directory, clean it up
-        if (file.path) {
-          try {
-            await fsPromises.unlink(file.path);
-            logger.debug(`Deleted temporary file: ${file.path}`);
-          } catch (unlinkError) {
-            logger.warn(`Failed to delete temporary file ${file.path}: ${unlinkError.message}`);
+          
+          // If file was saved to temp directory, clean it up
+          if (file.path) {
+            try {
+              await fsPromises.unlink(file.path);
+              logger.debug(`Deleted temporary file: ${file.path}`);
+            } catch (unlinkError) {
+              logger.warn(`Failed to delete temporary file ${file.path}: ${unlinkError.message}`);
+            }
           }
+          
+          return photo;
+        } catch (fileError) {
+          logger.error(`Error processing file ${file.originalname}: ${fileError.message}`);
+          return null;
         }
-      } catch (fileError) {
-        logger.error(`Error processing file ${file.originalname}: ${fileError.message}`);
-      }
+      })();
+      
+      uploadPromises.push(uploadPromise);
     }
     
+    // Wait for all uploads to complete in parallel
+    await Promise.all(uploadPromises);
+    
+    // Filter out any failed uploads
+    const successfulPhotos = uploadedPhotos.filter(photo => photo !== null);
+    
     // Add photos to report
-    report.photos = [...report.photos, ...uploadedPhotos];
+    report.photos = [...report.photos, ...successfulPhotos];
     await report.save();
     
-    logger.info(`Successfully uploaded ${uploadedPhotos.length} photos to report ${reportId}`);
+    logger.info(`Successfully uploaded ${successfulPhotos.length} photos to report ${reportId}`);
     
     // Return success response with uploaded photos and ID mapping
     return res.status(200).json({
       success: true,
-      photos: uploadedPhotos,
+      photos: successfulPhotos,
       idMapping,
-      message: `Successfully uploaded ${uploadedPhotos.length} photos`
+      message: `Successfully uploaded ${successfulPhotos.length} photos`
     });
   } catch (error) {
     logger.error(`Error uploading photos: ${error.message}`);
