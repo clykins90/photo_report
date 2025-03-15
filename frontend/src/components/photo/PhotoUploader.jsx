@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { uploadBatchPhotos, analyzePhotos, getPhotoUrl } from '../../services/photoService';
 import useUploadManager from '../../hooks/useUploadManager';
+import { isBlobUrlValid, createAndTrackBlobUrl, safelyRevokeBlobUrl, cleanupAllBlobUrls } from '../../utils/blobUrlManager';
+import { isValidObjectId, filterPhotosWithValidIds } from '../../utils/mongoUtil';
 
 // Helper function to extract the filename from a file object
 const extractFilename = (file) => {
@@ -29,12 +31,6 @@ const PhotoUploader = ({
   // Track image loading attempts to prevent infinite retries
   const imageRetryCounters = useRef({});
   
-  // Track active blob URLs to prevent premature revocation
-  const activeBlobUrls = useRef(new Set());
-  
-  // Store temporary URLs to avoid creating them during render
-  const tempUrlCache = useRef(new Map());
-
   // Initialize the upload manager
   const uploadManager = useUploadManager({
     maxConcurrentUploads: 3,
@@ -43,69 +39,10 @@ const PhotoUploader = ({
     autoStart: false // We'll start manually after preparing the files
   });
 
-  // Helper to check if a blob URL is valid
-  const isBlobUrlValid = (url) => {
-    if (!url || !url.startsWith('blob:')) return false;
-    
-    // Check if the URL is in our active set
-    return activeBlobUrls.current.has(url);
-  };
-
-  // Helper to safely create blob URLs
-  const createAndTrackBlobUrl = (file) => {
-    if (!file) return null;
-    
-    // Check if we already have a URL for this file
-    const fileId = file.name || file.path || Math.random().toString();
-    
-    if (tempUrlCache.current.has(fileId)) {
-      return tempUrlCache.current.get(fileId);
-    }
-    
-    try {
-      const url = URL.createObjectURL(file);
-      activeBlobUrls.current.add(url);
-      tempUrlCache.current.set(fileId, url);
-      return url;
-    } catch (e) {
-      console.error('Failed to create blob URL:', e);
-      return null;
-    }
-  };
-  
-  // Helper to safely revoke blob URLs
-  const safelyRevokeBlobUrl = (url) => {
-    if (url && url.startsWith('blob:') && activeBlobUrls.current.has(url)) {
-      try {
-        URL.revokeObjectURL(url);
-        activeBlobUrls.current.delete(url);
-        
-        // Also remove from cache if it exists there
-        for (const [key, value] of tempUrlCache.current.entries()) {
-          if (value === url) {
-            tempUrlCache.current.delete(key);
-            break;
-          }
-        }
-      } catch (e) {
-        console.error('Failed to revoke blob URL:', e);
-      }
-    }
-  };
-  
   // Clean up blob URLs when component unmounts
   useEffect(() => {
     return () => {
-      // Clean up all blob URLs
-      activeBlobUrls.current.forEach(url => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch (e) {
-          console.error('Failed to revoke blob URL during cleanup:', e);
-        }
-      });
-      activeBlobUrls.current.clear();
-      tempUrlCache.current.clear();
+      cleanupAllBlobUrls();
     };
   }, []);
   
@@ -323,9 +260,7 @@ const PhotoUploader = ({
       const photosWithValidIds = files.filter(file => 
         file.status === 'complete' && 
         !file.analysis && 
-        file._id && 
-        typeof file._id === 'string' && 
-        /^[0-9a-fA-F]{24}$/.test(file._id)
+        isValidObjectId(file._id)
       );
       
       if (photosWithValidIds.length === 0) {
@@ -657,16 +592,11 @@ const PhotoUploader = ({
                             
                             // Don't update state here - just set the src directly
                             // Check cache first before creating a new URL
-                            const cachedUrl = tempUrlCache.current.get(file.originalFile.name || file.id);
-                            if (cachedUrl) {
-                              e.target.src = cachedUrl;
+                            const newUrl = createAndTrackBlobUrl(file.originalFile);
+                            if (newUrl) {
+                              e.target.src = newUrl;
                             } else {
-                              const newUrl = createAndTrackBlobUrl(file.originalFile);
-                              if (newUrl) {
-                                e.target.src = newUrl;
-                              } else {
-                                e.target.src = `/placeholder-image.png`;
-                              }
+                              e.target.src = `/placeholder-image.png`;
                             }
                             return;
                           } catch (err) {

@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import PhotoUploader from '../photo/PhotoUploader';
+import { filterPhotosWithValidIds } from '../../utils/mongoUtil';
 
 const PhotoUploadStep = ({ 
   uploadedPhotos = [],
@@ -19,9 +20,7 @@ const PhotoUploadStep = ({
     // Only call onUploadComplete if we have valid photos with MongoDB IDs
     if (onUploadComplete && uploadedPhotos && uploadedPhotos.length > 0) {
       // Verify that photos have valid MongoDB IDs before passing them up
-      const validPhotos = uploadedPhotos.filter(photo => 
-        photo._id && typeof photo._id === 'string' && /^[0-9a-fA-F]{24}$/.test(photo._id)
-      );
+      const validPhotos = filterPhotosWithValidIds(uploadedPhotos);
       
       console.log('Processed photos:', validPhotos);
       

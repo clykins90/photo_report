@@ -1,33 +1,6 @@
 import api from './api';
-
-/**
- * Utility function to control logging verbosity
- * @param {string} message - Message to log
- * @param {any} data - Optional data to log
- * @param {boolean} isError - Whether this is an error log
- */
-const photoLogger = (message, data = null, isError = false) => {
-  // Get environment variable or localStorage setting for verbose logging
-  const verboseLogging = import.meta.env.VITE_VERBOSE_PHOTO_LOGGING === 'true' || 
-                         localStorage.getItem('verbosePhotoLogging') === 'true';
-  
-  // Always log errors, or if verbose logging is enabled
-  if (isError || verboseLogging) {
-    if (isError) {
-      if (data) {
-        console.error(message, data);
-      } else {
-        console.error(message);
-      }
-    } else {
-      if (data) {
-        console.log(message, data);
-      } else {
-        console.log(message);
-      }
-    }
-  }
-};
+import { isValidObjectId, extractPhotoObjectId, filterPhotosWithValidIds } from '../utils/mongoUtil';
+import { photoLogger } from '../utils/logger';
 
 /**
  * Uploads a file in chunks to the server
@@ -57,11 +30,11 @@ export const uploadChunkedPhoto = async (file, reportId, clientId, progressCallb
     };
 
     const config = { ...defaultOptions, ...options };
-    photoLogger(`Uploading chunked file: ${file.name} (${file.size} bytes) with chunk size: ${config.chunkSize} bytes`);
+    photoLogger.info(`Uploading chunked file: ${file.name} (${file.size} bytes) with chunk size: ${config.chunkSize} bytes`);
 
     // Calculate total chunks
     const totalChunks = Math.ceil(file.size / config.chunkSize);
-    photoLogger(`Total chunks to upload: ${totalChunks}`);
+    photoLogger.info(`Total chunks to upload: ${totalChunks}`);
 
     // Initialize upload session
     const initResponse = await api.post('/photos/upload-chunk/init', {
@@ -78,7 +51,7 @@ export const uploadChunkedPhoto = async (file, reportId, clientId, progressCallb
     }
 
     const { uploadId } = initResponse.data;
-    photoLogger(`Upload session initialized with ID: ${uploadId}`);
+    photoLogger.info(`Upload session initialized with ID: ${uploadId}`);
 
     // Track uploaded chunks
     const uploadedChunks = new Set();
@@ -124,13 +97,13 @@ export const uploadChunkedPhoto = async (file, reportId, clientId, progressCallb
             }
             
             success = true;
-            photoLogger(`Chunk ${chunkIndex + 1}/${totalChunks} uploaded successfully`);
+            photoLogger.debug(`Chunk ${chunkIndex + 1}/${totalChunks} uploaded successfully`);
           } else {
             throw new Error(response.data.error || `Failed to upload chunk ${chunkIndex}`);
           }
         } catch (error) {
           retries++;
-          photoLogger(`Error uploading chunk ${chunkIndex}, retry ${retries}/${config.maxRetries}`, error, true);
+          photoLogger.warn(`Error uploading chunk ${chunkIndex}, retry ${retries}/${config.maxRetries}`, error);
           
           if (retries <= config.maxRetries) {
             // Wait before retrying
@@ -174,10 +147,10 @@ export const uploadChunkedPhoto = async (file, reportId, clientId, progressCallb
       throw new Error(completeResponse.data.error || 'Failed to complete chunked upload');
     }
 
-    photoLogger('Chunked upload completed successfully', completeResponse.data);
+    photoLogger.info('Chunked upload completed successfully', completeResponse.data);
     return completeResponse.data;
   } catch (error) {
-    photoLogger('Error in chunked upload', error, true);
+    photoLogger.error('Error in chunked upload', error);
     throw error;
   }
 };
@@ -192,10 +165,10 @@ export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
   // If given a string ID, validate it looks like a MongoDB ObjectId
   if (typeof fileOrId === 'string') {
     // Basic validation for MongoDB ObjectId format (24 hex chars)
-    if (/^[0-9a-fA-F]{24}$/.test(fileOrId)) {
+    if (isValidObjectId(fileOrId)) {
       return `/api/photos/${fileOrId}?size=${size}`;
     } else {
-      photoLogger(`Invalid photo ID format: ${fileOrId}`, null, true);
+      photoLogger.error(`Invalid photo ID format: ${fileOrId}`);
       return '/placeholder-image.png';
     }
   }
@@ -216,13 +189,9 @@ export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
   }
   
   // PRIORITY 3: If we have a MongoDB ObjectId, validate and use that
-  if (fileOrId._id) {
-    // Basic validation for MongoDB ObjectId format
-    if (typeof fileOrId._id === 'string' && /^[0-9a-fA-F]{24}$/.test(fileOrId._id)) {
-      return `/api/photos/${fileOrId._id}?size=${size}`;
-    } else {
-      photoLogger(`Invalid photo _id format: ${fileOrId._id}`, fileOrId, true);
-    }
+  const objectId = extractPhotoObjectId(fileOrId);
+  if (objectId) {
+    return `/api/photos/${objectId}?size=${size}`;
   }
   
   // PRIORITY 4: If we have a filename, use that
@@ -237,7 +206,7 @@ export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
   
   // Fallback to placeholder - only log in development to reduce noise
   if (process.env.NODE_ENV === 'development') {
-    photoLogger('Unable to determine photo URL from object:', fileOrId, true);
+    photoLogger.warn('Unable to determine photo URL from object:', fileOrId);
   }
   return '/placeholder-image.png';
 };
@@ -260,10 +229,10 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
       throw new Error('Report ID is required for photo upload');
     }
 
-    photoLogger(`Uploading ${files.length} photos for report: ${reportId}`);
+    photoLogger.info(`Uploading ${files.length} photos for report: ${reportId}`);
     
     // Log file names for debugging
-    photoLogger('Files being uploaded:', files.map(f => f.name));
+    photoLogger.debug('Files being uploaded:', files.map(f => f.name));
 
     // Determine which files should use chunked upload based on size
     const CHUNKED_UPLOAD_THRESHOLD = 5 * 1024 * 1024; // 5MB
@@ -278,7 +247,7 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
       }
     });
     
-    photoLogger(`Using chunked upload for ${largeFiles.length} large files and regular upload for ${smallFiles.length} small files`);
+    photoLogger.info(`Using chunked upload for ${largeFiles.length} large files and regular upload for ${smallFiles.length} small files`);
     
     // Track overall progress
     let totalProgress = 0;
@@ -313,7 +282,7 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
     
     // Upload large files using chunked upload
     if (largeFiles.length > 0) {
-      photoLogger(`Starting chunked upload for ${largeFiles.length} large files`);
+      photoLogger.info(`Starting chunked upload for ${largeFiles.length} large files`);
       
       // Upload large files sequentially to avoid overwhelming the server
       for (const { file, index } of largeFiles) {
@@ -341,7 +310,7 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
             throw new Error(response.error || `Failed to upload file ${file.name}`);
           }
         } catch (error) {
-          photoLogger(`Error uploading large file ${file.name}:`, error, true);
+          photoLogger.error(`Error uploading large file ${file.name}:`, error);
           throw error;
         }
       }
@@ -349,7 +318,7 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
     
     // Upload small files using the traditional method with concurrency
     if (smallFiles.length > 0) {
-      photoLogger(`Starting regular upload for ${smallFiles.length} small files with concurrency`);
+      photoLogger.info(`Starting regular upload for ${smallFiles.length} small files with concurrency`);
       
       // Configuration for concurrent uploads
       const CONCURRENT_UPLOADS = 3; // Number of concurrent uploads
@@ -361,7 +330,7 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
         batches.push(smallFiles.slice(i, i + BATCH_SIZE));
       }
       
-      photoLogger(`Created ${batches.length} batches of small files for concurrent upload`);
+      photoLogger.debug(`Created ${batches.length} batches of small files for concurrent upload`);
       
       // Process batches with concurrency
       for (let i = 0; i < batches.length; i += CONCURRENT_UPLOADS) {
@@ -376,12 +345,12 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
             // If we have metadata with clientId for this file, add it
             if (fileMetadata[index] && fileMetadata[index].clientId) {
               formData.append('clientIds', fileMetadata[index].clientId);
-              photoLogger(`Adding clientId ${fileMetadata[index].clientId} for file ${file.name}`);
+              photoLogger.debug(`Adding clientId ${fileMetadata[index].clientId} for file ${file.name}`);
             } else {
               // Generate a client ID if not provided
               const generatedClientId = `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_${index}`;
               formData.append('clientIds', generatedClientId);
-              photoLogger(`Generated clientId ${generatedClientId} for file ${file.name}`);
+              photoLogger.debug(`Generated clientId ${generatedClientId} for file ${file.name}`);
               
               // Add to metadata array for reference
               if (!fileMetadata[index]) {
@@ -440,10 +409,10 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
       progressCallback(100);
     }
     
-    photoLogger('All uploads completed successfully', results);
+    photoLogger.info('All uploads completed successfully', results);
     return results;
   } catch (error) {
-    photoLogger('Error in uploadBatchPhotos:', error, true);
+    photoLogger.error('Error in uploadBatchPhotos:', error);
     return {
       success: false,
       error: error.message || 'An unknown error occurred during upload'
@@ -462,12 +431,12 @@ export const analyzePhotos = async (reportId) => {
       throw new Error('Report ID is required for photo analysis');
     }
 
-    photoLogger(`Analyzing all photos for report: ${reportId}`);
+    photoLogger.info(`Analyzing all photos for report: ${reportId}`);
 
     // Don't include any query parameters
     const response = await api.post(`/photos/analyze/${reportId}`);
     
-    photoLogger(`Analysis complete: ${response.data.results?.length || 0} photos analyzed`);
+    photoLogger.info(`Analysis complete: ${response.data.results?.length || 0} photos analyzed`);
     
     return {
       success: true,
@@ -479,7 +448,7 @@ export const analyzePhotos = async (reportId) => {
       })) || []
     };
   } catch (error) {
-    photoLogger('Error analyzing photos:', error, true);
+    photoLogger.error('Error analyzing photos:', error);
     return {
       success: false,
       error: error.response?.data?.error || error.message || 'Failed to analyze photos'
@@ -498,18 +467,18 @@ export const deletePhoto = async (photoId) => {
       throw new Error('Photo ID is required for deletion');
     }
 
-    photoLogger(`Deleting photo: ${photoId}`);
+    photoLogger.info(`Deleting photo: ${photoId}`);
 
     const response = await api.delete(`/photos/${photoId}`);
     
-    photoLogger('Photo deleted successfully');
+    photoLogger.info('Photo deleted successfully');
     
     return {
       success: true,
       message: response.data.message
     };
   } catch (error) {
-    photoLogger('Error deleting photo:', error, true);
+    photoLogger.error('Error deleting photo:', error);
     return {
       success: false,
       error: error.response?.data?.error || error.message || 'Failed to delete photo'
@@ -534,20 +503,20 @@ export const analyzePhoto = async (photo, reportId) => {
     }
 
     // Only use MongoDB ObjectID (24 hex chars)
-    if (!photo._id || typeof photo._id !== 'string' || !/^[0-9a-fA-F]{24}$/.test(photo._id)) {
+    if (!isValidObjectId(photo._id)) {
       throw new Error('Photo must have a valid MongoDB ObjectID (_id). Make sure the photo is properly uploaded first.');
     }
 
     const photoId = photo._id;
     
-    photoLogger(`Analyzing single photo with MongoDB ObjectID: ${photoId} for report: ${reportId}`);
+    photoLogger.info(`Analyzing single photo with MongoDB ObjectID: ${photoId} for report: ${reportId}`);
 
     // Use URL parameter for reportId without any query parameters
     const response = await api.post(`/photos/analyze/${reportId}`, { 
       photoId: photoId
     });
     
-    photoLogger(`Analysis complete for photo: ${photoId}`);
+    photoLogger.info(`Analysis complete for photo: ${photoId}`);
     
     // Extract the result for this specific photo
     const result = response.data.results?.find(r => r.photoId === photoId);
@@ -562,7 +531,7 @@ export const analyzePhoto = async (photo, reportId) => {
       error: result.error
     };
   } catch (error) {
-    photoLogger('Error analyzing photo:', error, true);
+    photoLogger.error('Error analyzing photo:', error);
     return {
       success: false,
       error: error.response?.data?.error || error.message || 'Failed to analyze photo'
@@ -587,21 +556,19 @@ export const analyzeBatchPhotos = async (photos, reportId) => {
       throw new Error('Report ID is required for batch photo analysis');
     }
 
-    photoLogger(`[TIMING] Starting batch analysis at ${new Date().toISOString()}`);
-    photoLogger(`Analyzing batch of ${photos.length} photos for report: ${reportId}`);
+    photoLogger.timing('Starting batch analysis', startTime);
+    photoLogger.info(`Analyzing batch of ${photos.length} photos for report: ${reportId}`);
 
     // Extract ONLY MongoDB ObjectIDs (24 hex chars)
     // This is the simplest solution - only send valid MongoDB IDs to the backend
-    const photoIds = photos
-      .filter(photo => photo._id && typeof photo._id === 'string' && /^[0-9a-fA-F]{24}$/.test(photo._id))
-      .map(photo => photo._id);
+    const photoIds = filterPhotosWithValidIds(photos).map(photo => extractPhotoObjectId(photo));
     
     if (photoIds.length === 0) {
       throw new Error('No valid MongoDB ObjectIDs found in the photos. Make sure photos are properly uploaded first.');
     }
     
-    photoLogger(`Extracted ${photoIds.length} MongoDB ObjectIDs for analysis:`, photoIds);
-    photoLogger(`[TIMING] Making API request - elapsed: ${(Date.now() - startTime)/1000}s`);
+    photoLogger.debug(`Extracted ${photoIds.length} MongoDB ObjectIDs for analysis:`, photoIds);
+    photoLogger.timing('Making API request', startTime);
     
     // Use URL parameter for reportId and send photoIds in the request body
     // Don't include any query parameters
@@ -609,13 +576,13 @@ export const analyzeBatchPhotos = async (photos, reportId) => {
     const response = await api.post(`/photos/analyze/${reportId}`, { 
       photoIds: photoIds
     });
-    const apiCallDuration = (Date.now() - apiCallStartTime)/1000;
+    const apiCallDuration = Date.now() - apiCallStartTime;
     
-    photoLogger(`[TIMING] API request completed in ${apiCallDuration}s - total elapsed: ${(Date.now() - startTime)/1000}s`);
-    photoLogger(`Batch analysis complete for ${response.data.results?.length || 0} photos`);
+    photoLogger.timing(`API request completed in ${apiCallDuration}ms`, startTime);
+    photoLogger.info(`Batch analysis complete for ${response.data.results?.length || 0} photos`);
     
     if (response.data.executionTime) {
-      photoLogger(`[TIMING] Server reported execution time: ${response.data.executionTime}s`);
+      photoLogger.debug(`Server reported execution time: ${response.data.executionTime}s`);
     }
     
     // Map the results to the expected format
@@ -629,8 +596,8 @@ export const analyzeBatchPhotos = async (photos, reportId) => {
     // Check if there are remaining photos to process
     const totalRemaining = response.data.totalPhotosRemaining || 0;
     
-    const totalTime = (Date.now() - startTime)/1000;
-    photoLogger(`[TIMING] Total client-side processing time: ${totalTime}s`);
+    const totalTime = Date.now() - startTime;
+    photoLogger.timing(`Total client-side processing time: ${totalTime}ms`, startTime);
     
     return {
       success: true,
@@ -645,9 +612,9 @@ export const analyzeBatchPhotos = async (photos, reportId) => {
       }
     };
   } catch (error) {
-    const errorTime = (Date.now() - startTime)/1000;
-    photoLogger(`[TIMING] Error occurred at elapsed time: ${errorTime}s`);
-    photoLogger('Error analyzing batch of photos:', error, true);
+    const errorTime = Date.now() - startTime;
+    photoLogger.timing(`Error occurred at elapsed time: ${errorTime}ms`, startTime);
+    photoLogger.error('Error analyzing batch of photos:', error);
     return {
       success: false,
       error: error.response?.data?.error || error.message || 'Failed to analyze photos',
