@@ -247,6 +247,7 @@ const useUploadManager = (options = {}) => {
         
         // Track progress for all items in this batch
         const updateBatchProgress = (batchProgress) => {
+          console.log(`Batch progress update: ${batchProgress}%`);
           // Update progress for each item
           items.forEach(item => {
             setProgress(prev => ({
@@ -263,12 +264,14 @@ const useUploadManager = (options = {}) => {
         const result = await uploadBatchPhotos(files, reportId, updateBatchProgress, fileMetadata);
         
         if (result.success) {
+          console.log('Batch upload successful:', result);
           // Process each item with its corresponding result
           items.forEach(item => {
             const photoId = result.idMapping[item.clientId];
             const photo = result.photos.find(p => p._id === photoId);
             
             if (photo) {
+              console.log(`Photo found for clientId ${item.clientId}:`, photo);
               // Upload completed successfully
               item.status = 'completed';
               item.result = { success: true, photo };
@@ -278,6 +281,7 @@ const useUploadManager = (options = {}) => {
               activeUploadsRef.current = activeUploadsRef.current.filter(i => i.id !== item.id);
               completedRef.current = [...completedRef.current, item];
             } else {
+              console.warn(`No photo found for clientId ${item.clientId} in results:`, result);
               // Photo not found in results
               item.status = 'failed';
               item.error = 'Photo not found in upload results';
@@ -293,10 +297,19 @@ const useUploadManager = (options = {}) => {
           setActiveUploads([...activeUploadsRef.current]);
           setCompleted([...completedRef.current]);
           setFailed([...failedRef.current]);
+          
+          // Force a final progress update to ensure UI reflects completion
+          items.forEach(item => {
+            setProgress(prev => ({
+              ...prev,
+              [item.id]: 100
+            }));
+          });
         } else {
           throw new Error(result.error || 'Batch upload failed');
         }
       } catch (error) {
+        console.error('Batch upload failed:', error);
         // All uploads in this batch failed
         items.forEach(item => {
           item.status = 'failed';
@@ -311,8 +324,6 @@ const useUploadManager = (options = {}) => {
         // Update state
         setActiveUploads([...activeUploadsRef.current]);
         setFailed([...failedRef.current]);
-        
-        console.error('Batch upload failed:', error);
       }
     };
     

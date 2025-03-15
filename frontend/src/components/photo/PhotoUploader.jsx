@@ -134,6 +134,8 @@ const PhotoUploader = ({
         clientId: file.clientId
       }));
       
+      console.log('Adding files to upload queue:', filesToUpload.map(f => f.name));
+      
       // Add files to the upload manager queue
       uploadManager.addToQueue(
         filesToUpload.map(file => file.originalFile),
@@ -147,6 +149,7 @@ const PhotoUploader = ({
       // Set up a progress tracking interval
       const progressInterval = setInterval(() => {
         const overallProgress = uploadManager.getOverallProgress();
+        console.log(`Overall upload progress: ${overallProgress}%`);
         setUploadProgress(overallProgress);
         
         // Check if all uploads are complete
@@ -157,33 +160,43 @@ const PhotoUploader = ({
           
           // Process completed uploads
           const completedUploads = uploadManager.completed;
+          console.log('Completed uploads:', completedUploads);
+          
           if (completedUploads.length > 0) {
             // Update file statuses based on completed uploads
-            setFiles(prev => prev.map(file => {
-              const completedUpload = completedUploads.find(
-                upload => upload.clientId === file.clientId
-              );
+            setFiles(prev => {
+              const updatedFiles = prev.map(file => {
+                const completedUpload = completedUploads.find(
+                  upload => upload.clientId === file.clientId
+                );
+                
+                if (completedUpload) {
+                  console.log(`Updating file ${file.name} with completed upload:`, completedUpload);
+                  return {
+                    ...file,
+                    status: 'uploaded',
+                    progress: 100,
+                    // Update with server data if available
+                    ...(completedUpload.result?.photo ? {
+                      id: completedUpload.result.photo._id,
+                      serverId: completedUpload.result.photo._id,
+                      analysis: completedUpload.result.photo.analysis || null
+                    } : {})
+                  };
+                }
+                return file;
+              });
               
-              if (completedUpload) {
-                return {
-                  ...file,
-                  status: 'uploaded',
-                  progress: 100,
-                  // Update with server data if available
-                  ...(completedUpload.result?.photo ? {
-                    id: completedUpload.result.photo._id,
-                    serverId: completedUpload.result.photo._id,
-                    analysis: completedUpload.result.photo.analysis || null
-                  } : {})
-                };
-              }
-              return file;
-            }));
+              console.log('Updated files:', updatedFiles);
+              return updatedFiles;
+            });
             
             // Collect all uploaded photos for the callback
             const uploadedPhotos = completedUploads
               .filter(upload => upload.result?.photo)
               .map(upload => upload.result.photo);
+            
+            console.log('Calling onUploadComplete with photos:', uploadedPhotos);
             
             // Call the completion callback with the uploaded photos
             if (onUploadComplete && uploadedPhotos.length > 0) {
@@ -194,6 +207,8 @@ const PhotoUploader = ({
           // Handle any failed uploads
           const failedUploads = uploadManager.failed;
           if (failedUploads.length > 0) {
+            console.warn('Failed uploads:', failedUploads);
+            
             // Update file statuses for failed uploads
             setFiles(prev => prev.map(file => {
               const failedUpload = failedUploads.find(
