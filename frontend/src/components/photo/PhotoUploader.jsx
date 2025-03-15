@@ -111,8 +111,8 @@ const PhotoUploader = ({
       
       if (result.success) {
         // Get photos and idMapping from response
-        const photos = result.photos || [];
-        const idMapping = result.idMapping || {};
+        const photos = result.data?.photos || [];
+        const idMapping = result.data?.idMapping || {};
         
         console.log('Upload result:', result);
         console.log('Photos returned:', photos.length);

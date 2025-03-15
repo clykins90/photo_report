@@ -266,9 +266,12 @@ const useUploadManager = (options = {}) => {
         if (result.success) {
           console.log('Batch upload successful:', result);
           // Process each item with its corresponding result
+          const photos = result.data?.photos || [];
+          const idMapping = result.data?.idMapping || {};
+          
           items.forEach(item => {
-            const photoId = result.idMapping[item.clientId];
-            const photo = result.photos.find(p => p._id === photoId);
+            const photoId = idMapping[item.clientId];
+            const photo = photos.find(p => p._id === photoId);
             
             if (photo) {
               console.log(`Photo found for clientId ${item.clientId}:`, photo);
