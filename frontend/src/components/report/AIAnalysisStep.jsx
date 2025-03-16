@@ -55,6 +55,11 @@ const AIAnalysisStep = ({
   const hasAnalyzedPhotos = analyzedCount > 0;
   const allPhotosAnalyzed = analyzedCount === uploadedPhotos.length && uploadedPhotos.length > 0;
   
+  // Log whenever these important flags change
+  useEffect(() => {
+    console.log(`Analysis status: hasAnalyzedPhotos=${hasAnalyzedPhotos}, allPhotosAnalyzed=${allPhotosAnalyzed}, analyzedCount=${analyzedCount}, totalPhotos=${uploadedPhotos.length}`);
+  }, [hasAnalyzedPhotos, allPhotosAnalyzed, analyzedCount, uploadedPhotos.length]);
+  
   // Check for local data in photos and log it
   useEffect(() => {
     if (uploadedPhotos && uploadedPhotos.length > 0) {
@@ -67,6 +72,7 @@ const AIAnalysisStep = ({
   useEffect(() => {
     const count = uploadedPhotos.filter(p => p.analysis).length;
     setAnalyzedCount(count);
+    console.log(`Updated analyzed count: ${count} of ${uploadedPhotos.length} photos have analysis data`);
   }, [uploadedPhotos]);
 
   // Cycle through hero messages during loading
@@ -283,16 +289,29 @@ const AIAnalysisStep = ({
                       
                       if (photoIndex !== -1) {
                         // Update the photo with analysis results
-                        const analysisData = result.data || result.analysis;
-                        console.log(`Updating photo at index ${photoIndex} with analysis from result index ${resultIndex}`);
+                        // FIXED: Ensure we're accessing the correct property in the result
+                        const analysisData = extractAnalysisData(result);
                         
-                        updatedPhotos[photoIndex] = {
-                          ...updatedPhotos[photoIndex],
-                          status: 'complete',
-                          analysis: analysisData // Handle both data formats
-                        };
+                        console.log(`Updating photo at index ${photoIndex} with analysis from result index ${resultIndex}`, 
+                          analysisData ? `Analysis data present: ${typeof analysisData === 'object'}` : 'No analysis data'
+                        );
                         
-                        photosCompleted++;
+                        // Only mark as having analysis if we actually have data
+                        if (analysisData && Object.keys(analysisData).length > 0) {
+                          updatedPhotos[photoIndex] = {
+                            ...updatedPhotos[photoIndex],
+                            status: 'complete',
+                            analysis: analysisData
+                          };
+                          photosCompleted++;
+                        } else {
+                          console.warn(`No analysis data in result for photo at index ${resultIndex}`);
+                          updatedPhotos[photoIndex] = {
+                            ...updatedPhotos[photoIndex],
+                            status: 'error',
+                            error: 'Analysis data missing in response'
+                          };
+                        }
                       }
                     }
                   });
@@ -310,18 +329,29 @@ const AIAnalysisStep = ({
                       
                       if (resultPhotoIndex !== -1) {
                         // Update the photo with analysis results
-                        const analysisData = result.data || result.analysis;
+                        // FIXED: Ensure we're accessing the correct property in the result
+                        const analysisData = extractAnalysisData(result);
+                        
                         console.log(`Updating photo at index ${resultPhotoIndex} with analysis:`, 
-                          analysisData ? Object.keys(analysisData) : 'null'
+                          analysisData ? `Analysis keys: ${Object.keys(analysisData)}` : 'null'
                         );
                         
-                        updatedPhotos[resultPhotoIndex] = {
-                          ...updatedPhotos[resultPhotoIndex],
-                          status: 'complete',
-                          analysis: analysisData // Handle both data formats
-                        };
-                        
-                        photosCompleted++;
+                        // Only mark as having analysis if we actually have data
+                        if (analysisData && Object.keys(analysisData).length > 0) {
+                          updatedPhotos[resultPhotoIndex] = {
+                            ...updatedPhotos[resultPhotoIndex],
+                            status: 'complete',
+                            analysis: analysisData
+                          };
+                          photosCompleted++;
+                        } else {
+                          console.warn(`No analysis data in result for photoId: ${result.photoId}`);
+                          updatedPhotos[resultPhotoIndex] = {
+                            ...updatedPhotos[resultPhotoIndex],
+                            status: 'error',
+                            error: 'Analysis data missing in response'
+                          };
+                        }
                       } else {
                         console.warn(`Could not find matching photo for result with photoId: ${result.photoId}`);
                         console.log('Available photo IDs:', updatedPhotos.map(p => ({
@@ -552,6 +582,45 @@ const AIAnalysisStep = ({
       </div>
     </div>
   );
+
+  // Helper function to extract analysis data from various result formats
+  const extractAnalysisData = (result) => {
+    console.log('Extracting analysis data from result:', Object.keys(result));
+    
+    // Try different possible locations for the analysis data
+    if (result.analysis && typeof result.analysis === 'object') {
+      console.log('Found analysis directly in result.analysis');
+      return result.analysis;
+    } 
+    
+    if (result.data) {
+      console.log('Found data property, checking within it');
+      
+      if (typeof result.data === 'object') {
+        if (result.data.analysis && typeof result.data.analysis === 'object') {
+          console.log('Found analysis in result.data.analysis');
+          return result.data.analysis;
+        }
+        
+        // Sometimes the data itself is the analysis
+        if (Object.keys(result.data).length > 0) {
+          console.log('Using result.data as analysis');
+          return result.data;
+        }
+      }
+    }
+    
+    // Last resort - check if result itself has analysis-like properties
+    const analysisIndicators = ['description', 'damage', 'summary', 'condition', 'materials'];
+    
+    if (analysisIndicators.some(key => result[key])) {
+      console.log('Result itself appears to contain analysis data');
+      return result;
+    }
+    
+    console.log('No analysis data found in result');
+    return null;
+  };
 
   return (
     <div>
