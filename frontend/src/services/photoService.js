@@ -29,7 +29,7 @@ export const getPhotoUrl = (photoOrId, size = 'original') => {
   }
   
   // Generate appropriate URL based on size
-  const baseUrl = `/photos/${photoId}`;
+  const baseUrl = `/api/photos/${photoId}`;
   
   switch(size) {
     case 'thumbnail':

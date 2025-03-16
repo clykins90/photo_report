@@ -94,7 +94,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
             (photo.path ? photo.path.split('/').pop() : `photo-${index}`);
           
           // Build the photo URL
-          const photoUrl = `${baseApiUrl}/photos/${filename}`;
+          const photoUrl = `${baseApiUrl}/api/photos/${filename}`;
           
           console.log(`Processing photo ${index}:`, { 
             original: photo,

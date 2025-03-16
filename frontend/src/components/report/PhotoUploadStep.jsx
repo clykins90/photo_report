@@ -23,9 +23,9 @@ const PhotoUploadStep = ({
           
           // Try to construct a URL from available identifiers
           if (processedPhoto._id) {
-            processedPhoto.path = `/photos/${processedPhoto._id}`;
+            processedPhoto.path = `/api/photos/${processedPhoto._id}`;
           } else if (processedPhoto.fileId) {
-            processedPhoto.path = `/photos/${processedPhoto.fileId}`;
+            processedPhoto.path = `/api/photos/${processedPhoto.fileId}`;
           }
         }
         
