@@ -168,7 +168,7 @@ export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
   if (typeof fileOrId === 'string') {
     // Basic validation for MongoDB ObjectId format (24 hex chars)
     if (isValidObjectId(fileOrId)) {
-      return `/api/photos/${fileOrId}?size=${size}`;
+      return `/photos/${fileOrId}?size=${size}`;
     } else {
       photoLogger.error(`Invalid photo ID format: ${fileOrId}`);
       return '/placeholder-image.png';
@@ -186,19 +186,19 @@ export const getPhotoUrl = (fileOrId, size = 'thumbnail') => {
   }
   
   // PRIORITY 2: Use URL property if it exists and is valid
-  if (fileOrId.url && (fileOrId.url.startsWith('http') || fileOrId.url.startsWith('/api/'))) {
+  if (fileOrId.url && (fileOrId.url.startsWith('http') || fileOrId.url.startsWith('/photos/') || fileOrId.url.startsWith('/api/'))) {
     return fileOrId.url;
   }
   
   // PRIORITY 3: If we have a MongoDB ObjectId, validate and use that
   const objectId = extractPhotoObjectId(fileOrId);
   if (objectId) {
-    return `/api/photos/${objectId}?size=${size}`;
+    return `/photos/${objectId}?size=${size}`;
   }
   
   // PRIORITY 4: If we have a filename, use that
   if (fileOrId.filename) {
-    return `/api/photos/${fileOrId.filename}?size=${size}`;
+    return `/photos/${fileOrId.filename}?size=${size}`;
   }
   
   // PRIORITY 5: For local files that aren't uploaded yet, use the preview URL
