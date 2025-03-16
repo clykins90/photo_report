@@ -194,8 +194,21 @@ const AIAnalysisStep = ({
               });
             } else {
               // Handle both possible API response formats
-              const resultsArray = batchResult.results || 
-                                  (batchResult.data?.length > 0 ? batchResult.data : []);
+              // Make sure we have an array before calling forEach
+              let resultsArray = [];
+              
+              if (Array.isArray(batchResult.results)) {
+                resultsArray = batchResult.results;
+              } else if (batchResult.data && Array.isArray(batchResult.data)) {
+                resultsArray = batchResult.data;
+              } else if (batchResult.data && batchResult.data.photos && Array.isArray(batchResult.data.photos)) {
+                // Handle case where photos are nested in data
+                resultsArray = batchResult.data.photos.map(photo => ({
+                  success: true,
+                  photoId: photo._id || photo.id,
+                  data: photo.analysis
+                }));
+              }
               
               if (resultsArray.length > 0) {
                 // Process results for each photo

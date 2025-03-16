@@ -57,6 +57,12 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
       const photoObj = PhotoSchema.createFromFile(file);
       // Explicitly store the file object
       photoObj.file = file;
+      
+      // Ensure preview URL exists
+      if (!photoObj.preview && file) {
+        photoObj.preview = URL.createObjectURL(file);
+      }
+      
       return photoObj;
     });
     
@@ -120,12 +126,22 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
             localDataUrl: clientPhoto.localDataUrl || (clientPhoto.preview && clientPhoto.preview.startsWith('data:') ? clientPhoto.preview : null)
           };
           
+          // If we still don't have a preview URL but have a file, create one
+          if (!mergedPhoto.preview && mergedPhoto.file) {
+            mergedPhoto.preview = URL.createObjectURL(mergedPhoto.file);
+          }
+          
           // Deserialize using the schema
           const photoObj = PhotoSchema.deserializeFromApi(mergedPhoto);
           
           // Double-check file is preserved
           if (!photoObj.file && clientPhoto.file) {
             photoObj.file = clientPhoto.file;
+          }
+          
+          // Double-check preview is preserved
+          if (!photoObj.preview && clientPhoto.preview) {
+            photoObj.preview = clientPhoto.preview;
           }
           
           // Ensure local data is preserved

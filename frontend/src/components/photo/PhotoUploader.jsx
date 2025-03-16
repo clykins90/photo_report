@@ -54,7 +54,19 @@ const PhotoUploader = ({
     if (!acceptedFiles || acceptedFiles.length === 0) return;
     
     // Create standardized client photo objects
-    const clientPhotoObjects = acceptedFiles.map(file => PhotoSchema.createFromFile(file));
+    const clientPhotoObjects = acceptedFiles.map(file => {
+      const photoObj = PhotoSchema.createFromFile(file);
+      
+      // Ensure file object is stored
+      photoObj.file = file;
+      
+      // Ensure preview URL exists
+      if (!photoObj.preview && file) {
+        photoObj.preview = URL.createObjectURL(file);
+      }
+      
+      return photoObj;
+    });
     
     // Add the files to our state
     addFiles(clientPhotoObjects);
@@ -140,6 +152,11 @@ const PhotoUploader = ({
           // Explicitly preserve the file object
           if (originalFile) {
             updatedPhoto.file = originalFile;
+            
+            // Create preview URL if missing
+            if (!updatedPhoto.preview) {
+              updatedPhoto.preview = URL.createObjectURL(originalFile);
+            }
           }
           
           // If the photo has a clientId, update the existing photo in our state
