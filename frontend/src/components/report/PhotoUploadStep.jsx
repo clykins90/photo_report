@@ -12,7 +12,7 @@ const PhotoUploadStep = ({
   const handleUploadComplete = (newPhotos) => {
     // Only continue if we have photos
     if (newPhotos && newPhotos.length > 0) {
-      // Process all photos to ensure they have valid URLs
+      // Process all photos to ensure they have valid URLs and file data
       const processedPhotos = newPhotos.map(photo => {
         // Create a new object to avoid modifying the original
         const processedPhoto = { ...photo };
@@ -27,6 +27,16 @@ const PhotoUploadStep = ({
           } else if (processedPhoto.fileId) {
             processedPhoto.path = `/api/photos/${processedPhoto.fileId}`;
           }
+        }
+        
+        // Make sure we keep the file object or blob for local analysis if available
+        if (photo.file && !processedPhoto.file) {
+          processedPhoto.file = photo.file;
+        }
+        
+        // If we have a preview URL and it's a data URL, keep it for local analysis
+        if (photo.preview && photo.preview.startsWith('data:')) {
+          processedPhoto.localDataUrl = photo.preview;
         }
         
         return processedPhoto;
@@ -68,6 +78,7 @@ const PhotoUploadStep = ({
         initialPhotos={uploadedPhotos}
         reportId={reportId}
         showUploadControls={true}
+        preserveFiles={true} // Ensure the uploader keeps the file objects
       />
       
       <div className="flex justify-between mt-8">

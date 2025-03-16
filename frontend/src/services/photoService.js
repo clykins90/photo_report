@@ -155,43 +155,197 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
 /**
  * Analyze photos in a report
  * @param {String} reportId - ID of the report containing photos
- * @param {Array<String>} photoIds - Optional array of specific photo IDs to analyze
+ * @param {Array<String|Object>} photosOrIds - Array of photo objects or IDs to analyze
  * @returns {Promise<Object>} Analysis result
  */
-export const analyzePhotos = async (reportId, photoIds = []) => {
+export const analyzePhotos = async (reportId, photosOrIds = []) => {
   try {
     if (!reportId) {
       return { success: false, error: 'Report ID is required' };
     }
     
-    // Build request payload
-    const payload = {
-      reportId,
-      photoIds: photoIds.length > 0 ? photoIds : undefined
-    };
+    if (!photosOrIds || photosOrIds.length === 0) {
+      return { success: false, error: 'No photos to analyze' };
+    }
     
-    // Send analysis request
-    const response = await api.post('/photos/analyze', payload);
+    // Check if we're dealing with photo objects or just IDs
+    const hasPhotoObjects = photosOrIds.some(item => typeof item === 'object');
     
-    if (response.data.success) {
-      // Handle nested data structure if present
-      const responseData = response.data.data || response.data;
-      // Transform photos to client format if needed
-      const analyzedPhotos = (responseData.photos || []).map(photo => 
-        PhotoSchema.deserializeFromApi(photo)
-      );
+    // If we have photo objects, check for local data (file or data URL)
+    if (hasPhotoObjects) {
+      const photos = photosOrIds;
+      
+      // Create results array
+      const results = [];
+      
+      // Process each photo
+      for (const photo of photos) {
+        try {
+          // Basic metadata analysis
+          const localAnalysis = {
+            timestamp: new Date().toISOString(),
+            dimensions: { width: 0, height: 0 },
+            size: photo.size || 0,
+            type: photo.type || 'unknown',
+            hasLocalData: !!photo.file || !!photo.localDataUrl
+          };
+          
+          // If we have a file or data URL, get dimensions
+          if (photo.file || photo.localDataUrl) {
+            // Create an image element to get dimensions
+            const img = new Image();
+            const imageLoadPromise = new Promise((resolve, reject) => {
+              img.onload = () => {
+                localAnalysis.dimensions = {
+                  width: img.naturalWidth,
+                  height: img.naturalHeight
+                };
+                resolve();
+              };
+              img.onerror = () => {
+                reject(new Error('Failed to load image for analysis'));
+              };
+            });
+            
+            // Set source to either file or data URL
+            if (photo.localDataUrl) {
+              img.src = photo.localDataUrl;
+            } else if (photo.file) {
+              img.src = URL.createObjectURL(photo.file);
+            }
+            
+            // Wait for image to load
+            await imageLoadPromise;
+            
+            // Clean up object URL if created
+            if (photo.file && img.src.startsWith('blob:')) {
+              URL.revokeObjectURL(img.src);
+            }
+          }
+          
+          // Prepare image data for upload (either from file or data URL)
+          let imageData;
+          if (photo.file) {
+            imageData = photo.file;
+          } else if (photo.localDataUrl) {
+            // Convert data URL to blob
+            const response = await fetch(photo.localDataUrl);
+            imageData = await response.blob();
+          } else {
+            // If no local data, try to fetch from URL if there's a preview
+            try {
+              const photoUrl = getPhotoUrl(photo);
+              if (photoUrl && !photoUrl.startsWith('/api/')) {
+                const response = await fetch(photoUrl);
+                if (response.ok) {
+                  imageData = await response.blob();
+                }
+              }
+            } catch (error) {
+              photoLogger.error('Failed to fetch photo from URL:', error);
+            }
+          }
+          
+          if (imageData) {
+            // We have the image data, send it directly to the server
+            // Create a FormData object to send the image
+            const formData = new FormData();
+            formData.append('reportId', reportId);
+            formData.append('photo', imageData, photo.name || 'photo.jpg');
+            
+            // Add photo ID if available for server-side tracking
+            if (photo._id) {
+              formData.append('photoId', photo._id);
+            } else if (photo.id) {
+              formData.append('photoId', photo.id);
+            }
+            
+            // Send to server for AI analysis
+            const response = await api.post('/photos/analyze-single', formData, {
+              headers: {
+                'Content-Type': 'multipart/form-data'
+              }
+            });
+            
+            if (response.data.success) {
+              results.push({
+                success: true,
+                photoId: photo._id || photo.id || photo.clientId,
+                data: response.data.data || response.data
+              });
+            } else {
+              results.push({
+                success: false,
+                photoId: photo._id || photo.id || photo.clientId,
+                error: response.data.error || 'Analysis failed'
+              });
+            }
+          } else if (photo._id || photo.id) {
+            // No local data but we have an ID, add it to the ID-based analysis queue
+            photoLogger.info(`No local data for photo ${photo._id || photo.id}, will use server-side analysis`);
+            results.push({
+              success: false,
+              photoId: photo._id || photo.id,
+              error: 'No local data available, falling back to server-side analysis'
+            });
+          } else {
+            // No ID and no data, can't analyze
+            results.push({
+              success: false,
+              photoId: photo.clientId || 'unknown',
+              error: 'No image data or ID available for analysis'
+            });
+          }
+        } catch (error) {
+          photoLogger.error('Error analyzing photo:', error);
+          results.push({
+            success: false,
+            photoId: photo._id || photo.id || photo.clientId || 'unknown',
+            error: error.message || 'Analysis failed'
+          });
+        }
+      }
+      
+      // Determine overall success
+      const overallSuccess = results.some(result => result.success);
       
       return {
-        success: true,
-        data: {
-          photos: analyzedPhotos
-        }
+        success: overallSuccess,
+        results: results
       };
     } else {
-      return {
-        success: false,
-        error: response.data.error || 'Analysis failed'
+      // We're dealing with just IDs, use the original server-side analysis
+      const photoIds = photosOrIds;
+      
+      // Build request payload
+      const payload = {
+        reportId,
+        photoIds: photoIds.length > 0 ? photoIds : undefined
       };
+      
+      // Send analysis request
+      const response = await api.post('/photos/analyze', payload);
+      
+      if (response.data.success) {
+        // Handle nested data structure if present
+        const responseData = response.data.data || response.data;
+        // Transform photos to client format if needed
+        const analyzedPhotos = (responseData.photos || []).map(photo => 
+          PhotoSchema.deserializeFromApi(photo)
+        );
+        
+        return {
+          success: true,
+          data: {
+            photos: analyzedPhotos
+          }
+        };
+      } else {
+        return {
+          success: false,
+          error: response.data.error || 'Analysis failed'
+        };
+      }
     }
   } catch (error) {
     photoLogger.error('Photo analysis error:', error);

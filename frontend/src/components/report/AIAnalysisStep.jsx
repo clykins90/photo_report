@@ -127,9 +127,8 @@ const AIAnalysisStep = ({
         // Process photos in batches of 10
         const BATCH_SIZE = 10;
         
-        // Process photos until all are analyzed
+        // Process photos in batches
         while (unanalyzedPhotos.length > 0) {
-          // Take up to 10 photos at a time for batched processing
           const currentBatch = unanalyzedPhotos.slice(0, BATCH_SIZE);
           console.log(`Processing batch of ${currentBatch.length} photos`);
           
@@ -152,11 +151,9 @@ const AIAnalysisStep = ({
           handlePhotoUploadComplete(updatedPhotos);
           
           try {
-            // Get IDs for the current batch
-            const photoIds = currentBatch.map(photo => photo._id || photo.id);
-            
-            // Analyze the batch of photos
-            const batchResult = await analyzePhotos(reportId, photoIds);
+            // Pass the photo objects directly to the analyze function
+            // It will use local data if available or fall back to server-side using IDs
+            const batchResult = await analyzePhotos(reportId, currentBatch);
             
             if (!batchResult.success) {
               console.error(`Analysis failed for batch:`, batchResult.error);
@@ -178,17 +175,18 @@ const AIAnalysisStep = ({
               });
             } else {
               // Handle both possible API response formats
-              const resultsArray = batchResult.data?.length > 0 ? batchResult.data : 
-                                  (batchResult.results?.length > 0 ? batchResult.results : []);
+              const resultsArray = batchResult.results || 
+                                  (batchResult.data?.length > 0 ? batchResult.data : []);
               
               if (resultsArray.length > 0) {
-                // Process results
+                // Process results for each photo
                 resultsArray.forEach(result => {
                   if (result.success) {
                     // Find the photo in our list
                     const resultPhotoIndex = updatedPhotos.findIndex(p => 
                       (p.id && p.id === result.photoId) || 
-                      (p._id && p._id === result.photoId)
+                      (p._id && p._id === result.photoId) ||
+                      (p.clientId && p.clientId === result.photoId)
                     );
                     
                     if (resultPhotoIndex !== -1) {
@@ -205,7 +203,8 @@ const AIAnalysisStep = ({
                     // If analysis wasn't successful, mark as error
                     const failedPhotoIndex = updatedPhotos.findIndex(p => 
                       (p.id && p.id === result.photoId) || 
-                      (p._id && p._id === result.photoId)
+                      (p._id && p._id === result.photoId) ||
+                      (p.clientId && p.clientId === result.photoId)
                     );
                     
                     if (failedPhotoIndex !== -1) {
@@ -253,9 +252,9 @@ const AIAnalysisStep = ({
           // Remove the processed photos from the unanalyzed list
           unanalyzedPhotos = unanalyzedPhotos.slice(currentBatch.length);
           
-          // Add a small delay between batches to avoid rate limiting
+          // Add a small delay between batches
           if (unanalyzedPhotos.length > 0) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, 1500));
           }
         }
       }
@@ -267,7 +266,7 @@ const AIAnalysisStep = ({
         await handleGenerateAISummary();
       } else {
         console.log('No photos were successfully analyzed. Skipping summary generation.');
-        setError('No photos could be analyzed. Please try again.');
+        setError('No photos could be analyzed. Please try again or contact support if the problem persists.');
       }
       
     } catch (error) {
