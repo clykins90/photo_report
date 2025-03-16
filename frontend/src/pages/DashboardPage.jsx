@@ -29,7 +29,9 @@ const DashboardPage = () => {
       }
       
       const response = await getReports(params);
-      setReports(response.data);
+      // Handle the standardized response format - reports could be directly in the response or in the data property
+      const reportsData = response.data || [];
+      setReports(reportsData);
     } catch (err) {
       setError('Failed to load reports. Please try again.');
       console.error(err);
