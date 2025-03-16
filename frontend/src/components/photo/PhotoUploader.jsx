@@ -149,50 +149,33 @@ const PhotoUploader = ({
       const photoArray = result.data?.photos || result.photos;
       
       if (result.success && photoArray && Array.isArray(photoArray)) {
-        // Create a local array to track updated photos with valid IDs
-        const updatedPhotos = [];
-        
-        // Process each photo from the server response
-        photoArray.forEach(serverPhoto => {
+        // Simplified photo processing - avoid excessive operations
+        const updatedPhotos = photoArray.map(serverPhoto => {
           // Find the original file object from our files array
           const originalFile = filesToUpload.find(file => {
-            // Match by clientId if available
-            if (serverPhoto.clientId && file.clientId) {
-              return file.clientId === serverPhoto.clientId;
-            }
-            // Otherwise try to match by name
-            return file.name === serverPhoto.originalName;
+            return (serverPhoto.clientId && file.clientId) ? 
+              file.clientId === serverPhoto.clientId : 
+              file.name === serverPhoto.originalName;
           });
           
-          // Use the shared schema to deserialize the photo
-          const updatedPhoto = PhotoSchema.deserializeFromApi(serverPhoto);
+          // Create a merged photo with essential properties
+          const updatedPhoto = {
+            ...serverPhoto,
+            file: originalFile,
+            preview: originalFile ? URL.createObjectURL(originalFile) : null,
+            uploadProgress: 100
+          };
           
-          // Explicitly preserve the file object
-          if (originalFile) {
-            updatedPhoto.file = originalFile;
-            
-            // Create preview URL if missing
-            if (!updatedPhoto.preview) {
-              updatedPhoto.preview = URL.createObjectURL(originalFile);
-            }
-          }
-          
-          // If the photo has a clientId, update the existing photo in our state
+          // Update the photo in state
           if (serverPhoto.clientId) {
             updatePhotoAfterUpload(serverPhoto.clientId, updatedPhoto);
-          } else {
-            // If no clientId (shouldn't happen with this API), add as new
-            setPhotos(prev => [...prev, photoStorageManager.preservePhotoData(updatedPhoto)]);
           }
           
-          // Add to our list of updated photos to notify parent component
-          updatedPhotos.push(photoStorageManager.preservePhotoData(updatedPhoto));
+          return updatedPhoto;
         });
         
         // After upload completes, notify parent with the updated photos
         if (onUploadComplete && updatedPhotos.length > 0) {
-          // Log the photo data availability to verify files are preserved
-          photoStorageManager.logPhotoDataAvailability(updatedPhotos);
           onUploadComplete(updatedPhotos);
         }
       } else {
@@ -204,8 +187,6 @@ const PhotoUploader = ({
       setError(`Upload error: ${err.message}`);
     } finally {
       setUploading(false);
-      // Don't reset progress to 0 here, let the parent component handle it
-      // This allows the progress bar to remain visible until the parent decides to hide it
     }
   };
   

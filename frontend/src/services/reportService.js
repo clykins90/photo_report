@@ -245,13 +245,18 @@ export const getReports = async () => {
  * @returns {Promise} - The response from the API
  */
 export const getReport = async (id) => {
-  const response = await api.get(`/reports/${id}`);
-  // Handle nested data structure if present
-  const responseData = response.data.data || response.data;
-  return {
-    success: response.data.success,
-    ...responseData
-  };
+  try {
+    const response = await api.get(`/reports/${id}`);
+    
+    // Return a consistent structure with success flag and data
+    return {
+      success: response.data.success || true,
+      data: response.data.data || response.data // Handle both nested and flat response structures
+    };
+  } catch (error) {
+    console.error('Error getting report:', error);
+    throw error;
+  }
 };
 
 /**

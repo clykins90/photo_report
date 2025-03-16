@@ -30,36 +30,6 @@ class PhotoStorageManager {
       if (!processedPhoto.preview && photo.file instanceof File) {
         processedPhoto.preview = URL.createObjectURL(photo.file);
       }
-      
-      // Create data URL synchronously if we have a file but no localDataUrl
-      // This is more immediate but can block the UI for large files
-      if (!processedPhoto.localDataUrl && photo.file.size < 5 * 1024 * 1024) { // Only for files under 5MB
-        try {
-          const reader = new FileReader();
-          // Use a synchronous approach with a flag
-          let dataUrl = null;
-          let done = false;
-          
-          reader.onload = () => {
-            dataUrl = reader.result;
-            done = true;
-          };
-          
-          reader.readAsDataURL(photo.file);
-          
-          // Small spin wait for the reader to complete (this is a bit of a hack but works for small files)
-          const startTime = Date.now();
-          while (!done && Date.now() - startTime < 200) {
-            // Wait for reader to complete or timeout after 200ms
-          }
-          
-          if (dataUrl) {
-            processedPhoto.localDataUrl = dataUrl;
-          }
-        } catch (err) {
-          console.error('Failed to create data URL synchronously:', err);
-        }
-      }
     }
     
     // Ensure preview URLs are preserved
@@ -78,18 +48,7 @@ class PhotoStorageManager {
     }
     
     // If we have a preview but no localDataUrl, and the preview is a blob URL,
-    // try to convert it to a data URL for better persistence (async fallback)
-    if (processedPhoto.preview && !processedPhoto.localDataUrl && 
-        processedPhoto.preview.startsWith('blob:') && processedPhoto.file) {
-      // We'll create a data URL asynchronously as a fallback
-      this.createDataUrlFromFile(processedPhoto.file)
-        .then(dataUrl => {
-          processedPhoto.localDataUrl = dataUrl;
-        })
-        .catch(err => {
-          console.error('Failed to create data URL from file:', err);
-        });
-    }
+    // we'll handle this asynchronously later if needed
     
     // Ensure path/URL is set
     if (!processedPhoto.url && !processedPhoto.path) {

@@ -17,35 +17,17 @@ const PhotoUploadStep = ({
   const handleUploadComplete = (newPhotos) => {
     // Only continue if we have photos
     if (newPhotos && newPhotos.length > 0) {
-      console.log('Processing photos for upload complete:', newPhotos);
+      // Simplified processing - avoid excessive logging and processing
+      console.log(`Upload complete: ${newPhotos.length} photos`);
       
-      // Use the storage manager to preserve all photo data
-      const processedPhotos = photoStorageManager.preserveBatchPhotoData(newPhotos);
-      
-      // Verify file objects are preserved
-      const photosWithFiles = processedPhotos.filter(p => !!p.file);
-      console.log(`${photosWithFiles.length} of ${processedPhotos.length} photos have file objects preserved`);
-      
-      // Log the processed photos to verify they have the necessary data
-      console.log('Processed photos with preserved file data:', 
-        processedPhotos.map(p => ({
-          id: p._id || p.id,
-          hasFile: !!p.file,
-          hasPreview: !!p.preview,
-          hasLocalDataUrl: !!p.localDataUrl
-        }))
-      );
-      
-      // Keep the progress bar visible for a moment before resetting
-      setTimeout(() => {
-        setUploadProgress(0);
-        setIsUploading(false);
-      }, 1000);
-      
-      // Pass all processed photos to the parent component
+      // Pass photos directly to parent component without extra processing
       if (onUploadComplete) {
-        onUploadComplete(processedPhotos);
+        onUploadComplete(newPhotos);
       }
+      
+      // Reset upload state immediately
+      setUploadProgress(0);
+      setIsUploading(false);
     }
   };
 

@@ -21,7 +21,9 @@ const ReportDetailPage = () => {
       setError(null);
       
       const response = await getReport(id);
-      setReport(response.data);
+      setReport(response.data ? response.data.data || response.data : null);
+      
+      console.log('Report data:', response);
     } catch (err) {
       setError('Failed to load report. Please try again.');
       console.error(err);
