@@ -203,22 +203,84 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
     // Check if we're dealing with photo objects or just IDs
     const hasPhotoObjects = photosOrIds.some(item => typeof item === 'object');
     
-    // Extract IDs from photo objects or use the IDs directly
-    const photoIds = hasPhotoObjects 
-      ? photosOrIds.map(photo => photo._id || photo.id).filter(id => id)
-      : photosOrIds;
+    // Import photoStorageManager to check for local files
+    const photoStorageManager = (await import('./photoStorageManager')).default;
     
-    // Log what we're analyzing
-    photoLogger.info(`Analyzing ${photoIds.length} photos for report ${reportId}`);
+    // Group photos by data availability
+    let photoIds = [];
+    let photosWithLocalData = [];
     
-    // Build request payload
-    const payload = {
-      reportId,
-      photoIds: photoIds.length > 0 ? photoIds : undefined
-    };
+    if (hasPhotoObjects) {
+      // Process photo objects to determine which ones have local data
+      const photoObjects = photosOrIds.filter(item => typeof item === 'object');
+      
+      // Log photo data availability for debugging
+      photoStorageManager.logPhotoDataAvailability(photoObjects);
+      
+      // Group photos by data availability
+      const { withLocalData, needsServerAnalysis } = 
+        photoStorageManager.groupPhotosByDataAvailability(photoObjects);
+      
+      photosWithLocalData = withLocalData;
+      photoIds = needsServerAnalysis.map(photo => photo._id || photo.id).filter(id => id);
+      
+      photoLogger.info(`Analyzing ${photosWithLocalData.length} photos with local data and ${photoIds.length} photos from server for report ${reportId}`);
+    } else {
+      // If we only have IDs, we need to get them from the server
+      photoIds = photosOrIds.filter(id => id);
+      photoLogger.info(`Analyzing ${photoIds.length} photos from server for report ${reportId}`);
+    }
+    
+    // Create FormData if we have local files to send
+    let payload;
+    let config = {};
+    
+    if (photosWithLocalData.length > 0) {
+      // We have local files to send
+      payload = new FormData();
+      payload.append('reportId', reportId);
+      
+      // Add photo IDs that need server analysis
+      if (photoIds.length > 0) {
+        payload.append('photoIds', JSON.stringify(photoIds));
+      }
+      
+      // Add local files to the FormData
+      photosWithLocalData.forEach((photo, index) => {
+        const source = photoStorageManager.getBestDataSource(photo);
+        
+        if (source.type === 'file' && photo.file) {
+          // We have a file object
+          payload.append('photos', photo.file);
+          payload.append('photoMetadata', JSON.stringify({
+            index,
+            id: photo._id || photo.id,
+            clientId: photo.clientId
+          }));
+        } else if (source.type === 'dataUrl' && source.data) {
+          // Convert data URL to file
+          const dataUrl = source.data;
+          const blob = dataURLtoBlob(dataUrl);
+          const file = new File([blob], `photo_${photo._id || photo.clientId || index}.jpg`, { type: 'image/jpeg' });
+          
+          payload.append('photos', file);
+          payload.append('photoMetadata', JSON.stringify({
+            index,
+            id: photo._id || photo.id,
+            clientId: photo.clientId
+          }));
+        }
+      });
+    } else {
+      // No local files, just send IDs
+      payload = {
+        reportId,
+        photoIds: photoIds.length > 0 ? photoIds : undefined
+      };
+    }
     
     // Send analysis request
-    const response = await api.post('/photos/analyze', payload);
+    const response = await api.post('/photos/analyze', payload, config);
     
     if (response.data.success) {
       // Handle nested data structure if present
@@ -232,7 +294,7 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
         const results = serverAnalyzedPhotos.map(serverPhoto => ({
           success: true,
           photoId: serverPhoto._id,
-          data: serverPhoto.analysis
+          analysis: serverPhoto.analysis
         }));
         
         return {
@@ -267,6 +329,25 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
     };
   }
 };
+
+/**
+ * Helper function to convert a data URL to a Blob
+ * @param {String} dataUrl - The data URL to convert
+ * @returns {Blob} - The resulting Blob
+ */
+function dataURLtoBlob(dataUrl) {
+  const arr = dataUrl.split(',');
+  const mime = arr[0].match(/:(.*?);/)[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  
+  return new Blob([u8arr], { type: mime });
+}
 
 /**
  * Delete a photo

@@ -189,7 +189,8 @@ const deletePhoto = async (req, res) => {
  */
 const analyzePhotos = async (req, res) => {
   try {
-    const { reportId, photoIds } = req.body;
+    // Handle both FormData and JSON requests
+    const reportId = req.body.reportId;
     
     if (!reportId) {
       return apiResponse.send(res, apiResponse.error('Report ID is required', null, 400));
@@ -202,35 +203,132 @@ const analyzePhotos = async (req, res) => {
       return apiResponse.send(res, apiResponse.error('Report not found', null, 404));
     }
     
-    // Determine which photos to analyze
-    const photosToAnalyze = photoIds && photoIds.length > 0
-      ? report.photos.filter(photo => photoIds.includes(photo._id.toString()))
-      : report.photos;
+    // Check if we have uploaded files
+    const hasUploadedFiles = req.files && req.files.length > 0;
     
-    if (photosToAnalyze.length === 0) {
-      return apiResponse.send(res, apiResponse.error('No photos found to analyze', null, 404));
+    // Parse photoIds if they came as a string (from FormData)
+    let photoIds = req.body.photoIds;
+    if (typeof photoIds === 'string') {
+      try {
+        photoIds = JSON.parse(photoIds);
+      } catch (e) {
+        logger.error(`Error parsing photoIds: ${e.message}`);
+        photoIds = [];
+      }
     }
     
-    logger.info(`Analyzing ${photosToAnalyze.length} photos for report ${reportId}`);
+    // Determine which photos to analyze from the database
+    const photosToAnalyzeFromDb = photoIds && photoIds.length > 0
+      ? report.photos.filter(photo => photoIds.includes(photo._id.toString()))
+      : hasUploadedFiles ? [] : report.photos;
     
-    // Process each photo
-    const analysisResults = await photoAnalysisService.analyzePhotos(photosToAnalyze, reportId);
+    // Process uploaded files if any
+    let uploadedFileResults = [];
+    if (hasUploadedFiles) {
+      logger.info(`Processing ${req.files.length} uploaded files for analysis`);
+      
+      // Parse photo metadata if available
+      let photoMetadata = [];
+      if (req.body.photoMetadata) {
+        try {
+          // Handle multiple metadata entries
+          if (Array.isArray(req.body.photoMetadata)) {
+            photoMetadata = req.body.photoMetadata.map(meta => 
+              typeof meta === 'string' ? JSON.parse(meta) : meta
+            );
+          } else {
+            // Handle single metadata entry
+            photoMetadata = [JSON.parse(req.body.photoMetadata)];
+          }
+        } catch (e) {
+          logger.error(`Error parsing photo metadata: ${e.message}`);
+        }
+      }
+      
+      // Create temp directory if it doesn't exist
+      const tempDir = process.env.TEMP_DIR || '/tmp';
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      
+      // Process each uploaded file
+      const filePromises = req.files.map(async (file, index) => {
+        try {
+          // Get metadata for this file if available
+          const metadata = photoMetadata[index] || {};
+          
+          // Determine photo ID - use metadata ID if available, otherwise generate one
+          const photoId = metadata.id || mongoose.Types.ObjectId().toString();
+          
+          // Save file to temp location
+          const tempPath = path.join(tempDir, `uploaded_${photoId}.jpg`);
+          await fs.promises.writeFile(tempPath, file.buffer);
+          
+          logger.info(`Saved uploaded file to ${tempPath} for analysis`);
+          
+          // Analyze the photo
+          const analysis = await photoAnalysisService.analyzePhoto(tempPath);
+          
+          // Find if this photo already exists in the report
+          const existingPhotoIndex = report.photos.findIndex(p => 
+            p._id.toString() === photoId
+          );
+          
+          if (existingPhotoIndex >= 0) {
+            // Update existing photo
+            report.photos[existingPhotoIndex].analysis = analysis;
+            report.photos[existingPhotoIndex].status = 'analyzed';
+          }
+          
+          return {
+            photoId,
+            success: true,
+            analysis
+          };
+        } catch (error) {
+          logger.error(`Error processing uploaded file: ${error.message}`);
+          return {
+            photoId: metadata?.id || 'unknown',
+            success: false,
+            error: error.message
+          };
+        }
+      });
+      
+      uploadedFileResults = await Promise.all(filePromises);
+    }
+    
+    // Process database photos
+    let dbPhotoResults = [];
+    if (photosToAnalyzeFromDb.length > 0) {
+      logger.info(`Analyzing ${photosToAnalyzeFromDb.length} photos from database for report ${reportId}`);
+      dbPhotoResults = await photoAnalysisService.analyzePhotos(photosToAnalyzeFromDb, reportId);
+    }
+    
+    // Combine results
+    const allResults = [...uploadedFileResults, ...dbPhotoResults];
+    
+    if (allResults.length === 0) {
+      return apiResponse.send(res, apiResponse.error('No photos were successfully analyzed', null, 400));
+    }
     
     // Update photos in the report with analysis results
-    const bulkOps = analysisResults.map(result => {
-      return {
-        updateOne: {
-          filter: { _id: reportId, 'photos._id': result.photoId },
-          update: { 
-            $set: { 
-              'photos.$.analysis': result.analysis,
-              'photos.$.status': 'analyzed',
-              lastUpdated: new Date()
+    const bulkOps = allResults
+      .filter(result => result.success && result.photoId)
+      .map(result => {
+        return {
+          updateOne: {
+            filter: { _id: reportId, 'photos._id': result.photoId },
+            update: { 
+              $set: { 
+                'photos.$.analysis': result.analysis,
+                'photos.$.status': 'analyzed',
+                lastUpdated: new Date()
+              }
             }
           }
-        }
-      };
-    });
+        };
+      });
     
     // Execute bulk operation if there are results
     if (bulkOps.length > 0) {
@@ -240,9 +338,15 @@ const analyzePhotos = async (req, res) => {
     
     // Get updated photos
     const updatedReport = await Report.findById(reportId);
-    const analyzedPhotos = photoIds && photoIds.length > 0
-      ? updatedReport.photos.filter(photo => photoIds.includes(photo._id.toString()))
-      : updatedReport.photos;
+    
+    // Get all analyzed photos
+    const analyzedPhotoIds = allResults
+      .filter(result => result.success)
+      .map(result => result.photoId);
+    
+    const analyzedPhotos = updatedReport.photos.filter(photo => 
+      analyzedPhotoIds.includes(photo._id.toString())
+    );
     
     // Return serialized photos
     const serializedPhotos = analyzedPhotos.map(photo => PhotoSchema.serializeForApi(photo));

@@ -37,7 +37,7 @@ router.post(
 // @route   POST /api/photos/analyze
 // @desc    Analyze photos using AI
 // @access  Private
-router.post('/analyze', analyzePhotos);
+router.post('/analyze', uploadMany('photos', 20), analyzePhotos);
 
 // @route   DELETE /api/photos/:id
 // @desc    Delete a photo
