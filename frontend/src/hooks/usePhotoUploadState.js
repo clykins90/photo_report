@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { cleanupAllBlobUrls } from '../utils/blobUrlManager';
 import { filterPhotosWithValidIds } from '../utils/mongoUtil';
+import PhotoSchema from '../../shared/schemas/photoSchema';
 
 /**
  * Custom hook for managing photo upload state
@@ -36,22 +37,18 @@ const usePhotoUploadState = (initialPhotos = []) => {
       newFiles.forEach(file => {
         // Check if this file is already in the collection by matching filename
         const isDuplicate = updatedPhotos.some(photo => 
-          photo.name === file.name || 
-          photo.originalname === file.name ||
-          photo.filename === file.name
+          photo.originalName === file.originalName || 
+          photo.name === file.name
         );
         
         if (!isDuplicate) {
-          // Create a new photo object
-          const newPhoto = {
-            ...file,
-            preview: URL.createObjectURL(file),
-            clientId: `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-            status: 'pending',
-            uploadProgress: 0
-          };
-          
-          updatedPhotos.push(newPhoto);
+          // If the file is already a client photo object (has clientId), use it directly
+          if (file.clientId) {
+            updatedPhotos.push(file);
+          } else {
+            // Otherwise create a new client photo object using the shared schema
+            updatedPhotos.push(PhotoSchema.createFromFile(file));
+          }
         }
       });
       
@@ -73,28 +70,14 @@ const usePhotoUploadState = (initialPhotos = []) => {
 
   // Update photo after server upload with MongoDB ID
   const updatePhotoAfterUpload = useCallback((clientId, serverData) => {
-    console.log(`Updating photo with clientId ${clientId} with server data:`, serverData);
-    
     setPhotos(prevPhotos => {
       return prevPhotos.map(photo => {
         if (photo.clientId === clientId) {
-          // Ensure we have valid MongoDB IDs by explicitly setting them
-          const updatedPhoto = { 
-            ...photo, 
-            ...serverData,
-            // Explicitly set the MongoDB ID fields to ensure they're properly assigned
-            _id: serverData._id || serverData.fileId || serverData.id,
-            fileId: serverData.fileId || serverData._id || serverData.id,
-            status: 'uploaded',
-            uploadProgress: 100
-          };
-          console.log(`Updated photo with MongoDB ID:`, {
-            clientId,
-            _id: updatedPhoto._id,
-            fileId: updatedPhoto.fileId,
-            isValid: updatedPhoto._id ? /^[0-9a-fA-F]{24}$/.test(updatedPhoto._id) : false
+          // Use the shared schema to deserialize the photo
+          return PhotoSchema.deserializeFromApi({
+            ...photo,
+            ...serverData
           });
-          return updatedPhoto;
         }
         return photo;
       });
@@ -109,7 +92,7 @@ const usePhotoUploadState = (initialPhotos = []) => {
           return { 
             ...photo, 
             analysis: analysisData,
-            status: 'analyzed'
+            status: analysisData ? 'analyzed' : 'analyzing'
           };
         }
         return photo;
@@ -130,13 +113,7 @@ const usePhotoUploadState = (initialPhotos = []) => {
 
   // Get only photos with valid IDs
   const getValidPhotos = useCallback(() => {
-    console.log('Getting valid photos for analysis...');
-    const validPhotos = filterPhotosWithValidIds(photos);
-    console.log(`Found ${validPhotos.length} photos with valid MongoDB IDs for analysis`);
-    if (validPhotos.length > 0) {
-      console.log('First valid photo:', validPhotos[0]);
-    }
-    return validPhotos;
+    return filterPhotosWithValidIds(photos);
   }, [photos]);
 
   return {

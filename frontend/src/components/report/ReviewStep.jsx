@@ -26,13 +26,6 @@ const ReviewStep = ({
     setValidationErrors(errors);
   }, [formData]);
   
-  // Get the best available image URL for a photo
-  const getBestImageUrl = (photo) => {
-    // Use the centralized photo URL handler from photoService
-    // which properly handles path prefixes to avoid duplicates
-    return getPhotoUrl(photo);
-  };
-  
   // Function to check if property address is complete
   const isAddressComplete = () => {
     return formData.propertyAddress?.street?.trim() && 
@@ -226,7 +219,7 @@ const ReviewStep = ({
             {uploadedPhotos.map((photo, index) => (
               <div key={index} className="relative">
                 <img 
-                  src={getBestImageUrl(photo)} 
+                  src={getPhotoUrl(photo)} 
                   alt={`Photo ${index + 1}`}
                   className="w-full h-24 object-cover rounded-md"
                   onError={(e) => e.target.src = '/placeholder-image.png'}

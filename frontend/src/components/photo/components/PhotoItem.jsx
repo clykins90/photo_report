@@ -72,7 +72,7 @@ const PhotoItem = ({
         
         <img
           src={imageUrl + (retryCount > 0 ? `&retry=${retryCount}` : '')}
-          alt={photo.filename || "Photo"}
+          alt={photo.originalName || "Photo"}
           className={`w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
           onLoad={() => setImageLoaded(true)}
           onError={handleImageError}
@@ -81,7 +81,7 @@ const PhotoItem = ({
       
       <div className="flex justify-between items-center">
         <div className="max-w-[70%] truncate text-sm">
-          {photo.filename || "Unnamed photo"}
+          {photo.originalName || "Unnamed photo"}
         </div>
         
         <div className="flex space-x-1">

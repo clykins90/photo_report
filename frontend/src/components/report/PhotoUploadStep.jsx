@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import PhotoUploader from '../photo/PhotoUploader';
+import PhotoSchema from '../../../shared/schemas/photoSchema';
 
 const PhotoUploadStep = ({ 
   uploadedPhotos = [],
@@ -8,44 +9,28 @@ const PhotoUploadStep = ({
   nextStep,
   reportId = null
 }) => {
-  // Add debugging to see what photos are being passed in
-  useEffect(() => {
-    console.log('PhotoUploadStep received photos:', uploadedPhotos.length);
-  }, [uploadedPhotos]);
-
   const handleUploadComplete = (newPhotos) => {
-    console.log('PhotoUploadStep handleUploadComplete received:', newPhotos.length);
-    
     // Only continue if we have photos
     if (newPhotos && newPhotos.length > 0) {
-      // Sample the first photo to debug
-      console.log('First photo:', newPhotos[0]);
-      
       // Process all photos to ensure they have valid URLs
       const processedPhotos = newPhotos.map(photo => {
         // Create a new object to avoid modifying the original
         const processedPhoto = { ...photo };
         
         // Ensure each photo has a URL property
-        if (!processedPhoto.url) {
-          const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+        if (!processedPhoto.url && !processedPhoto.path) {
+          const baseApiUrl = import.meta.env.VITE_API_URL || '';
           
           // Try to construct a URL from available identifiers
           if (processedPhoto._id) {
-            processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto._id}`;
+            processedPhoto.path = `/photos/${processedPhoto._id}`;
           } else if (processedPhoto.fileId) {
-            processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto.fileId}`;
-          } else if (processedPhoto.id) {
-            processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto.id}`;
-          } else if (processedPhoto.filename) {
-            processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto.filename}`;
+            processedPhoto.path = `/photos/${processedPhoto.fileId}`;
           }
         }
         
         return processedPhoto;
       });
-      
-      console.log('Processed photos:', processedPhotos);
       
       // Pass all processed photos to the parent component
       if (onUploadComplete) {

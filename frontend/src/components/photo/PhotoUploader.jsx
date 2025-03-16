@@ -1,8 +1,8 @@
 import { useCallback, useEffect } from 'react';
 import PropTypes from 'prop-types';
-import { uploadBatchPhotos, analyzePhotos, analyzePhoto, deletePhoto } from '../../services/photoService';
-import useUploadManager from '../../hooks/useUploadManager';
+import { uploadPhotos, analyzePhotos, analyzePhoto, deletePhoto } from '../../services/photoService';
 import usePhotoUploadState from '../../hooks/usePhotoUploadState';
+import PhotoSchema from '../../../shared/schemas/photoSchema';
 import { 
   PhotoDropzone, 
   PhotoUploadProgress, 
@@ -10,18 +10,15 @@ import {
   PhotoGrid 
 } from './components';
 
-// Helper function to extract the filename from a file object
-const extractFilename = (file) => {
-  if (file.name) return file.name;
-  if (file.originalname) return file.originalname;
-  if (file.path) return file.path.split('/').pop();
-  if (file.relativePath) return file.relativePath.split('/').pop();
-  if (file.handle && file.handle.name) return file.handle.name;
-  return 'unknown-file';
-};
-
 /**
  * PhotoUploader Component - Handles photo uploads and AI analysis
+ * 
+ * This component uses the shared PhotoSchema approach for consistent photo object handling:
+ * - PhotoSchema.createFromFile() for creating client-side photo objects
+ * - PhotoSchema.createEmpty() for creating empty photo objects
+ * - PhotoSchema.deserializeFromApi() for processing server responses
+ * 
+ * The simplified upload system no longer uses chunked uploads, reducing complexity.
  */
 const PhotoUploader = ({ 
   onUploadComplete, 
@@ -32,6 +29,7 @@ const PhotoUploader = ({
   // Initialize upload state with custom hook
   const {
     photos,
+    setPhotos,
     uploading,
     setUploading,
     uploadProgress,
@@ -50,33 +48,21 @@ const PhotoUploader = ({
     getValidPhotos
   } = usePhotoUploadState(initialPhotos);
   
-  // Initialize the upload manager
-  const uploadManager = useUploadManager({
-    maxConcurrentUploads: 3,
-    chunkSize: 500 * 1024, // 500KB chunks
-    concurrentChunks: 3,
-    autoStart: false // We'll start manually after preparing the files
-  });
-  
   // Handle file drop from dropzone
   const handleFileDrop = useCallback((acceptedFiles) => {
     if (!acceptedFiles || acceptedFiles.length === 0) return;
     
+    // Create standardized client photo objects
+    const clientPhotoObjects = acceptedFiles.map(file => PhotoSchema.createFromFile(file));
+    
     // Add the files to our state
-    addFiles(acceptedFiles);
+    addFiles(clientPhotoObjects);
     
     // If we have a report ID, start uploading immediately
     if (reportId) {
       uploadFilesToServer(acceptedFiles);
     }
   }, [addFiles, reportId]);
-  
-  // Notify parent when photos change, but only for non-upload changes
-  useEffect(() => {
-    // We're removing this effect entirely since it's causing a loop
-    // The parent is already notified in uploadFilesToServer after successful uploads
-    // This prevents the circular dependency between PhotoUploader and PhotoUploadStep
-  }, [photos, uploading, analyzing, uploadProgress, onUploadComplete, getValidPhotos]);
   
   // Upload files to server
   const uploadFilesToServer = async (filesToUpload) => {
@@ -95,12 +81,16 @@ const PhotoUploader = ({
       setError(null);
       
       // Create file metadata including client IDs
-      const fileMetadata = filesToUpload.map(file => ({
-        clientId: file.clientId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
-      }));
+      const fileMetadata = filesToUpload.map(file => {
+        // If the file already has a clientId, use it; otherwise generate one
+        const clientId = file.clientId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        
+        // Return minimal metadata needed for upload
+        return { clientId };
+      });
       
       // Upload the files with progress tracking
-      const result = await uploadBatchPhotos(
+      const result = await uploadPhotos(
         filesToUpload, 
         reportId, 
         (progress) => {
@@ -114,10 +104,6 @@ const PhotoUploader = ({
         const photos = result.data?.photos || [];
         const idMapping = result.data?.idMapping || {};
         
-        console.log('Upload result:', result);
-        console.log('Photos returned:', photos.length);
-        console.log('ID mappings:', Object.keys(idMapping).length);
-        
         // Create a local array to track updated photos with valid IDs
         const updatedPhotos = [];
         
@@ -125,92 +111,51 @@ const PhotoUploader = ({
           // Update our photo collection with the server data
           photos.forEach(serverPhoto => {
             if (serverPhoto.clientId) {
-              updatePhotoAfterUpload(serverPhoto.clientId, serverPhoto);
+              // Use the shared schema to deserialize the photo
+              const updatedPhoto = PhotoSchema.deserializeFromApi(serverPhoto);
+              updatePhotoAfterUpload(serverPhoto.clientId, updatedPhoto);
               // Add to our local array of updated photos
-              updatedPhotos.push(serverPhoto);
+              updatedPhotos.push(updatedPhoto);
             }
           });
         } else if (Object.keys(idMapping).length > 0) {
           // If we have id mapping but no photos, construct photo objects from the mapping
-          console.log('No photos in response but found ID mappings - creating photo objects');
-          
-          // Match the clientIds with the original files to get necessary metadata
           Object.entries(idMapping).forEach(([clientId, serverId]) => {
             // Find original file with this clientId
             const originalFile = filesToUpload.find(f => f.clientId === clientId);
             
             if (originalFile) {
-              console.log(`Found matching file for clientId ${clientId}:`, originalFile);
+              // Create a standardized photo object using the shared schema
+              const photoData = PhotoSchema.createFromFile(originalFile);
               
-              // Create a minimal photo object with the server ID
-              const photoData = {
-                _id: serverId,
-                fileId: serverId,
-                id: serverId, // Add id field for redundancy
-                clientId: clientId,
-                status: 'uploaded',
-                uploadProgress: 100,
-                filename: originalFile.name || 'unknown',
-                originalName: originalFile.name || 'unknown',
-                contentType: originalFile.type || 'image/jpeg',
-                path: `/photos/${serverId}`
-              };
+              // Update with server data
+              photoData._id = serverId;
+              photoData.fileId = serverId;
+              photoData.status = 'uploaded';
+              photoData.uploadProgress = 100;
               
-              console.log('Created photo object from ID mapping:', photoData);
-              updatePhotoAfterUpload(clientId, photoData);
+              // Deserialize using the shared schema to ensure consistent format
+              const updatedPhoto = PhotoSchema.deserializeFromApi(photoData);
+              
+              updatePhotoAfterUpload(clientId, updatedPhoto);
               // Add to our local array of updated photos
-              updatedPhotos.push(photoData);
+              updatedPhotos.push(updatedPhoto);
             } else {
-              console.warn(`No matching file found for clientId ${clientId}`);
+              // Create a minimal photo object with just the server ID
+              const photoData = PhotoSchema.createEmpty();
+              photoData._id = serverId;
+              photoData.fileId = serverId;
+              photoData.clientId = clientId;
+              photoData.status = 'uploaded';
+              photoData.uploadProgress = 100;
               
-              // Try to find a file by name or other properties
-              const matchingFile = filesToUpload.find(f => {
-                // Try to match by name if available
-                if (f.name && f.name.includes(clientId)) return true;
-                // Try other matching strategies if needed
-                return false;
-              });
+              // Deserialize using the shared schema
+              const updatedPhoto = PhotoSchema.deserializeFromApi(photoData);
               
-              if (matchingFile) {
-                console.log(`Found alternative matching file for clientId ${clientId}:`, matchingFile);
-                
-                // Create a photo object with the server ID
-                const photoData = {
-                  _id: serverId,
-                  fileId: serverId,
-                  id: serverId, // Add id field for redundancy
-                  clientId: matchingFile.clientId || clientId,
-                  status: 'uploaded',
-                  uploadProgress: 100,
-                  filename: matchingFile.name || 'unknown',
-                  originalName: matchingFile.name || 'unknown',
-                  contentType: matchingFile.type || 'image/jpeg',
-                  path: `/photos/${serverId}`
-                };
-                
-                console.log('Created photo object from alternative match:', photoData);
-                updatePhotoAfterUpload(matchingFile.clientId || clientId, photoData);
-                // Add to our local array of updated photos
-                updatedPhotos.push(photoData);
-              } else {
-                // Create a minimal photo object with just the server ID
-                console.log(`Creating minimal photo object for clientId ${clientId}`);
-                const photoData = {
-                  _id: serverId,
-                  fileId: serverId,
-                  id: serverId, // Add id field for redundancy
-                  clientId: clientId,
-                  status: 'uploaded',
-                  uploadProgress: 100,
-                  path: `/photos/${serverId}`
-                };
-                
-                console.log('Created minimal photo object:', photoData);
-                // Add this as a new photo since we couldn't find a matching one
-                setPhotos(prev => [...prev, photoData]);
-                // Also add to our local array of updated photos
-                updatedPhotos.push(photoData);
-              }
+              // Add this as a new photo since we couldn't find a matching one
+              setPhotos(prev => [...prev, updatedPhoto]);
+              // Also add to our local array of updated photos
+              updatedPhotos.push(updatedPhoto);
             }
           });
         } else {
@@ -218,45 +163,12 @@ const PhotoUploader = ({
         }
         
         // After upload completes, notify parent with the updated photos
-        // Use the local array instead of waiting for state to update
         if (onUploadComplete && updatedPhotos.length > 0) {
-          // Ensure all photos have valid MongoDB IDs
-          const validPhotos = updatedPhotos.filter(photo => {
-            // Check if photo has a valid MongoDB ID
-            const mongoId = photo._id || photo.fileId || photo.id;
-            
-            // For File objects or those without MongoDB IDs, check if they have a clientId
-            // This allows us to include photos that are still being processed
-            if (!mongoId && photo.clientId) {
-              console.log('Photo has clientId but no MongoDB ID yet:', photo.clientId);
-              return true; // Keep photos with clientId even if they don't have MongoDB ID yet
-            }
-            
-            const hasValidId = mongoId && /^[0-9a-fA-F]{24}$/.test(mongoId.toString());
-            
-            if (!hasValidId) {
-              console.warn('Photo missing valid ID:', photo);
-            }
-            
-            return hasValidId;
-          });
-          
-          console.log('Upload complete, sending updated photos to parent:', validPhotos.length);
-          
-          if (validPhotos.length > 0) {
-            onUploadComplete(validPhotos);
-          } else {
-            console.error('No valid photos to send to parent after filtering');
-            setError('Failed to process uploaded photos. Please try again.');
-          }
-        } else {
-          console.warn('No updated photos available to send to parent');
+          onUploadComplete(updatedPhotos);
         }
       } else {
         setError(result.error || 'Failed to upload photos');
       }
-      
-      // Remove the duplicate call to onUploadComplete since we're now handling it above
     } catch (err) {
       setError(`Upload error: ${err.message}`);
     } finally {
@@ -285,18 +197,12 @@ const PhotoUploader = ({
       
       // Get the IDs of all valid photos
       const photoIds = validPhotos.map(photo => photo._id).filter(id => id);
-      console.log(`Sending ${photoIds.length} photo IDs for analysis:`, photoIds);
       
       const result = await analyzePhotos(reportId, photoIds);
       
-      console.log('Analysis result from service:', result);
-      
       if (result.success && result.results) {
-        console.log(`Received ${result.results.length} analysis results to process`);
-        
         // Update photos with analysis results
         result.results.forEach(photoResult => {
-          console.log('Processing photo result:', photoResult);
           if (photoResult.photoId && photoResult.analysis) {
             updatePhotoAnalysis(photoResult.photoId, photoResult.analysis);
           }
@@ -320,16 +226,12 @@ const PhotoUploader = ({
     }
     
     try {
-      console.log(`Starting analysis for single photo: ${photo._id}`);
-      
       // Mark photo as analyzing
       updatePhotoAnalysis(photo._id, null);
       
       const result = await analyzePhoto(photo, reportId);
-      console.log(`Analysis result for photo ${photo._id}:`, result);
       
       if (result.success && result.data) {
-        console.log(`Updating photo ${photo._id} with analysis data`);
         updatePhotoAnalysis(photo._id, result.data);
       } else {
         updatePhotoAnalysis(photo._id, { error: result.error || 'Analysis failed' });
@@ -346,7 +248,8 @@ const PhotoUploader = ({
       try {
         await deletePhoto(photo._id);
       } catch (err) {
-        console.error('Error deleting photo:', err);
+        // Set error state instead of using console.error
+        setError(`Failed to delete photo: ${err.message}`);
       }
     }
     
