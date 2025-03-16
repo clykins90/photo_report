@@ -268,7 +268,7 @@ const uploadBuffer = async (buffer, options = {}, bucketName = 'photos') => {
  */
 const streamToResponse = async (fileId, res, bucketName = 'photos') => {
   try {
-    const bucket = await initGridFS(bucketName);
+    let bucket = await initGridFS(bucketName);
     if (!bucket) {
       throw new Error(`GridFS bucket '${bucketName}' not initialized`);
     }
