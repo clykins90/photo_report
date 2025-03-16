@@ -105,6 +105,32 @@ api.interceptors.response.use(
     if (!isPhotoUpload && !isCommonEndpoint) {
       console.log('API Response Success:', response.status, response.config.url);
     }
+    
+    // Normalize response structure for photo-related endpoints
+    // This ensures components always receive a consistent structure
+    if (response.data && response.data.success === true) {
+      // For photo upload and analyze endpoints
+      if (response.config.url.includes('/photos/')) {
+        // If response has photos array at top level but not in data
+        if (response.data.photos && !response.data.data?.photos) {
+          const { photos, idMapping, ...rest } = response.data;
+          
+          // Create properly nested structure
+          response.data = {
+            ...rest,
+            data: {
+              photos: photos,
+              ...(idMapping ? { idMapping } : {})
+            }
+          };
+          
+          if (!isPhotoUpload) {
+            console.log('Normalized photo response structure:', response.config.url);
+          }
+        }
+      }
+    }
+    
     return response;
   },
   (error) => {
