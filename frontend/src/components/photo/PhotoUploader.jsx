@@ -124,23 +124,40 @@ const PhotoUploader = ({
         
         // Process each photo from the server response
         photoArray.forEach(serverPhoto => {
+          // Find the original file object from our files array
+          const originalFile = filesToUpload.find(file => {
+            // Match by clientId if available
+            if (serverPhoto.clientId && file.clientId) {
+              return file.clientId === serverPhoto.clientId;
+            }
+            // Otherwise try to match by name
+            return file.name === serverPhoto.originalName;
+          });
+          
           // Use the shared schema to deserialize the photo
           const updatedPhoto = PhotoSchema.deserializeFromApi(serverPhoto);
+          
+          // Explicitly preserve the file object
+          if (originalFile) {
+            updatedPhoto.file = originalFile;
+          }
           
           // If the photo has a clientId, update the existing photo in our state
           if (serverPhoto.clientId) {
             updatePhotoAfterUpload(serverPhoto.clientId, updatedPhoto);
           } else {
             // If no clientId (shouldn't happen with this API), add as new
-            setPhotos(prev => [...prev, updatedPhoto]);
+            setPhotos(prev => [...prev, photoStorageManager.preservePhotoData(updatedPhoto)]);
           }
           
           // Add to our list of updated photos to notify parent component
-          updatedPhotos.push(updatedPhoto);
+          updatedPhotos.push(photoStorageManager.preservePhotoData(updatedPhoto));
         });
         
         // After upload completes, notify parent with the updated photos
         if (onUploadComplete && updatedPhotos.length > 0) {
+          // Log the photo data availability to verify files are preserved
+          photoStorageManager.logPhotoDataAvailability(updatedPhotos);
           onUploadComplete(updatedPhotos);
         }
       } else {

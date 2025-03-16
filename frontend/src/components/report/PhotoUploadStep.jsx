@@ -18,6 +18,10 @@ const PhotoUploadStep = ({
       // Use the storage manager to preserve all photo data
       const processedPhotos = photoStorageManager.preserveBatchPhotoData(newPhotos);
       
+      // Verify file objects are preserved
+      const photosWithFiles = processedPhotos.filter(p => !!p.file);
+      console.log(`${photosWithFiles.length} of ${processedPhotos.length} photos have file objects preserved`);
+      
       // Log the processed photos to verify they have the necessary data
       console.log('Processed photos with preserved file data:', 
         processedPhotos.map(p => ({

@@ -52,7 +52,13 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
     }
     
     // Create client photo objects for tracking
-    const clientPhotos = Array.from(files).map(file => PhotoSchema.createFromFile(file));
+    const clientPhotos = Array.from(files).map(file => {
+      // Ensure we're creating proper photo objects with file references
+      const photoObj = PhotoSchema.createFromFile(file);
+      // Explicitly store the file object
+      photoObj.file = file;
+      return photoObj;
+    });
     
     // Create form data for upload
     const formData = new FormData();
@@ -104,13 +110,23 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
         const serverPhoto = serverPhotos && serverPhotos.find(p => p._id === serverId);
         
         if (serverPhoto) {
-          // Deserialize the server response while preserving local data
-          const photoObj = PhotoSchema.deserializeFromApi({
+          // Create a merged photo object with both server data and client data
+          const mergedPhoto = {
             ...serverPhoto,
-            // Keep client-side preview URL and file
+            // Explicitly preserve the file object and preview URL
+            file: clientPhoto.file,
             preview: clientPhoto.preview,
-            file: clientPhoto.file
-          });
+            // Preserve any local data URL
+            localDataUrl: clientPhoto.localDataUrl || (clientPhoto.preview && clientPhoto.preview.startsWith('data:') ? clientPhoto.preview : null)
+          };
+          
+          // Deserialize using the schema
+          const photoObj = PhotoSchema.deserializeFromApi(mergedPhoto);
+          
+          // Double-check file is preserved
+          if (!photoObj.file && clientPhoto.file) {
+            photoObj.file = clientPhoto.file;
+          }
           
           // Ensure local data is preserved
           return photoStorageManager.preservePhotoData(photoObj);
@@ -118,6 +134,9 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
         
         return photoStorageManager.preservePhotoData(clientPhoto);
       });
+      
+      // Log the photo data availability to verify files are preserved
+      photoStorageManager.logPhotoDataAvailability(uploadedPhotos);
       
       return {
         success: true,
