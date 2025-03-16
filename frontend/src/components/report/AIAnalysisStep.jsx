@@ -109,7 +109,9 @@ const AIAnalysisStep = ({
           return photo;
         });
         
-        handlePhotoUploadComplete(updatedPhotos);
+        // Preserve photo data before updating
+        const preservedPhotos = photoStorageManager.preserveBatchPhotoData(updatedPhotos);
+        handlePhotoUploadComplete(preservedPhotos);
       }
     }
   }, [uploadedPhotos, handlePhotoUploadComplete]);
@@ -390,7 +392,10 @@ const AIAnalysisStep = ({
                 status: p.status
               }))
             );
-            handlePhotoUploadComplete(updatedPhotos);
+            
+            // Preserve photo data before updating
+            const preservedPhotos = photoStorageManager.preserveBatchPhotoData(updatedPhotos);
+            handlePhotoUploadComplete(preservedPhotos);
             
             // Update progress
             const progress = Math.round((photosCompleted / totalPhotos) * 100);
@@ -416,7 +421,9 @@ const AIAnalysisStep = ({
             });
             
             // Update the UI with the error status
-            handlePhotoUploadComplete(updatedPhotos);
+            // Preserve photo data before updating
+            const preservedErrorPhotos = photoStorageManager.preserveBatchPhotoData(updatedPhotos);
+            handlePhotoUploadComplete(preservedErrorPhotos);
           }
           
           // Remove the processed photos from the unanalyzed list
@@ -463,7 +470,9 @@ const AIAnalysisStep = ({
       return photo;
     });
     
-    handlePhotoUploadComplete(updatedPhotos);
+    // Preserve photo data before updating
+    const preservedPhotos = photoStorageManager.preserveBatchPhotoData(updatedPhotos);
+    handlePhotoUploadComplete(preservedPhotos);
   };
 
   // Toggle between list and grid view

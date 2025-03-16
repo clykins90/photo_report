@@ -20,9 +20,13 @@ const PhotoUploadStep = ({
       // Simplified processing - avoid excessive logging and processing
       console.log(`Upload complete: ${newPhotos.length} photos`);
       
-      // Pass photos directly to parent component without extra processing
+      // IMPORTANT: Preserve photo data before passing to parent component
+      const preservedPhotos = photoStorageManager.preserveBatchPhotoData(newPhotos);
+      console.log('Preserved photo data for', preservedPhotos.length, 'photos');
+      
+      // Pass preserved photos to parent component
       if (onUploadComplete) {
-        onUploadComplete(newPhotos);
+        onUploadComplete(preservedPhotos);
       }
       
       // Reset upload state immediately

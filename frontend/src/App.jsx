@@ -9,7 +9,6 @@ import CreateReportPage from './pages/CreateReportPage';
 import EditReportPage from './pages/EditReportPage';
 import ProfilePage from './pages/ProfilePage';
 import AuthContext from './context/AuthContext';
-import BackupRecoveryPage from './pages/BackupRecoveryPage';
 
 // Protected route component
 const ProtectedRoute = ({ children }) => {
@@ -87,15 +86,7 @@ function App() {
               </ProtectedRoute>
             } 
           />
-          <Route 
-            path="/reports/backup-recovery" 
-            element={
-              <ProtectedRoute>
-                <BackupRecoveryPage />
-              </ProtectedRoute>
-            } 
-          />
-          
+        
           {/* 404 route */}
           <Route path="*" element={<NotFound />} />
         </Routes>
