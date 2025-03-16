@@ -25,7 +25,10 @@ const PhotoUploader = ({
   onUploadComplete, 
   initialPhotos = [], 
   showUploadControls = true,
-  reportId = null
+  reportId = null,
+  onProgressUpdate = null,
+  initialProgress = 0,
+  forceShowProgress = false
 }) => {
   // Initialize upload state with custom hook
   const {
@@ -48,6 +51,13 @@ const PhotoUploader = ({
     removePhoto,
     getValidPhotos
   } = usePhotoUploadState(initialPhotos);
+  
+  // Use initialProgress if provided
+  useEffect(() => {
+    if (initialProgress > 0) {
+      setUploadProgress(initialProgress);
+    }
+  }, [initialProgress, setUploadProgress]);
   
   // Handle file drop from dropzone
   const handleFileDrop = useCallback((acceptedFiles) => {
@@ -106,23 +116,31 @@ const PhotoUploader = ({
       const result = await uploadPhotos(
         filesToUpload, 
         reportId, 
-        (progress) => {
+        (updatedPhotos, progress) => {
           // Ensure progress is a number
           let numericProgress = 0;
           
-          if (Array.isArray(progress)) {
+          if (Array.isArray(updatedPhotos)) {
             // Calculate average progress across all files
-            if (progress.length > 0) {
+            if (updatedPhotos.length > 0) {
               // Sum all progress values and divide by length
-              const sum = progress.reduce((total, current) => total + (typeof current === 'number' ? current : 0), 0);
-              numericProgress = sum / progress.length;
+              const sum = updatedPhotos.reduce((total, current) => {
+                return total + (current.uploadProgress || 0);
+              }, 0);
+              numericProgress = sum / updatedPhotos.length;
             }
-          } else {
-            // Single progress value
-            numericProgress = typeof progress === 'number' ? progress : 0;
+          } else if (typeof progress === 'number') {
+            // Use the direct progress value if provided
+            numericProgress = progress;
           }
           
+          // Update internal state
           setUploadProgress(numericProgress);
+          
+          // Call external progress handler if provided
+          if (onProgressUpdate) {
+            onProgressUpdate(updatedPhotos, numericProgress);
+          }
         },
         fileMetadata
       );
@@ -186,7 +204,8 @@ const PhotoUploader = ({
       setError(`Upload error: ${err.message}`);
     } finally {
       setUploading(false);
-      setUploadProgress(0);
+      // Don't reset progress to 0 here, let the parent component handle it
+      // This allows the progress bar to remain visible until the parent decides to hide it
     }
   };
   
@@ -210,21 +229,43 @@ const PhotoUploader = ({
       
       // Get the IDs of all valid photos
       const photoIds = validPhotos.map(photo => photo._id).filter(id => id);
+      console.log(`Analyzing ${photoIds.length} photos for report ${reportId}`);
       
       const result = await analyzePhotos(reportId, photoIds);
       
       if (result.success) {
         // Handle both possible API response formats
-        const resultsArray = result.results || result.data || [];
+        let resultsArray = [];
+        
+        if (Array.isArray(result.results)) {
+          resultsArray = result.results;
+          console.log('Using results array from result.results:', resultsArray.length);
+        } else if (result.data && Array.isArray(result.data)) {
+          resultsArray = result.data;
+          console.log('Using results array from result.data:', resultsArray.length);
+        } else if (result.data && result.data.photos && Array.isArray(result.data.photos)) {
+          // Handle case where photos are nested in data
+          resultsArray = result.data.photos.map(photo => ({
+            success: true,
+            photoId: photo._id || photo.id,
+            analysis: photo.analysis
+          }));
+          console.log('Using results array from result.data.photos:', resultsArray.length);
+        }
         
         // Update photos with analysis results
-        resultsArray.forEach(photoResult => {
-          if (photoResult.photoId && photoResult.analysis) {
-            updatePhotoAnalysis(photoResult.photoId, photoResult.analysis);
-          }
-        });
-        
-        setAnalysisProgress(100);
+        if (resultsArray.length > 0) {
+          resultsArray.forEach(photoResult => {
+            if (photoResult.photoId && (photoResult.analysis || photoResult.data)) {
+              updatePhotoAnalysis(photoResult.photoId, photoResult.analysis || photoResult.data);
+            }
+          });
+          
+          setAnalysisProgress(100);
+        } else {
+          console.warn('No results array found in analysis result:', result);
+          setError('No photos were successfully analyzed');
+        }
       } else {
         setError(result.error || 'Failed to analyze photos');
       }
@@ -248,11 +289,22 @@ const PhotoUploader = ({
       const result = await analyzePhotos(reportId, [photo._id]);
       
       // Handle both possible API response formats
-      const photosArray = result.photos || (result.data && result.data.photos) || [];
+      let analyzedPhoto = null;
       
-      if (result.success && photosArray.length > 0) {
-        const analyzedPhoto = photosArray[0];
-        updatePhotoAnalysis(photo._id, analyzedPhoto.analysis);
+      if (result.success) {
+        if (result.results && result.results.length > 0) {
+          analyzedPhoto = result.results[0];
+        } else if (result.data && result.data.photos && result.data.photos.length > 0) {
+          analyzedPhoto = result.data.photos[0];
+        } else if (Array.isArray(result.photos) && result.photos.length > 0) {
+          analyzedPhoto = result.photos[0];
+        }
+        
+        if (analyzedPhoto) {
+          updatePhotoAnalysis(photo._id, analyzedPhoto.analysis || analyzedPhoto.data);
+        } else {
+          updatePhotoAnalysis(photo._id, { error: 'No analysis data returned' });
+        }
       } else {
         updatePhotoAnalysis(photo._id, { error: result.error || 'Analysis failed' });
       }
@@ -309,10 +361,13 @@ const PhotoUploader = ({
         />
       )}
       
-      <PhotoUploadProgress 
-        progress={safeUploadProgress} 
-        isUploading={uploading} 
-      />
+      {/* Only show the internal progress bar if forceShowProgress is false */}
+      {!forceShowProgress && (
+        <PhotoUploadProgress 
+          progress={safeUploadProgress} 
+          isUploading={uploading} 
+        />
+      )}
       
       <PhotoAnalysisProgress 
         progress={safeAnalysisProgress} 
@@ -364,7 +419,10 @@ PhotoUploader.propTypes = {
   onUploadComplete: PropTypes.func,
   initialPhotos: PropTypes.array,
   showUploadControls: PropTypes.bool,
-  reportId: PropTypes.string
+  reportId: PropTypes.string,
+  onProgressUpdate: PropTypes.func,
+  initialProgress: PropTypes.number,
+  forceShowProgress: PropTypes.bool
 };
 
 export default PhotoUploader; 

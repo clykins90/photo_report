@@ -205,12 +205,14 @@ const analyzePhotos = async (req, res) => {
     
     // Check if we have uploaded files
     const hasUploadedFiles = req.files && req.files.length > 0;
+    logger.info(`Analyzing photos: hasUploadedFiles=${hasUploadedFiles}, files=${req.files?.length || 0}`);
     
     // Parse photoIds if they came as a string (from FormData)
     let photoIds = req.body.photoIds;
     if (typeof photoIds === 'string') {
       try {
         photoIds = JSON.parse(photoIds);
+        logger.info(`Parsed photoIds from string: ${photoIds.length} IDs`);
       } catch (e) {
         logger.error(`Error parsing photoIds: ${e.message}`);
         photoIds = [];
@@ -222,33 +224,41 @@ const analyzePhotos = async (req, res) => {
       ? report.photos.filter(photo => photoIds.includes(photo._id.toString()))
       : hasUploadedFiles ? [] : report.photos;
     
+    logger.info(`Photos to analyze from DB: ${photosToAnalyzeFromDb.length}`);
+    
     // Process uploaded files if any
     let uploadedFileResults = [];
+    
     if (hasUploadedFiles) {
       logger.info(`Processing ${req.files.length} uploaded files for analysis`);
-      
-      // Parse photo metadata if available
-      let photoMetadata = [];
-      if (req.body.photoMetadata) {
-        try {
-          // Handle multiple metadata entries
-          if (Array.isArray(req.body.photoMetadata)) {
-            photoMetadata = req.body.photoMetadata.map(meta => 
-              typeof meta === 'string' ? JSON.parse(meta) : meta
-            );
-          } else {
-            // Handle single metadata entry
-            photoMetadata = [JSON.parse(req.body.photoMetadata)];
-          }
-        } catch (e) {
-          logger.error(`Error parsing photo metadata: ${e.message}`);
-        }
-      }
       
       // Create temp directory if it doesn't exist
       const tempDir = process.env.TEMP_DIR || '/tmp';
       if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
+      }
+      
+      // Parse photo metadata if available
+      let photoMetadata = [];
+      if (req.body.photoMetadata) {
+        try {
+          if (Array.isArray(req.body.photoMetadata)) {
+            // Handle array of metadata
+            photoMetadata = req.body.photoMetadata.map(item => 
+              typeof item === 'string' ? JSON.parse(item) : item
+            );
+          } else if (typeof req.body.photoMetadata === 'string') {
+            // Handle single metadata string
+            photoMetadata = [JSON.parse(req.body.photoMetadata)];
+          } else {
+            // Handle single metadata object
+            photoMetadata = [req.body.photoMetadata];
+          }
+          logger.info(`Parsed metadata for ${photoMetadata.length} photos`);
+        } catch (e) {
+          logger.error(`Error parsing photo metadata: ${e.message}`);
+          photoMetadata = [];
+        }
       }
       
       // Process each uploaded file
@@ -278,6 +288,9 @@ const analyzePhotos = async (req, res) => {
             // Update existing photo
             report.photos[existingPhotoIndex].analysis = analysis;
             report.photos[existingPhotoIndex].status = 'analyzed';
+            logger.info(`Updated existing photo ${photoId} with analysis`);
+          } else {
+            logger.info(`Photo ${photoId} not found in report, will be added to results`);
           }
           
           return {
@@ -296,6 +309,7 @@ const analyzePhotos = async (req, res) => {
       });
       
       uploadedFileResults = await Promise.all(filePromises);
+      logger.info(`Completed analysis of ${uploadedFileResults.length} uploaded files`);
     }
     
     // Process database photos
@@ -303,10 +317,12 @@ const analyzePhotos = async (req, res) => {
     if (photosToAnalyzeFromDb.length > 0) {
       logger.info(`Analyzing ${photosToAnalyzeFromDb.length} photos from database for report ${reportId}`);
       dbPhotoResults = await photoAnalysisService.analyzePhotos(photosToAnalyzeFromDb, reportId);
+      logger.info(`Completed analysis of ${dbPhotoResults.length} database photos`);
     }
     
     // Combine results
     const allResults = [...uploadedFileResults, ...dbPhotoResults];
+    logger.info(`Total analysis results: ${allResults.length} (${uploadedFileResults.length} uploaded + ${dbPhotoResults.length} from DB)`);
     
     if (allResults.length === 0) {
       return apiResponse.send(res, apiResponse.error('No photos were successfully analyzed', null, 400));
@@ -348,8 +364,11 @@ const analyzePhotos = async (req, res) => {
       analyzedPhotoIds.includes(photo._id.toString())
     );
     
+    logger.info(`Found ${analyzedPhotos.length} analyzed photos in updated report`);
+    
     // Return serialized photos
     const serializedPhotos = analyzedPhotos.map(photo => PhotoSchema.serializeForApi(photo));
+    logger.info(`Returning ${serializedPhotos.length} serialized photos to client`);
     
     return apiResponse.send(res, apiResponse.success({
       photos: serializedPhotos,

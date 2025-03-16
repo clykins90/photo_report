@@ -172,6 +172,13 @@ const AIAnalysisStep = ({
           try {
             // Pass the photo objects directly to the analyze function
             // It will use local data if available or fall back to server-side using IDs
+            console.log(`Analyzing batch of ${currentBatch.length} photos for report ${reportId}`);
+            
+            // Ensure we have a valid reportId
+            if (!reportId) {
+              throw new Error('Report ID is required for photo analysis');
+            }
+            
             const batchResult = await analyzePhotos(reportId, currentBatch);
             
             if (!batchResult.success) {
@@ -199,8 +206,10 @@ const AIAnalysisStep = ({
               
               if (Array.isArray(batchResult.results)) {
                 resultsArray = batchResult.results;
+                console.log('Using results array from batchResult.results:', resultsArray.length);
               } else if (batchResult.data && Array.isArray(batchResult.data)) {
                 resultsArray = batchResult.data;
+                console.log('Using results array from batchResult.data:', resultsArray.length);
               } else if (batchResult.data && batchResult.data.photos && Array.isArray(batchResult.data.photos)) {
                 // Handle case where photos are nested in data
                 resultsArray = batchResult.data.photos.map(photo => ({
@@ -208,6 +217,7 @@ const AIAnalysisStep = ({
                   photoId: photo._id || photo.id,
                   data: photo.analysis
                 }));
+                console.log('Using results array from batchResult.data.photos:', resultsArray.length);
               }
               
               if (resultsArray.length > 0) {
@@ -226,7 +236,7 @@ const AIAnalysisStep = ({
                       updatedPhotos[resultPhotoIndex] = {
                         ...updatedPhotos[resultPhotoIndex],
                         status: 'complete',
-                        analysis: result.data
+                        analysis: result.data || result.analysis // Handle both data formats
                       };
                       
                       photosCompleted++;
@@ -248,6 +258,8 @@ const AIAnalysisStep = ({
                     }
                   }
                 });
+              } else {
+                console.warn('No results array found in batch result:', batchResult);
               }
             }
             

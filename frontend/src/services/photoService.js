@@ -99,6 +99,7 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
             uploadProgress: progress
           }));
           
+          // Call the progress callback with both the updated photos and the progress percentage
           progressCallback(updatedPhotos, progress);
         }
       }
@@ -288,6 +289,8 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
       // Get the analyzed photos from the response
       const serverAnalyzedPhotos = responseData.photos || [];
       
+      photoLogger.info(`Received analysis results for ${serverAnalyzedPhotos.length} photos`);
+      
       if (hasPhotoObjects) {
         // For photo objects, we need to return results in a format that matches
         // what the client expects from the previous implementation
@@ -316,6 +319,7 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
         };
       }
     } else {
+      photoLogger.error('Photo analysis failed:', response.data.error);
       return {
         success: false,
         error: response.data.error || 'Analysis failed'
