@@ -1,7 +1,7 @@
 import { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createReport, updateReport, generateAISummary, generateReportPdf } from '../../services/reportService';
-import { uploadBatchPhotos } from '../../services/photoService';
+import { uploadPhotos } from '../../services/photoService';
 import { validateReportForm, getFormErrorMessage } from '../../utils/formValidation';
 import AuthContext from '../../context/AuthContext';
 import api from '../../services/api';
@@ -542,7 +542,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
           }));
           
           // Upload the photos to the report
-          const uploadResponse = await uploadBatchPhotos(
+          const uploadResponse = await uploadPhotos(
             fileObjects,
             createdReportId,
             (progress) => {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { cleanupAllBlobUrls } from '../utils/blobUrlManager';
 import { filterPhotosWithValidIds } from '../utils/mongoUtil';
-import PhotoSchema from '../../shared/schemas/photoSchema';
+import PhotoSchema from 'shared/schemas/photoSchema';
 
 /**
  * Custom hook for managing photo upload state

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import PhotoSchema from '../../shared/schemas/photoSchema';
+import PhotoSchema from 'shared/schemas/photoSchema';
 import { uploadPhotos, getPhotoUrl, analyzePhotos } from '../services/photoService';
 import { getReports } from '../services/reportService';
 import ProgressBar from './photo/components/ProgressBar';

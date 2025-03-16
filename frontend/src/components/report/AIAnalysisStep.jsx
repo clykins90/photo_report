@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { analyzePhoto, analyzeBatchPhotos, getPhotoUrl } from '../../services/photoService';
+import { analyzePhotos, getPhotoUrl } from '../../services/photoService';
 import AIDescriptionEditor from '../photo/AIDescriptionEditor';
 import DamageForm from './DamageForm';
 
@@ -149,7 +149,7 @@ const AIAnalysisStep = ({
           
           try {
             // Analyze the photo
-            const batchResult = await analyzeBatchPhotos([currentPhoto], reportId);
+            const batchResult = await analyzePhotos([currentPhoto], reportId);
             
             if (!batchResult.success) {
               console.error(`Analysis failed for photo:`, batchResult.error);

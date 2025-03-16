@@ -1,5 +1,5 @@
 import api from './api';
-import PhotoSchema from '../../shared/schemas/photoSchema';
+import PhotoSchema from 'shared/schemas/photoSchema';
 import { photoLogger } from '../utils/logger';
 
 /**

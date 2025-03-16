@@ -89,3 +89,11 @@ GUIDE.md
 todo_list.md
 todo-host.md
 upload_optimization.md
+
+# Markdown files folder
+files/
+markdown_files/
+markdown\ files/
+**/files/
+**/markdown_files/
+**/markdown\ files/

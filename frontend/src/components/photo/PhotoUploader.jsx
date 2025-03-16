@@ -1,8 +1,8 @@
 import { useCallback, useEffect } from 'react';
 import PropTypes from 'prop-types';
-import { uploadPhotos, analyzePhotos, analyzePhoto, deletePhoto } from '../../services/photoService';
+import { uploadPhotos, analyzePhotos, deletePhoto } from '../../services/photoService';
 import usePhotoUploadState from '../../hooks/usePhotoUploadState';
-import PhotoSchema from '../../../shared/schemas/photoSchema';
+import PhotoSchema from 'shared/schemas/photoSchema';
 import { 
   PhotoDropzone, 
   PhotoUploadProgress, 
@@ -229,10 +229,11 @@ const PhotoUploader = ({
       // Mark photo as analyzing
       updatePhotoAnalysis(photo._id, null);
       
-      const result = await analyzePhoto(photo, reportId);
+      const result = await analyzePhotos(reportId, [photo._id]);
       
-      if (result.success && result.data) {
-        updatePhotoAnalysis(photo._id, result.data);
+      if (result.success && result.photos && result.photos.length > 0) {
+        const analyzedPhoto = result.photos[0];
+        updatePhotoAnalysis(photo._id, analyzedPhoto.analysis);
       } else {
         updatePhotoAnalysis(photo._id, { error: result.error || 'Analysis failed' });
       }

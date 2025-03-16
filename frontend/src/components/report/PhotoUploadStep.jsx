@@ -1,6 +1,6 @@
 import React from 'react';
 import PhotoUploader from '../photo/PhotoUploader';
-import PhotoSchema from '../../../shared/schemas/photoSchema';
+import PhotoSchema from 'shared/schemas/photoSchema';
 
 const PhotoUploadStep = ({ 
   uploadedPhotos = [],

@@ -1,11 +1,9 @@
 const multer = require('multer');
-const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const fs = require('fs');
 const logger = require('../utils/logger');
-
-// Always use /tmp directory for temporary files
-const uploadDir = '/tmp';
+const config = require('../config/config');
+const gridfs = require('../utils/gridfs');
+const PhotoSchema = require('../../shared/schemas/photoSchema.cjs');
 
 // Always use memory storage for file uploads
 const storage = multer.memoryStorage();
@@ -16,12 +14,14 @@ const allowedFileTypes = [
   'image/jpeg',
   'image/png',
   'image/heic',
-  'image/heif'
+  'image/heif',
+  'application/pdf'  // Added PDF support from gridfsUpload
 ];
 
-// File filter to only allow certain image types
+// File filter to only allow certain file types
 const fileFilter = (req, file, cb) => {
-  if (allowedFileTypes.includes(file.mimetype)) {
+  if (allowedFileTypes.includes(file.mimetype) || 
+      (file.mimetype.startsWith('image/') && !allowedFileTypes.includes(file.mimetype))) {
     cb(null, true);
   } else {
     cb(new Error(`File type not allowed. Allowed types: ${allowedFileTypes.join(', ')}`), false);
@@ -33,38 +33,89 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB
+    fileSize: config.maxFileSize || 10 * 1024 * 1024 // 10MB default
   }
 });
 
-// Process uploaded files to write to /tmp if needed
-const processUpload = (req, res, next) => {
-  if (!req.files) {
-    return next();
-  }
-  
-  // Handle the in-memory files
-  req.files.forEach(file => {
-    // Add additional properties that would normally be set by disk storage
-    file.path = `${uploadDir}/${uuidv4()}${path.extname(file.originalname)}`;
-    
-    // Write to /tmp directory
-    if (file.buffer) {
-      try {
-        fs.writeFileSync(file.path, file.buffer);
-        logger.info(`Wrote file to temporary location: ${file.path}`);
-      } catch (error) {
-        logger.error(`Failed to write file to ${uploadDir}: ${error.message}`);
-      }
+/**
+ * Upload middleware that moves file to GridFS
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response
+ * @param {Function} next - Express next function
+ */
+const uploadToGridFS = async (req, res, next) => {
+  try {
+    // Skip if no file
+    if (!req.file && (!req.files || req.files.length === 0)) {
+      return next();
     }
-  });
-  
-  next();
+
+    const files = req.file ? [req.file] : req.files;
+    const gridfsFiles = [];
+
+    for (const file of files) {
+      // Get reportId from request body if available
+      const reportId = req.body.reportId || null;
+      
+      // Get clientId from request body if available
+      const clientId = req.body.clientId || 
+                      (req.body.clientIds && Array.isArray(req.body.clientIds) ? 
+                        req.body.clientIds[files.indexOf(file)] : null);
+      
+      // Create metadata using the PhotoSchema utility function
+      const additionalMetadata = {
+        size: file.size,
+        userId: req.user?._id?.toString(),
+        mimetype: file.mimetype
+      };
+      
+      const metadata = PhotoSchema.createMetadata(reportId, file.originalname, clientId, additionalMetadata);
+
+      // Upload buffer to GridFS
+      if (!file.buffer) {
+        throw new Error('No file buffer found for memory storage');
+      }
+
+      // Upload to GridFS using the uploadBuffer function
+      const fileInfo = await gridfs.uploadBuffer(file.buffer, {
+        filename: file.originalname,
+        contentType: file.mimetype,
+        metadata
+      });
+
+      // Add GridFS file info to the file object
+      file.gridfs = fileInfo;
+      gridfsFiles.push({
+        originalName: file.originalname,
+        filename: fileInfo.filename,
+        id: fileInfo.id.toString(),
+        contentType: file.mimetype,
+        size: file.size,
+        metadata
+      });
+    }
+
+    // Add GridFS files to request
+    if (req.file) {
+      req.gridfsFile = gridfsFiles[0];
+    } else {
+      req.gridfsFiles = gridfsFiles;
+    }
+
+    next();
+  } catch (error) {
+    logger.error(`Error in upload middleware: ${error.message}`);
+    return res.status(500).json({
+      success: false,
+      message: 'File upload failed',
+      error: error.message
+    });
+  }
 };
 
-// Export configured upload middleware
+// Export consolidated upload middleware
 module.exports = {
-  // Multiple files upload
+  // Standard uploads (no GridFS)
   uploadMany: (fieldName, maxCount = 20) => (req, res, next) => {
     upload.array(fieldName, maxCount)(req, res, (err) => {
       if (err) {
@@ -74,41 +125,39 @@ module.exports = {
       
       if (req.files && req.files.length > 0) {
         logger.info(`Successfully uploaded ${req.files.length} files`);
-        processUpload(req, res, next);
       } else {
         logger.warn('No files were uploaded');
-        next();
-      }
-    });
-  },
-  
-  // Company logo upload (single file)
-  uploadLogo: () => (req, res, next) => {
-    upload.single('logo')(req, res, (err) => {
-      if (err) {
-        logger.error(`Logo upload error: ${err.message}`);
-        return res.status(400).json({ error: err.message });
-      }
-      
-      if (req.file) {
-        logger.info(`Successfully uploaded company logo: ${req.file.originalname}`);
-        
-        // Process file
-        if (req.file.buffer) {
-          const filePath = `${uploadDir}/${uuidv4()}${path.extname(req.file.originalname)}`;
-          try {
-            fs.writeFileSync(filePath, req.file.buffer);
-            req.file.path = filePath;
-            logger.info(`Wrote logo to temporary location: ${filePath}`);
-          } catch (error) {
-            logger.error(`Failed to write logo to ${uploadDir}: ${error.message}`);
-          }
-        }
-      } else {
-        logger.warn('No logo file was uploaded');
       }
       
       next();
     });
-  }
+  },
+  
+  uploadSingle: (fieldName) => (req, res, next) => {
+    upload.single(fieldName)(req, res, (err) => {
+      if (err) {
+        logger.error(`Upload error: ${err.message}`);
+        return res.status(400).json({ error: err.message });
+      }
+      
+      if (req.file) {
+        logger.info(`Successfully uploaded file: ${req.file.originalname}`);
+      } else {
+        logger.warn('No file was uploaded');
+      }
+      
+      next();
+    });
+  },
+  
+  // GridFS uploads
+  uploadToGridFS: (fieldName, maxCount = 10) => [
+    upload.array(fieldName, maxCount),
+    uploadToGridFS
+  ],
+  
+  uploadSingleToGridFS: (fieldName) => [
+    upload.single(fieldName),
+    uploadToGridFS
+  ]
 }; 

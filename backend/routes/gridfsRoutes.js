@@ -3,7 +3,7 @@ const { ObjectId } = require('mongodb');
 const gridfs = require('../utils/gridfs');
 const logger = require('../utils/logger');
 const { protect } = require('../middleware/auth');
-const { uploadSingleToGridFS } = require('../middleware/gridfsUpload');
+const { uploadSingleToGridFS } = require('../middleware/uploadMiddleware');
 const path = require('path');
 
 const router = express.Router();
