@@ -29,84 +29,46 @@ const tempChunks = {};
  * @returns {GridFSBucket} The GridFS bucket instance
  */
 const initGridFS = async (bucketName = 'photos', forceRefresh = false) => {
+  // Check if bucket exists in cache and is not expired
+  const now = Date.now();
+  if (!forceRefresh && 
+      buckets[bucketName] && 
+      bucketTimestamps[bucketName] && 
+      now - bucketTimestamps[bucketName] < BUCKET_CACHE_TTL) {
+    // Bucket exists and is not expired, return it
+    return buckets[bucketName];
+  }
+  
+  // Check MongoDB connection state
+  if (mongoose.connection.readyState !== 1) {
+    logger.info('MongoDB not connected, using existing connection...');
+    
+    // Don't try to reconnect here - rely on the main connection logic
+    // This avoids multiple connection attempts
+    if (mongoose.connection.readyState === 0) {
+      logger.warn('MongoDB disconnected, GridFS initialization may fail');
+    }
+  }
+  
   try {
-    // Check if bucket exists in cache and is not expired
-    const now = Date.now();
-    if (!forceRefresh && 
-        buckets[bucketName] && 
-        bucketTimestamps[bucketName] && 
-        now - bucketTimestamps[bucketName] < BUCKET_CACHE_TTL) {
-      // Bucket exists and is not expired, return it
-      return buckets[bucketName];
+    // Get the db instance from the existing connection
+    const db = mongoose.connection.db;
+    if (!db) {
+      logger.error('No database instance available');
+      return null;
     }
     
-    // Check MongoDB connection state
-    if (mongoose.connection.readyState !== 1) {
-      logger.info('MongoDB not connected, attempting to connect...');
-      
-      // Try to connect with optimized retry logic
-      let retries = 3;
-      let connected = false;
-      
-      while (retries > 0 && !connected) {
-        try {
-          // Use optimized connection options
-          await mongoose.connect(process.env.MONGODB_URI, {
-            serverSelectionTimeoutMS: 5000,
-            connectTimeoutMS: 10000,
-            socketTimeoutMS: 45000,
-            // Add connection pooling options
-            maxPoolSize: 10,           // Maximum number of connections in the pool
-            minPoolSize: 2,            // Minimum number of connections in the pool
-            maxIdleTimeMS: 30000,      // How long a connection can remain idle before being removed
-            waitQueueTimeoutMS: 10000  // How long to wait for a connection from the pool
-          });
-          connected = true;
-          logger.info(`MongoDB connected: ${mongoose.connection.host}`);
-        } catch (connError) {
-          retries--;
-          if (retries > 0) {
-            logger.warn(`MongoDB connection failed, retrying... (${retries} attempts left)`);
-            // Wait before retrying with exponential backoff
-            await new Promise(resolve => setTimeout(resolve, 1000 * (4 - retries)));
-          } else {
-            throw connError;
-          }
-        }
-      }
-    }
+    // Create a new bucket
+    const bucket = new mongoose.mongo.GridFSBucket(db, {
+      bucketName: bucketName
+    });
     
-    // Initialize GridFS bucket with optimized retry logic
-    let retries = 2;
-    let error;
+    // Cache the bucket
+    buckets[bucketName] = bucket;
+    bucketTimestamps[bucketName] = now;
     
-    while (retries >= 0) {
-      try {
-        // Create new bucket with optimized chunk size
-        buckets[bucketName] = new GridFSBucket(mongoose.connection.db, {
-          bucketName: bucketName,
-          chunkSizeBytes: 1024 * 1024 // 1MB chunks for better performance
-        });
-        
-        // Update timestamp
-        bucketTimestamps[bucketName] = Date.now();
-        
-        logger.info(`GridFS bucket '${bucketName}' initialized successfully`);
-        return buckets[bucketName];
-      } catch (bucketError) {
-        error = bucketError;
-        retries--;
-        
-        if (retries >= 0) {
-          logger.warn(`Failed to initialize GridFS bucket, retrying... (${retries} attempts left)`);
-          await new Promise(resolve => setTimeout(resolve, 500 * (3 - retries)));
-        }
-      }
-    }
-    
-    // If we get here, all retries failed
-    logger.error(`All attempts to initialize GridFS bucket '${bucketName}' failed: ${error.message}`);
-    return null;
+    logger.info(`GridFS bucket '${bucketName}' initialized successfully`);
+    return bucket;
   } catch (error) {
     logger.error(`Error initializing GridFS bucket '${bucketName}': ${error.message}`);
     return null;

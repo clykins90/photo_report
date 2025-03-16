@@ -45,16 +45,16 @@ module.exports = async (req, res) => {
       
       // Connect to MongoDB if not already connected
       if (dbState !== 1) {
-        // Connect to MongoDB
+        // Connect to MongoDB with a shorter timeout
         await connectDB();
         console.log(`MongoDB Connected: ${mongoose.connection.host}`);
       }
       
-      // Wait for connection to be fully established
+      // Wait for connection to be fully established with a shorter timeout
       if (mongoose.connection.readyState !== 1) {
         console.log('Waiting for MongoDB connection to be fully established...');
         
-        // Wait for connection to be ready with a longer timeout
+        // Wait for connection to be ready with a shorter timeout
         await new Promise((resolve) => {
           // If already connected, resolve immediately
           if (mongoose.connection.readyState === 1) {
@@ -67,57 +67,28 @@ module.exports = async (req, res) => {
             resolve();
           });
           
-          // Add a timeout to prevent hanging - increased to 10 seconds
+          // Add a timeout to prevent hanging - reduced to 5 seconds
           setTimeout(() => {
             console.log('MongoDB connection timeout - proceeding anyway');
             resolve();
-          }, 10000);
+          }, 5000);
         });
       }
       
-      // Initialize GridFS
-      const bucket = await gridfs.initGridFS();
-      if (bucket) {
-        console.log('GridFS initialized successfully');
-      } else {
-        console.error('Failed to initialize GridFS');
+      // Initialize GridFS only if needed
+      if (isFileRequest || req.url.includes('/photos')) {
+        const bucket = await gridfs.initGridFS();
+        if (bucket) {
+          console.log('GridFS initialized successfully');
+        } else {
+          console.error('Failed to initialize GridFS');
+        }
       }
       
       dbInitialized = true;
     } catch (error) {
       console.error(`Error initializing database: ${error.message}`);
-      // Don't throw the error, try to proceed anyway
-      dbInitialized = true; // Mark as initialized to prevent repeated attempts
-    }
-  }
-  
-  // Special handling for file requests to ensure GridFS is initialized
-  if (isFileRequest) {
-    // Extract the file ID from the URL
-    const fileIdMatch = req.url.match(/\/files\/([^/?]+)/);
-    if (fileIdMatch && fileIdMatch[1]) {
-      const fileId = fileIdMatch[1];
-      console.log(`Handling file request for ID: ${fileId}`);
-      
-      // Ensure GridFS is initialized
-      try {
-        const bucket = await gridfs.initGridFS(true); // Force initialization
-        if (!bucket) {
-          console.error('GridFS not initialized for file request');
-          return res.status(500).json({
-            success: false,
-            message: 'GridFS not initialized',
-            error: 'Database connection error'
-          });
-        }
-      } catch (error) {
-        console.error(`Error initializing GridFS: ${error.message}`);
-        return res.status(500).json({
-          success: false,
-          message: 'Error initializing GridFS',
-          error: error.message
-        });
-      }
+      // Continue anyway to avoid blocking the request
     }
   }
   

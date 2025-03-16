@@ -85,7 +85,10 @@ const register = async (req, res, next) => {
  * @access Public
  */
 const login = async (req, res, next) => {
+  const startTime = Date.now();
   try {
+    logger.info(`API Request: POST /login`, {});
+    
     // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -93,9 +96,16 @@ const login = async (req, res, next) => {
     }
 
     const { email, password } = req.body;
-
+    
+    // Log timing for database operations
+    const dbStartTime = Date.now();
+    
     // Find user by email
     const user = await User.findOne({ email });
+    
+    const dbEndTime = Date.now();
+    logger.debug(`Database query took ${dbEndTime - dbStartTime}ms`);
+    
     if (!user) {
       throw new ApiError(401, 'Invalid credentials');
     }
@@ -106,19 +116,38 @@ const login = async (req, res, next) => {
     }
 
     // Check if password matches
+    const pwStartTime = Date.now();
     const isMatch = await user.comparePassword(password);
+    const pwEndTime = Date.now();
+    
+    logger.debug(`Password comparison took ${pwEndTime - pwStartTime}ms`);
+    
     if (!isMatch) {
       throw new ApiError(401, 'Invalid credentials');
     }
 
-    // Update last login
-    user.lastLogin = Date.now();
-    await user.save();
+    // Update last login time in the database
+    // Instead of saving immediately, use an update operation
+    // This is more efficient than loading the full document and saving it
+    User.updateOne(
+      { _id: user._id },
+      { $set: { lastLogin: Date.now() } }
+    ).catch(err => {
+      // Log error but don't fail the login if this update fails
+      logger.error(`Failed to update last login time: ${err.message}`);
+    });
 
     // Generate token
+    const tokenStartTime = Date.now();
     const token = generateToken(user);
+    const tokenEndTime = Date.now();
+    
+    logger.debug(`Token generation took ${tokenEndTime - tokenStartTime}ms`);
 
     // Return user data and token
+    const endTime = Date.now();
+    logger.info(`Login completed in ${endTime - startTime}ms`);
+    
     res.status(200).json({
       success: true,
       data: {
@@ -127,6 +156,8 @@ const login = async (req, res, next) => {
       },
     });
   } catch (error) {
+    const endTime = Date.now();
+    logger.error(`Login failed in ${endTime - startTime}ms: ${error.message}`);
     next(error);
   }
 };

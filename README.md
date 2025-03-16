@@ -880,6 +880,11 @@ The backend has been optimized for performance and reliability:
 ## Changelog
 
 ### March 15, 2025
+- **Fixed**: Issue where photos from step 2 weren't appearing in step 3 of the report form
+  - Simplified photo URL generation in AIAnalysisStep.jsx to handle various photo ID formats
+  - Enhanced PhotoUploadStep.jsx to process all photos and ensure they have valid URLs
+  - Simplified photo validation in ReportForm.jsx to check for any usable identifier instead of strict MongoDB ID validation
+  - Improved handlePhotoUploadComplete in ReportForm.jsx to focus on ensuring each photo has a URL
 - **Fixed**: Photo upload error "No matching document found for id version 1 modifiedPaths photos"
   - Updated photo upload process to use `findOneAndUpdate` instead of `save()` to avoid version conflicts
   - Added better error handling for report updates during photo uploads
