@@ -203,179 +203,61 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
     // Check if we're dealing with photo objects or just IDs
     const hasPhotoObjects = photosOrIds.some(item => typeof item === 'object');
     
-    // If we have photo objects, use the storage manager to determine best data sources
-    if (hasPhotoObjects) {
-      const photos = photosOrIds;
+    // Extract IDs from photo objects or use the IDs directly
+    const photoIds = hasPhotoObjects 
+      ? photosOrIds.map(photo => photo._id || photo.id).filter(id => id)
+      : photosOrIds;
+    
+    // Log what we're analyzing
+    photoLogger.info(`Analyzing ${photoIds.length} photos for report ${reportId}`);
+    
+    // Build request payload
+    const payload = {
+      reportId,
+      photoIds: photoIds.length > 0 ? photoIds : undefined
+    };
+    
+    // Send analysis request
+    const response = await api.post('/photos/analyze', payload);
+    
+    if (response.data.success) {
+      // Handle nested data structure if present
+      const responseData = response.data.data || response.data;
+      // Get the analyzed photos from the response
+      const serverAnalyzedPhotos = responseData.photos || [];
       
-      // Create results array
-      const results = [];
-      
-      // Use photo storage manager to group photos by data availability
-      const { withLocalData, needsServerAnalysis } = 
-        photoStorageManager.groupPhotosByDataAvailability(photos);
-      
-      photoLogger.info(`Analysis grouped photos: ${withLocalData.length} with local data, ${needsServerAnalysis.length} need server analysis`);
-      
-      // Process photos with local data first
-      for (const photo of withLocalData) {
-        try {
-          // Get the best data source
-          const dataSource = photoStorageManager.getBestDataSource(photo);
-          
-          // Prepare image data based on source type
-          let imageData;
-          
-          if (dataSource.type === 'file') {
-            imageData = dataSource.data;  // Use file directly
-          } else if (dataSource.type === 'dataUrl') {
-            // Convert data URL to blob
-            const response = await fetch(dataSource.data);
-            imageData = await response.blob();
-          }
-          
-          if (imageData) {
-            // Create a FormData object to send the image
-            const formData = new FormData();
-            formData.append('reportId', reportId);
-            formData.append('photo', imageData, photo.name || 'photo.jpg');
-            
-            // Add photo ID if available for server-side tracking
-            if (photo._id) {
-              formData.append('photoId', photo._id);
-            } else if (photo.id) {
-              formData.append('photoId', photo.id);
-            }
-            
-            // Send to server for AI analysis
-            const response = await api.post('/photos/analyze-single', formData, {
-              headers: {
-                'Content-Type': 'multipart/form-data'
-              }
-            });
-            
-            if (response.data.success) {
-              results.push({
-                success: true,
-                photoId: photo._id || photo.id || photo.clientId,
-                data: response.data.data || response.data
-              });
-            } else {
-              results.push({
-                success: false,
-                photoId: photo._id || photo.id || photo.clientId,
-                error: response.data.error || 'Analysis failed'
-              });
-            }
-          }
-        } catch (error) {
-          photoLogger.error('Error analyzing photo with local data:', error);
-          results.push({
-            success: false,
-            photoId: photo._id || photo.id || photo.clientId || 'unknown',
-            error: error.message || 'Analysis failed'
-          });
-        }
-      }
-      
-      // Process photos that need server-side analysis
-      if (needsServerAnalysis.length > 0) {
-        photoLogger.info(`Analyzing ${needsServerAnalysis.length} photos in batch mode`);
+      if (hasPhotoObjects) {
+        // For photo objects, we need to return results in a format that matches
+        // what the client expects from the previous implementation
+        const results = serverAnalyzedPhotos.map(serverPhoto => ({
+          success: true,
+          photoId: serverPhoto._id,
+          data: serverPhoto.analysis
+        }));
         
-        try {
-          // Extract IDs for batch analysis
-          const photoIds = needsServerAnalysis.map(photo => photo._id || photo.id)
-            .filter(id => id); // Filter out any undefined IDs
-          
-          // Build request payload
-          const batchPayload = {
-            reportId,
-            photoIds
-          };
-          
-          // Send batch analysis request
-          const batchResponse = await api.post('/photos/analyze', batchPayload);
-          
-          if (batchResponse.data.success) {
-            // Process batch results
-            const responseData = batchResponse.data.data || batchResponse.data;
-            const analyzedPhotos = responseData.photos || [];
-            
-            // Add each analyzed photo to results
-            analyzedPhotos.forEach(analyzedPhoto => {
-              results.push({
-                success: true,
-                photoId: analyzedPhoto._id,
-                data: analyzedPhoto.analysis
-              });
-            });
-            
-            photoLogger.info(`Successfully analyzed ${analyzedPhotos.length} photos in batch mode`);
-          } else {
-            // Add batch failure for each ID
-            photoLogger.error(`Batch analysis failed: ${batchResponse.data.error}`);
-            photoIds.forEach(photoId => {
-              results.push({
-                success: false,
-                photoId,
-                error: batchResponse.data.error || 'Batch analysis failed'
-              });
-            });
-          }
-        } catch (batchError) {
-          photoLogger.error('Batch photo analysis error:', batchError);
-          needsServerAnalysis.forEach(photo => {
-            const photoId = photo._id || photo.id;
-            if (photoId) {
-              results.push({
-                success: false,
-                photoId,
-                error: batchError.message || 'Batch analysis failed'
-              });
-            }
-          });
-        }
-      }
-      
-      // Determine overall success
-      const overallSuccess = results.some(result => result.success);
-      
-      return {
-        success: overallSuccess,
-        results: results
-      };
-    } else {
-      // We're dealing with just IDs, use the original server-side analysis
-      const photoIds = photosOrIds;
-      
-      // Build request payload
-      const payload = {
-        reportId,
-        photoIds: photoIds.length > 0 ? photoIds : undefined
-      };
-      
-      // Send analysis request
-      const response = await api.post('/photos/analyze', payload);
-      
-      if (response.data.success) {
-        // Handle nested data structure if present
-        const responseData = response.data.data || response.data;
+        return {
+          success: true,
+          results: results
+        };
+      } else {
+        // For photo IDs, return the photos directly
         // Transform photos to client format if needed
-        const analyzedPhotos = (responseData.photos || []).map(photo => 
+        const clientAnalyzedPhotos = serverAnalyzedPhotos.map(photo => 
           PhotoSchema.deserializeFromApi(photo)
         );
         
         return {
           success: true,
           data: {
-            photos: analyzedPhotos
+            photos: clientAnalyzedPhotos
           }
         };
-      } else {
-        return {
-          success: false,
-          error: response.data.error || 'Analysis failed'
-        };
       }
+    } else {
+      return {
+        success: false,
+        error: response.data.error || 'Analysis failed'
+      };
     }
   } catch (error) {
     photoLogger.error('Photo analysis error:', error);
