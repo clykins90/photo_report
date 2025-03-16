@@ -21,9 +21,11 @@ const PhotoUploadTest = () => {
       try {
         const response = await getReports();
         if (response.success) {
-          setReports(response.data);
-          if (response.data.length > 0) {
-            setSelectedReportId(response.data[0]._id);
+          // Handle both formats - data might be directly in response or in the data property
+          const reportsData = response.data || [];
+          setReports(reportsData);
+          if (reportsData.length > 0) {
+            setSelectedReportId(reportsData[0]._id);
           }
         } else {
           console.error('Failed to fetch reports:', response.error);
