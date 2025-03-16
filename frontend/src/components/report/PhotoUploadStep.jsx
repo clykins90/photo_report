@@ -1,6 +1,7 @@
 import React from 'react';
 import PhotoUploader from '../photo/PhotoUploader';
 import PhotoSchema from 'shared/schemas/photoSchema';
+import photoStorageManager from '../../services/photoStorageManager';
 
 const PhotoUploadStep = ({ 
   uploadedPhotos = [],
@@ -12,35 +13,20 @@ const PhotoUploadStep = ({
   const handleUploadComplete = (newPhotos) => {
     // Only continue if we have photos
     if (newPhotos && newPhotos.length > 0) {
-      // Process all photos to ensure they have valid URLs and file data
-      const processedPhotos = newPhotos.map(photo => {
-        // Create a new object to avoid modifying the original
-        const processedPhoto = { ...photo };
-        
-        // Ensure each photo has a URL property
-        if (!processedPhoto.url && !processedPhoto.path) {
-          const baseApiUrl = import.meta.env.VITE_API_URL || '';
-          
-          // Try to construct a URL from available identifiers
-          if (processedPhoto._id) {
-            processedPhoto.path = `/api/photos/${processedPhoto._id}`;
-          } else if (processedPhoto.fileId) {
-            processedPhoto.path = `/api/photos/${processedPhoto.fileId}`;
-          }
-        }
-        
-        // Make sure we keep the file object or blob for local analysis if available
-        if (photo.file && !processedPhoto.file) {
-          processedPhoto.file = photo.file;
-        }
-        
-        // If we have a preview URL and it's a data URL, keep it for local analysis
-        if (photo.preview && photo.preview.startsWith('data:')) {
-          processedPhoto.localDataUrl = photo.preview;
-        }
-        
-        return processedPhoto;
-      });
+      console.log('Processing photos for upload complete:', newPhotos);
+      
+      // Use the storage manager to preserve all photo data
+      const processedPhotos = photoStorageManager.preserveBatchPhotoData(newPhotos);
+      
+      // Log the processed photos to verify they have the necessary data
+      console.log('Processed photos with preserved file data:', 
+        processedPhotos.map(p => ({
+          id: p._id || p.id,
+          hasFile: !!p.file,
+          hasPreview: !!p.preview,
+          hasLocalDataUrl: !!p.localDataUrl
+        }))
+      );
       
       // Pass all processed photos to the parent component
       if (onUploadComplete) {

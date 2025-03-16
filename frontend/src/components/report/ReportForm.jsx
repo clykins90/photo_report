@@ -5,6 +5,7 @@ import { uploadPhotos } from '../../services/photoService';
 import { validateReportForm, getFormErrorMessage } from '../../utils/formValidation';
 import AuthContext from '../../context/AuthContext';
 import api from '../../services/api';
+import photoStorageManager from '../../services/photoStorageManager';
 
 // Import components
 import BasicInfoStep from './BasicInfoStep';
@@ -143,36 +144,18 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
   };
   
   const handlePhotoUploadComplete = (photos) => {
-    // Ensure all photos have the appropriate URL properties set
-    const processedPhotos = photos.map(photo => {
-      // Create a new object to avoid modifying the original
-      const processedPhoto = { ...photo };
-      
-      // Ensure preview URL is preserved for local display
-      if (photo.preview) {
-        processedPhoto.preview = photo.preview;
-      }
-      
-      // Make sure we have a URL for the photo
-      if (!processedPhoto.url) {
-        const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
-        
-        // Try to construct a URL from available identifiers
-        if (processedPhoto._id) {
-          processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto._id}`;
-        } else if (processedPhoto.fileId) {
-          processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto.fileId}`;
-        } else if (processedPhoto.id) {
-          processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto.id}`;
-        } else if (processedPhoto.filename) {
-          processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto.filename}`;
-        }
-      }
-      
-      return processedPhoto;
-    });
+    // Use photoStorageManager to ensure all photo data is preserved
+    const processedPhotos = photoStorageManager.preserveBatchPhotoData(photos);
     
-    console.log('Processed photos:', processedPhotos);
+    console.log('Processed photos in ReportForm:', 
+      processedPhotos.map(p => ({
+        id: p._id || p.id,
+        hasFile: !!p.file,
+        hasPreview: !!p.preview,
+        hasLocalDataUrl: !!p.localDataUrl
+      }))
+    );
+    
     setUploadedPhotos(processedPhotos);
   };
   
@@ -659,7 +642,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         setError('Failed to create draft report. Please try again.');
       });
     } else {
-      // If moving from step 2 to step 3, ensure photos have usable identifiers
+      // If moving from step 2 to step 3, ensure photos have usable identifiers and local data is preserved
       if (step === 2) {
         // Filter to only photos with usable identifiers (url, preview, id, or fileId)
         const usablePhotos = uploadedPhotos.filter(photo => 
@@ -671,8 +654,20 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
           return;
         }
         
-        // Update state with usable photos
-        setUploadedPhotos(usablePhotos);
+        // Use photoStorageManager to ensure all photo data is preserved
+        const photosWithPreservedData = photoStorageManager.preserveBatchPhotoData(usablePhotos);
+        
+        console.log('Moving to analysis step with photos:', 
+          photosWithPreservedData.map(p => ({
+            id: p._id || p.id,
+            hasFile: !!p.file,
+            hasPreview: !!p.preview,
+            hasLocalDataUrl: !!p.localDataUrl
+          }))
+        );
+        
+        // Update state with usable photos that have preserved local data
+        setUploadedPhotos(photosWithPreservedData);
       }
       
       setStep(step + 1);

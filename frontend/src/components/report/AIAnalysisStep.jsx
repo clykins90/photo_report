@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { analyzePhotos, getPhotoUrl } from '../../services/photoService';
+import photoStorageManager from '../../services/photoStorageManager';
 import AIDescriptionEditor from '../photo/AIDescriptionEditor';
 import DamageForm from './DamageForm';
 
@@ -53,6 +54,14 @@ const AIAnalysisStep = ({
   const [analyzedCount, setAnalyzedCount] = useState(0);
   const hasAnalyzedPhotos = analyzedCount > 0;
   const allPhotosAnalyzed = analyzedCount === uploadedPhotos.length && uploadedPhotos.length > 0;
+  
+  // Check for local data in photos and log it
+  useEffect(() => {
+    if (uploadedPhotos && uploadedPhotos.length > 0) {
+      // Use photoStorageManager to log data availability
+      photoStorageManager.logPhotoDataAvailability(uploadedPhotos);
+    }
+  }, [uploadedPhotos]);
   
   // Update analyzed count whenever photos change
   useEffect(() => {
@@ -114,6 +123,16 @@ const AIAnalysisStep = ({
     setBatchProgress(0);
     
     let unanalyzedPhotos = uploadedPhotos.filter(photo => !photo.analysis);
+    
+    // Log unanalyzed photos and their local data status
+    console.log('Unanalyzed photos:', 
+      unanalyzedPhotos.map(p => ({
+        id: p._id || p.id,
+        hasFile: !!p.file,
+        hasPreview: !!p.preview,
+        hasLocalDataUrl: !!p.localDataUrl
+      }))
+    );
     
     try {
       const updatedPhotos = [...uploadedPhotos];
@@ -328,8 +347,7 @@ const AIAnalysisStep = ({
 
   // Get the best available image URL for a photo
   const getBestImageUrl = (photo) => {
-    // Use the centralized photo URL handler from photoService
-    return getPhotoUrl(photo);
+    return photoStorageManager.getPhotoUrl(photo);
   };
 
   // Render the superhero loading screen

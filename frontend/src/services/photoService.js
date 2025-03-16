@@ -1,44 +1,37 @@
 import api from './api';
 import PhotoSchema from 'shared/schemas/photoSchema';
 import { photoLogger } from '../utils/logger';
+import photoStorageManager from './photoStorageManager';
 
 /**
  * Simplified photo service for handling photo operations
  * Uses the shared PhotoSchema for consistent object handling
+ * and PhotoStorageManager for data source management
  */
 
 /**
- * Get the URL for a photo
+ * Get the URL for a photo - delegates to photoStorageManager
  * @param {String|Object} photoOrId - Photo object or ID
  * @param {String} size - Size variant ('original', 'thumbnail', 'medium')
  * @returns {String} Photo URL
  */
 export const getPhotoUrl = (photoOrId, size = 'original') => {
-  // Extract the ID from the photo object or use the ID directly
-  const photoId = typeof photoOrId === 'object' ? 
-    (photoOrId._id || photoOrId.fileId || photoOrId.id) : 
-    photoOrId;
-  
-  // Return preview URL if available (for client-side preview)
-  if (typeof photoOrId === 'object' && photoOrId.preview) {
-    return photoOrId.preview;
+  // Handle string IDs
+  if (typeof photoOrId === 'string') {
+    const baseUrl = `/api/photos/${photoOrId}`;
+    
+    switch(size) {
+      case 'thumbnail':
+        return `${baseUrl}?size=thumbnail`;
+      case 'medium':
+        return `${baseUrl}?size=medium`;
+      default:
+        return baseUrl;
+    }
   }
   
-  if (!photoId) {
-    return '';
-  }
-  
-  // Generate appropriate URL based on size
-  const baseUrl = `/api/photos/${photoId}`;
-  
-  switch(size) {
-    case 'thumbnail':
-      return `${baseUrl}?size=thumbnail`;
-    case 'medium':
-      return `${baseUrl}?size=medium`;
-    default:
-      return baseUrl;
-  }
+  // Otherwise delegate to storage manager
+  return photoStorageManager.getPhotoUrl(photoOrId, size);
 };
 
 /**
@@ -111,15 +104,19 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
         const serverPhoto = serverPhotos && serverPhotos.find(p => p._id === serverId);
         
         if (serverPhoto) {
-          // Deserialize the server response
-          return PhotoSchema.deserializeFromApi({
+          // Deserialize the server response while preserving local data
+          const photoObj = PhotoSchema.deserializeFromApi({
             ...serverPhoto,
-            // Keep client-side preview URL
-            preview: clientPhoto.preview
+            // Keep client-side preview URL and file
+            preview: clientPhoto.preview,
+            file: clientPhoto.file
           });
+          
+          // Ensure local data is preserved
+          return photoStorageManager.preservePhotoData(photoObj);
         }
         
-        return clientPhoto;
+        return photoStorageManager.preservePhotoData(clientPhoto);
       });
       
       return {
@@ -171,83 +168,37 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
     // Check if we're dealing with photo objects or just IDs
     const hasPhotoObjects = photosOrIds.some(item => typeof item === 'object');
     
-    // If we have photo objects, check for local data (file or data URL)
+    // If we have photo objects, use the storage manager to determine best data sources
     if (hasPhotoObjects) {
       const photos = photosOrIds;
       
       // Create results array
       const results = [];
       
-      // Process each photo
-      for (const photo of photos) {
+      // Use photo storage manager to group photos by data availability
+      const { withLocalData, needsServerAnalysis } = 
+        photoStorageManager.groupPhotosByDataAvailability(photos);
+      
+      photoLogger.info(`Analysis grouped photos: ${withLocalData.length} with local data, ${needsServerAnalysis.length} need server analysis`);
+      
+      // Process photos with local data first
+      for (const photo of withLocalData) {
         try {
-          // Basic metadata analysis
-          const localAnalysis = {
-            timestamp: new Date().toISOString(),
-            dimensions: { width: 0, height: 0 },
-            size: photo.size || 0,
-            type: photo.type || 'unknown',
-            hasLocalData: !!photo.file || !!photo.localDataUrl
-          };
+          // Get the best data source
+          const dataSource = photoStorageManager.getBestDataSource(photo);
           
-          // If we have a file or data URL, get dimensions
-          if (photo.file || photo.localDataUrl) {
-            // Create an image element to get dimensions
-            const img = new Image();
-            const imageLoadPromise = new Promise((resolve, reject) => {
-              img.onload = () => {
-                localAnalysis.dimensions = {
-                  width: img.naturalWidth,
-                  height: img.naturalHeight
-                };
-                resolve();
-              };
-              img.onerror = () => {
-                reject(new Error('Failed to load image for analysis'));
-              };
-            });
-            
-            // Set source to either file or data URL
-            if (photo.localDataUrl) {
-              img.src = photo.localDataUrl;
-            } else if (photo.file) {
-              img.src = URL.createObjectURL(photo.file);
-            }
-            
-            // Wait for image to load
-            await imageLoadPromise;
-            
-            // Clean up object URL if created
-            if (photo.file && img.src.startsWith('blob:')) {
-              URL.revokeObjectURL(img.src);
-            }
-          }
-          
-          // Prepare image data for upload (either from file or data URL)
+          // Prepare image data based on source type
           let imageData;
-          if (photo.file) {
-            imageData = photo.file;
-          } else if (photo.localDataUrl) {
+          
+          if (dataSource.type === 'file') {
+            imageData = dataSource.data;  // Use file directly
+          } else if (dataSource.type === 'dataUrl') {
             // Convert data URL to blob
-            const response = await fetch(photo.localDataUrl);
+            const response = await fetch(dataSource.data);
             imageData = await response.blob();
-          } else {
-            // If no local data, try to fetch from URL if there's a preview
-            try {
-              const photoUrl = getPhotoUrl(photo);
-              if (photoUrl && !photoUrl.startsWith('/api/')) {
-                const response = await fetch(photoUrl);
-                if (response.ok) {
-                  imageData = await response.blob();
-                }
-              }
-            } catch (error) {
-              photoLogger.error('Failed to fetch photo from URL:', error);
-            }
           }
           
           if (imageData) {
-            // We have the image data, send it directly to the server
             // Create a FormData object to send the image
             const formData = new FormData();
             formData.append('reportId', reportId);
@@ -280,28 +231,72 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
                 error: response.data.error || 'Analysis failed'
               });
             }
-          } else if (photo._id || photo.id) {
-            // No local data but we have an ID, add it to the ID-based analysis queue
-            photoLogger.info(`No local data for photo ${photo._id || photo.id}, will use server-side analysis`);
-            results.push({
-              success: false,
-              photoId: photo._id || photo.id,
-              error: 'No local data available, falling back to server-side analysis'
-            });
-          } else {
-            // No ID and no data, can't analyze
-            results.push({
-              success: false,
-              photoId: photo.clientId || 'unknown',
-              error: 'No image data or ID available for analysis'
-            });
           }
         } catch (error) {
-          photoLogger.error('Error analyzing photo:', error);
+          photoLogger.error('Error analyzing photo with local data:', error);
           results.push({
             success: false,
             photoId: photo._id || photo.id || photo.clientId || 'unknown',
             error: error.message || 'Analysis failed'
+          });
+        }
+      }
+      
+      // Process photos that need server-side analysis
+      if (needsServerAnalysis.length > 0) {
+        photoLogger.info(`Analyzing ${needsServerAnalysis.length} photos in batch mode`);
+        
+        try {
+          // Extract IDs for batch analysis
+          const photoIds = needsServerAnalysis.map(photo => photo._id || photo.id)
+            .filter(id => id); // Filter out any undefined IDs
+          
+          // Build request payload
+          const batchPayload = {
+            reportId,
+            photoIds
+          };
+          
+          // Send batch analysis request
+          const batchResponse = await api.post('/photos/analyze', batchPayload);
+          
+          if (batchResponse.data.success) {
+            // Process batch results
+            const responseData = batchResponse.data.data || batchResponse.data;
+            const analyzedPhotos = responseData.photos || [];
+            
+            // Add each analyzed photo to results
+            analyzedPhotos.forEach(analyzedPhoto => {
+              results.push({
+                success: true,
+                photoId: analyzedPhoto._id,
+                data: analyzedPhoto.analysis
+              });
+            });
+            
+            photoLogger.info(`Successfully analyzed ${analyzedPhotos.length} photos in batch mode`);
+          } else {
+            // Add batch failure for each ID
+            photoLogger.error(`Batch analysis failed: ${batchResponse.data.error}`);
+            photoIds.forEach(photoId => {
+              results.push({
+                success: false,
+                photoId,
+                error: batchResponse.data.error || 'Batch analysis failed'
+              });
+            });
+          }
+        } catch (batchError) {
+          photoLogger.error('Batch photo analysis error:', batchError);
+          needsServerAnalysis.forEach(photo => {
+            const photoId = photo._id || photo.id;
+            if (photoId) {
+              results.push({
+                success: false,
+                photoId,
+                error: batchError.message || 'Batch analysis failed'
+              });
+            }
           });
         }
       }

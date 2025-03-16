@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { uploadPhotos, analyzePhotos, deletePhoto } from '../../services/photoService';
 import usePhotoUploadState from '../../hooks/usePhotoUploadState';
 import PhotoSchema from 'shared/schemas/photoSchema';
+import photoStorageManager from '../../services/photoStorageManager';
 import { 
   PhotoDropzone, 
   PhotoUploadProgress, 
@@ -18,7 +19,7 @@ import {
  * - PhotoSchema.createEmpty() for creating empty photo objects
  * - PhotoSchema.deserializeFromApi() for processing server responses
  * 
- * The simplified upload system no longer uses chunked uploads, reducing complexity.
+ * The component also uses PhotoStorageManager to ensure all local file data is preserved.
  */
 const PhotoUploader = ({ 
   onUploadComplete, 
