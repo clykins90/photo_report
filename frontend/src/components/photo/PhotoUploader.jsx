@@ -151,6 +151,7 @@ const PhotoUploader = ({
               const photoData = {
                 _id: serverId,
                 fileId: serverId,
+                id: serverId, // Add id field for redundancy
                 clientId: clientId,
                 status: 'uploaded',
                 uploadProgress: 100,
@@ -182,6 +183,7 @@ const PhotoUploader = ({
                 const photoData = {
                   _id: serverId,
                   fileId: serverId,
+                  id: serverId, // Add id field for redundancy
                   clientId: matchingFile.clientId || clientId,
                   status: 'uploaded',
                   uploadProgress: 100,
@@ -201,6 +203,7 @@ const PhotoUploader = ({
                 const photoData = {
                   _id: serverId,
                   fileId: serverId,
+                  id: serverId, // Add id field for redundancy
                   clientId: clientId,
                   status: 'uploaded',
                   uploadProgress: 100,
@@ -222,8 +225,26 @@ const PhotoUploader = ({
         // After upload completes, notify parent with the updated photos
         // Use the local array instead of waiting for state to update
         if (onUploadComplete && updatedPhotos.length > 0) {
-          console.log('Upload complete, sending updated photos to parent:', updatedPhotos.length);
-          onUploadComplete(updatedPhotos);
+          // Ensure all photos have valid MongoDB IDs
+          const validPhotos = updatedPhotos.filter(photo => {
+            // Check if photo has a valid MongoDB ID
+            const hasValidId = photo._id || photo.fileId || photo.id;
+            
+            if (!hasValidId) {
+              console.warn('Photo missing valid ID:', photo);
+            }
+            
+            return hasValidId;
+          });
+          
+          console.log('Upload complete, sending updated photos to parent:', validPhotos.length);
+          
+          if (validPhotos.length > 0) {
+            onUploadComplete(validPhotos);
+          } else {
+            console.error('No valid photos to send to parent after filtering');
+            setError('Failed to process uploaded photos. Please try again.');
+          }
         } else {
           console.warn('No updated photos available to send to parent');
         }

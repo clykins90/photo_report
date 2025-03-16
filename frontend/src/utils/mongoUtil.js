@@ -62,6 +62,11 @@ export const extractPhotoObjectId = (photo) => {
     return photo._id;
   }
   
+  // Try fileId next (common in GridFS)
+  if (photo.fileId && isValidObjectId(photo.fileId)) {
+    return photo.fileId;
+  }
+  
   // Try id next
   if (photo.id && isValidObjectId(photo.id)) {
     return photo.id;
@@ -70,11 +75,6 @@ export const extractPhotoObjectId = (photo) => {
   // Try serverId next
   if (photo.serverId && isValidObjectId(photo.serverId)) {
     return photo.serverId;
-  }
-  
-  // Try fileId next
-  if (photo.fileId && isValidObjectId(photo.fileId)) {
-    return photo.fileId;
   }
   
   // Try photoId next
@@ -88,6 +88,19 @@ export const extractPhotoObjectId = (photo) => {
     const potentialId = pathParts[pathParts.length - 1];
     if (isValidObjectId(potentialId)) {
       return potentialId;
+    }
+    
+    // Try to extract ID from path with query parameters
+    const basePath = potentialId.split('?')[0];
+    if (isValidObjectId(basePath)) {
+      return basePath;
+    }
+  }
+  
+  // Try to find any property that looks like a MongoDB ID
+  for (const key in photo) {
+    if (typeof photo[key] === 'string' && isValidObjectId(photo[key])) {
+      return photo[key];
     }
   }
   
@@ -110,12 +123,39 @@ export const filterPhotosWithValidIds = (photos) => {
     console.log('First photo in filterPhotosWithValidIds:', {
       _id: firstPhoto._id,
       fileId: firstPhoto.fileId,
+      id: firstPhoto.id,
+      serverId: firstPhoto.serverId,
       clientId: firstPhoto.clientId,
       hasValidId: extractPhotoObjectId(firstPhoto) !== null
     });
+    
+    // Check if the first photo has a valid ID
+    const validId = extractPhotoObjectId(firstPhoto);
+    if (validId) {
+      console.log(`Found valid MongoDB ID: ${validId}`);
+    } else {
+      console.log('No valid MongoDB ID found. Photo object keys:', Object.keys(firstPhoto));
+    }
   }
   
-  const validPhotos = photos.filter(photo => extractPhotoObjectId(photo) !== null);
+  // Filter photos with valid IDs and log each one for debugging
+  const validPhotos = photos.filter(photo => {
+    const validId = extractPhotoObjectId(photo);
+    const isValid = validId !== null;
+    
+    // Log each photo's validation result
+    if (!isValid && photos.length < 50) {  // Only log details if we have a reasonable number of photos
+      console.log(`Photo validation failed:`, {
+        _id: photo._id,
+        fileId: photo.fileId,
+        id: photo.id,
+        clientId: photo.clientId
+      });
+    }
+    
+    return isValid;
+  });
+  
   console.log(`Found ${validPhotos.length} photos with valid MongoDB IDs`);
   
   return validPhotos;

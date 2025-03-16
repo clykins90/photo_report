@@ -13,8 +13,10 @@ const DashboardPage = () => {
   const { user } = useContext(AuthContext);
   
   useEffect(() => {
-    fetchReports();
-  }, [filter]);
+    if (user) {
+      fetchReports();
+    }
+  }, [filter, user]);
   
   const fetchReports = async () => {
     try {

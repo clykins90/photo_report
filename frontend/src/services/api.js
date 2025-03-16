@@ -38,20 +38,25 @@ api.interceptors.request.use(
     // Only log non-FormData requests or enable with a debug flag
     const isFormData = config.data instanceof FormData;
     const isPhotoUpload = config.url && config.url.includes('/photos/upload');
+    const isCommonEndpoint = config.url && (
+      config.url.includes('/company') || 
+      config.url.includes('/reports') || 
+      config.url.includes('/auth/profile')
+    );
     
-    // Reduce logging for photo uploads which can be verbose
-    if (!isPhotoUpload || !isFormData) {
+    // Reduce logging for photo uploads and common endpoints which can be verbose
+    if (!isPhotoUpload && !isCommonEndpoint) {
       console.log('API Request:', config.method.toUpperCase(), config.url);
     }
     
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
-      // Only log token application in non-photo upload requests
-      if (!isPhotoUpload) {
+      // Only log token application in non-common requests
+      if (!isPhotoUpload && !isCommonEndpoint) {
         console.log('Auth token found and applied');
       }
-    } else if (!isPhotoUpload) {
+    } else if (!isPhotoUpload && !isCommonEndpoint) {
       console.log('No auth token found');
     }
     
@@ -60,13 +65,13 @@ api.interceptors.request.use(
       delete config.headers['Content-Type'];
       
       // Only log this for non-photo uploads to reduce noise
-      if (!isPhotoUpload) {
+      if (!isPhotoUpload && !isCommonEndpoint) {
         console.log('FormData detected, letting Axios set Content-Type automatically');
       }
     }
     
-    // Log request size for debugging large requests, but skip for photo uploads
-    if (config.data && typeof config.data === 'object' && !isFormData && !isPhotoUpload) {
+    // Log request size for debugging large requests, but skip for photo uploads and common endpoints
+    if (config.data && typeof config.data === 'object' && !isFormData && !isPhotoUpload && !isCommonEndpoint) {
       try {
         const size = JSON.stringify(config.data).length;
         console.log(`Request payload size: ${size} bytes`);
@@ -89,9 +94,15 @@ api.interceptors.request.use(
 // Add a response interceptor to handle common error patterns
 api.interceptors.response.use(
   (response) => {
-    // Reduce logging for photo uploads
+    // Reduce logging for photo uploads and common endpoints
     const isPhotoUpload = response.config.url.includes('/photos/upload');
-    if (!isPhotoUpload) {
+    const isCommonEndpoint = response.config.url && (
+      response.config.url.includes('/company') || 
+      response.config.url.includes('/reports') || 
+      response.config.url.includes('/auth/profile')
+    );
+    
+    if (!isPhotoUpload && !isCommonEndpoint) {
       console.log('API Response Success:', response.status, response.config.url);
     }
     return response;

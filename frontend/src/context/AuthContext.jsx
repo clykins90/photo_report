@@ -25,8 +25,8 @@ export const AuthProvider = ({ children }) => {
           // Ensure the user has a valid company property
           let userData = res.data.data;
           
-          // Check if user data doesn't have a company property or it's incomplete
-          if (!userData.company || (typeof userData.company === 'object' && !userData.company.name)) {
+          // Only fetch company data if it's completely missing
+          if (!userData.company) {
             try {
               // Try to get company info
               const companyRes = await api.get('/company');
@@ -38,6 +38,12 @@ export const AuthProvider = ({ children }) => {
             } catch (companyError) {
               console.log('No company data found or error fetching it:', companyError.message);
             }
+          } else if (typeof userData.company === 'string') {
+            // If company is just an ID, create a minimal object without an extra API call
+            userData.company = {
+              name: 'Company', // Default name
+              _id: userData.company // Keep the ID
+            };
           }
           
           setUser(userData);
@@ -154,8 +160,8 @@ export const AuthProvider = ({ children }) => {
       // Ensure the logged in user has a valid company property
       let userData = res.data.data.user;
       
-      // Check if user data doesn't have a company property or it's incomplete
-      if (!userData.company || (typeof userData.company === 'object' && !userData.company.name)) {
+      // Only fetch company data if it's missing or just an ID string
+      if (!userData.company) {
         console.warn('Logged in user is missing company information. Attempting to fetch from company API...');
         
         try {
@@ -181,27 +187,24 @@ export const AuthProvider = ({ children }) => {
           };
         }
       } else if (typeof userData.company === 'string') {
-        // If company is just an ID string, try to convert it to an object with a name
+        // If company is just an ID string, convert it to an object with a name
+        // and fetch full details only if needed
         try {
+          // Set a basic company object first to avoid multiple fetches
+          userData.company = {
+            name: 'Company', // Default name
+            _id: userData.company // Keep the ID
+          };
+          
           // Try to fetch company data from API if we have a token
           localStorage.setItem('token', res.data.data.token); // Set token first for auth
           const companyRes = await api.get('/company');
           if (companyRes.data.success && companyRes.data.data) {
             userData.company = companyRes.data.data;
-          } else {
-            // Convert the string ID to a minimal company object
-            userData.company = {
-              name: 'Company', // Default name
-              _id: userData.company // Keep the ID
-            };
           }
         } catch (companyErr) {
           console.error('Failed to fetch company data:', companyErr);
-          // Convert the string ID to a minimal company object
-          userData.company = {
-            name: 'Company', // Default name
-            _id: userData.company // Keep the ID
-          };
+          // We already have the minimal company object, so no need to set it again
         }
       }
       

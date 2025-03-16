@@ -78,9 +78,13 @@ const usePhotoUploadState = (initialPhotos = []) => {
     setPhotos(prevPhotos => {
       return prevPhotos.map(photo => {
         if (photo.clientId === clientId) {
+          // Ensure we have valid MongoDB IDs by explicitly setting them
           const updatedPhoto = { 
             ...photo, 
-            ...serverData, 
+            ...serverData,
+            // Explicitly set the MongoDB ID fields to ensure they're properly assigned
+            _id: serverData._id || serverData.fileId || serverData.id,
+            fileId: serverData.fileId || serverData._id || serverData.id,
             status: 'uploaded',
             uploadProgress: 100
           };
