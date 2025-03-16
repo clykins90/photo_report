@@ -153,7 +153,7 @@ const PhotoUploader = ({
                 filename: originalFile.name || 'unknown',
                 originalName: originalFile.name || 'unknown',
                 contentType: originalFile.type || 'image/jpeg',
-                path: `/api/photos/${serverId}`
+                path: `/photos/${serverId}`
               };
               
               console.log('Created photo object from ID mapping:', photoData);
@@ -185,7 +185,7 @@ const PhotoUploader = ({
                   filename: matchingFile.name || 'unknown',
                   originalName: matchingFile.name || 'unknown',
                   contentType: matchingFile.type || 'image/jpeg',
-                  path: `/api/photos/${serverId}`
+                  path: `/photos/${serverId}`
                 };
                 
                 console.log('Created photo object from alternative match:', photoData);
@@ -202,7 +202,7 @@ const PhotoUploader = ({
                   clientId: clientId,
                   status: 'uploaded',
                   uploadProgress: 100,
-                  path: `/api/photos/${serverId}`
+                  path: `/photos/${serverId}`
                 };
                 
                 console.log('Created minimal photo object:', photoData);

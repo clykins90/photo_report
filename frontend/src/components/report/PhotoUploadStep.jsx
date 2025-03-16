@@ -32,13 +32,13 @@ const PhotoUploadStep = ({
           
           // Try to construct a URL from available identifiers
           if (processedPhoto._id) {
-            processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto._id}`;
+            processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto._id}`;
           } else if (processedPhoto.fileId) {
-            processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto.fileId}`;
+            processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto.fileId}`;
           } else if (processedPhoto.id) {
-            processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto.id}`;
+            processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto.id}`;
           } else if (processedPhoto.filename) {
-            processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto.filename}`;
+            processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto.filename}`;
           }
         }
         

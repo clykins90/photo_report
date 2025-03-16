@@ -298,12 +298,12 @@ const AIAnalysisStep = ({
     if (photo.preview) return photo.preview;
     
     // Then construct a URL from id, fileId, or _id
-    if (photo.id) return `/api/photos/${photo.id}`;
-    if (photo.fileId) return `/api/photos/${photo.fileId}`;
-    if (photo._id) return `/api/photos/${photo._id}`;
+    if (photo.id) return `/photos/${photo.id}`;
+    if (photo.fileId) return `/photos/${photo.fileId}`;
+    if (photo._id) return `/photos/${photo._id}`;
     
     // Finally fall back to filename or a placeholder
-    if (photo.filename) return `/api/photos/${photo.filename}`;
+    if (photo.filename) return `/photos/${photo.filename}`;
     
     return '/placeholder-image.png';
   };

@@ -94,7 +94,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
             (photo.path ? photo.path.split('/').pop() : `photo-${index}`);
           
           // Build the photo URL
-          const photoUrl = `${baseApiUrl}/api/photos/${filename}`;
+          const photoUrl = `${baseApiUrl}/photos/${filename}`;
           
           console.log(`Processing photo ${index}:`, { 
             original: photo,
@@ -159,13 +159,13 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         
         // Try to construct a URL from available identifiers
         if (processedPhoto._id) {
-          processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto._id}`;
+          processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto._id}`;
         } else if (processedPhoto.fileId) {
-          processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto.fileId}`;
+          processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto.fileId}`;
         } else if (processedPhoto.id) {
-          processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto.id}`;
+          processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto.id}`;
         } else if (processedPhoto.filename) {
-          processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto.filename}`;
+          processedPhoto.url = `${baseApiUrl}/photos/${processedPhoto.filename}`;
         }
       }
       
@@ -290,9 +290,9 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         
         // Prioritize server-side URLs for PDF generation
         if (photo._id) {
-          photoUrl = `${baseApiUrl}/api/photos/${photo._id}`;
+          photoUrl = `${baseApiUrl}/photos/${photo._id}`;
         } else if (photo.filename) {
-          photoUrl = `${baseApiUrl}/api/photos/${photo.filename}`;
+          photoUrl = `${baseApiUrl}/photos/${photo.filename}`;
         } else if (photo.url && photo.url.startsWith('http')) {
           photoUrl = photo.url;
         } else {
