@@ -89,9 +89,40 @@ const PhotoSchema = {
    * @returns {Object} - Serialized photo for API
    */
   serializeForApi(photo) {
-    // Remove frontend-only fields
-    const { preview, uploadProgress, ...apiPhoto } = photo;
-    return apiPhoto;
+    if (!photo) return null;
+    
+    // Check if photo is a Mongoose document
+    const rawData = photo._doc || photo;
+    
+    // Extract only the necessary fields to prevent circular references
+    // and avoid sending internal Mongoose properties
+    const cleanPhoto = {
+      _id: rawData._id,
+      path: rawData.path || '',
+      section: rawData.section || 'Uncategorized',
+      userDescription: rawData.userDescription || '',
+      aiAnalysis: rawData.aiAnalysis ? { 
+        tags: rawData.aiAnalysis.tags || [], 
+        severity: rawData.aiAnalysis.severity || 'unknown',
+        description: rawData.aiAnalysis.description || '',
+        confidence: rawData.aiAnalysis.confidence || 0,
+        damageDetected: rawData.aiAnalysis.damageDetected || false
+      } : { tags: [], severity: 'unknown' }
+    };
+    
+    // Add other fields if they exist
+    if (rawData.filename) cleanPhoto.filename = rawData.filename;
+    if (rawData.contentType) cleanPhoto.contentType = rawData.contentType;
+    if (rawData.size) cleanPhoto.size = rawData.size;
+    if (rawData.uploadDate) cleanPhoto.uploadDate = rawData.uploadDate;
+    if (rawData.status) cleanPhoto.status = rawData.status;
+    
+    // If there's metadata, extract only what's needed
+    if (rawData.metadata && typeof rawData.metadata === 'object') {
+      cleanPhoto.reportId = rawData.metadata.reportId;
+    }
+    
+    return cleanPhoto;
   },
 
   /**
