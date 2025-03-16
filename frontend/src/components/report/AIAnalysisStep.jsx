@@ -149,7 +149,7 @@ const AIAnalysisStep = ({
           
           try {
             // Analyze the photo
-            const batchResult = await analyzePhotos([currentPhoto], reportId);
+            const batchResult = await analyzePhotos(reportId, [currentPhoto]);
             
             if (!batchResult.success) {
               console.error(`Analysis failed for photo:`, batchResult.error);
