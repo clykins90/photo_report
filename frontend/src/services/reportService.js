@@ -176,7 +176,12 @@ export const createReport = async (reportData) => {
   try {
     const response = await api.post('/reports', preparedData);
     console.log('Create response:', response.data);
-    return response.data;
+    // Handle nested data structure if present
+    const responseData = response.data.data || response.data;
+    return {
+      success: response.data.success,
+      ...responseData
+    };
   } catch (error) {
     console.error('Error creating report:', error);
     
@@ -219,7 +224,12 @@ export const createReport = async (reportData) => {
 export const getReports = async () => {
   try {
     const response = await api.get('/reports');
-    return response.data;
+    // Handle nested data structure if present
+    const responseData = response.data.data || response.data;
+    return {
+      success: response.data.success,
+      ...responseData
+    };
   } catch (error) {
     console.error('Error getting reports:', error);
     throw error;
@@ -233,7 +243,12 @@ export const getReports = async () => {
  */
 export const getReport = async (id) => {
   const response = await api.get(`/reports/${id}`);
-  return response.data;
+  // Handle nested data structure if present
+  const responseData = response.data.data || response.data;
+  return {
+    success: response.data.success,
+    ...responseData
+  };
 };
 
 /**
@@ -303,7 +318,12 @@ export const updateReport = async (id, reportData) => {
 
   try {
     const response = await api.put(`/reports/${id}`, dataToSend);
-    return response.data;
+    // Handle nested data structure if present
+    const responseData = response.data.data || response.data;
+    return {
+      success: response.data.success,
+      ...responseData
+    };
   } catch (error) {
     console.error('Error updating report:', error);
     throw error;
@@ -317,7 +337,12 @@ export const updateReport = async (id, reportData) => {
  */
 export const deleteReport = async (id) => {
   const response = await api.delete(`/reports/${id}`);
-  return response.data;
+  // Handle nested data structure if present
+  const responseData = response.data.data || response.data;
+  return {
+    success: response.data.success,
+    ...responseData
+  };
 };
 
 /**
@@ -329,6 +354,7 @@ export const generateReportPdf = async (id) => {
   const response = await api.post(`/reports/${id}/generate-pdf`, {}, {
     responseType: 'arraybuffer' // Set response type to handle binary data
   });
+  // No need to modify - binary data response
   return response.data;
 };
 
@@ -360,7 +386,12 @@ export const addPhotosToReport = async (id, files, metadata = {}) => {
     },
   });
 
-  return response.data;
+  // Handle nested data structure if present
+  const responseData = response.data.data || response.data;
+  return {
+    success: response.data.success,
+    ...responseData
+  };
 };
 
 /**
@@ -408,8 +439,13 @@ export const generateAISummary = async (photos) => {
       throw new Error('Failed to generate summary: Invalid response from server');
     }
     
+    // Handle nested data structure if present
+    const responseData = response.data.data || response.data;
     console.log('Summary generated successfully:', response.data);
-    return response.data;
+    return {
+      success: response.data.success,
+      ...responseData
+    };
   } catch (error) {
     console.error('Error generating AI summary:', error);
     throw error;

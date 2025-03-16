@@ -101,13 +101,14 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
     
     // Process response
     if (response.data.success) {
-      // Get the ID mapping from clientId to server ID
-      const { idMapping, photos: serverPhotos } = response.data;
+      // Get the ID mapping from clientId to server ID and photos - access from nested data if present
+      const responseData = response.data.data || response.data;
+      const { idMapping, photos: serverPhotos } = responseData;
       
       // Create properly formed photo objects
       const uploadedPhotos = clientPhotos.map(clientPhoto => {
-        const serverId = idMapping[clientPhoto.clientId];
-        const serverPhoto = serverPhotos.find(p => p._id === serverId);
+        const serverId = idMapping && idMapping[clientPhoto.clientId];
+        const serverPhoto = serverPhotos && serverPhotos.find(p => p._id === serverId);
         
         if (serverPhoto) {
           // Deserialize the server response
@@ -171,8 +172,10 @@ export const analyzePhotos = async (reportId, photoIds = []) => {
     const response = await api.post('/photos/analyze', payload);
     
     if (response.data.success) {
+      // Handle nested data structure if present
+      const responseData = response.data.data || response.data;
       // Transform photos to client format if needed
-      const analyzedPhotos = response.data.photos.map(photo => 
+      const analyzedPhotos = (responseData.photos || []).map(photo => 
         PhotoSchema.deserializeFromApi(photo)
       );
       
@@ -208,9 +211,13 @@ export const deletePhoto = async (photoId) => {
     
     const response = await api.delete(`/photos/${photoId}`);
     
+    // Access data from nested structure if present
+    const responseData = response.data.data || response.data;
+    
     return {
       success: response.data.success,
-      error: response.data.error
+      error: response.data.error,
+      data: responseData
     };
   } catch (error) {
     photoLogger.error('Photo deletion error:', error);

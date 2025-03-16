@@ -40,11 +40,14 @@ const LogoUploader = ({ currentLogo, onLogoUpdate, hidePreview = false }) => {
         }
       );
 
+      // Handle nested data structure if present
+      const responseData = response.data.data || response.data;
+      
       // Update with the URL from server (adds cache busting)
-      setPreviewUrl(`${api.defaults.baseURL}${response.data.data.logo}?t=${Date.now()}`);
+      setPreviewUrl(`${api.defaults.baseURL}${responseData.logo}?t=${Date.now()}`);
       
       if (onLogoUpdate) {
-        onLogoUpdate(response.data.data.logo);
+        onLogoUpdate(responseData.logo);
       }
       
       toast.success('Logo uploaded successfully');

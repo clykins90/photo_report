@@ -191,25 +191,29 @@ const ProfilePage = () => {
         setLoading(true);
         // Fetch company data
         const companyRes = await api.get('/company');
-        if (companyRes.data && companyRes.data.data) {
-          setCompany(companyRes.data.data);
+        
+        // Handle nested data structure if present
+        const companyData = companyRes.data.data || companyRes.data;
+        
+        if (companyData) {
+          setCompany(companyData);
           
           // Initialize form with company data
           setFormData({
-            name: companyRes.data.data.name || '',
-            email: companyRes.data.data.email || '',
-            phone: companyRes.data.data.phone || '',
-            website: companyRes.data.data.website || '',
+            name: companyData.name || '',
+            email: companyData.email || '',
+            phone: companyData.phone || '',
+            website: companyData.website || '',
             address: {
-              street: companyRes.data.data.address?.street || '',
-              city: companyRes.data.data.address?.city || '',
-              state: companyRes.data.data.address?.state || '',
-              zipCode: companyRes.data.data.address?.zipCode || '',
-              country: companyRes.data.data.address?.country || ''
+              street: companyData.address?.street || '',
+              city: companyData.address?.city || '',
+              state: companyData.address?.state || '',
+              zipCode: companyData.address?.zipCode || '',
+              country: companyData.address?.country || ''
             },
             branding: {
-              primaryColor: companyRes.data.data.branding?.primaryColor || '#2563EB',
-              secondaryColor: companyRes.data.data.branding?.secondaryColor || '#475569'
+              primaryColor: companyData.branding?.primaryColor || '#2563EB',
+              secondaryColor: companyData.branding?.secondaryColor || '#475569'
             }
           });
         }
@@ -288,8 +292,11 @@ const ProfilePage = () => {
       // Update to new endpoint
       const response = await api.put('/company', formDataToSubmit);
       
+      // Handle nested data structure if present
+      const responseData = response.data.data || response.data;
+      
       if (response.data && response.data.success) {
-        setCompany(response.data.data);
+        setCompany(responseData);
         toast.success('Profile updated successfully');
       }
     } catch (err) {
@@ -326,10 +333,13 @@ const ProfilePage = () => {
     setPasswordError('');
     
     try {
-      await api.put('/auth/password', {
+      const response = await api.put('/auth/password', {
         currentPassword,
         newPassword
       });
+      
+      // Handle nested data structure if present
+      const responseData = response.data.data || response.data;
       
       // Clear form
       setPasswordFormData({

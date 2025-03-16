@@ -447,8 +447,12 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       try {
         // Fetch company data for branding
         const companyRes = await api.get('/company');
-        if (companyRes.data && companyRes.data.data) {
-          companyData = companyRes.data.data;
+        
+        // Handle nested data structure if present
+        const companyResponseData = companyRes.data.data || companyRes.data;
+        
+        if (companyRes.data.success && companyResponseData) {
+          companyData = companyResponseData;
           console.log('Successfully fetched company data:', companyData);
         } else {
           // If API fetch fails, create a placeholder with the company ID

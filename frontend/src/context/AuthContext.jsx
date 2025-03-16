@@ -22,8 +22,11 @@ export const AuthProvider = ({ children }) => {
           setLoading(true);
           const res = await api.get('/auth/profile');
           
+          // Handle nested data structure if present
+          const responseData = res.data.data || res.data;
+          
           // Ensure the user has a valid company property
-          let userData = res.data.data;
+          let userData = responseData.user || responseData;
           
           // Only fetch company data if it's completely missing
           if (!userData.company) {
@@ -31,8 +34,11 @@ export const AuthProvider = ({ children }) => {
               // Try to get company info
               const companyRes = await api.get('/company');
               
-              if (companyRes.data && companyRes.data.data) {
-                userData.company = companyRes.data.data;
+              // Handle nested data structure for company response
+              const companyData = companyRes.data.data || companyRes.data;
+              
+              if (companyData) {
+                userData.company = companyData;
                 console.log('Successfully retrieved company data:', userData.company);
               }
             } catch (companyError) {
@@ -72,8 +78,12 @@ export const AuthProvider = ({ children }) => {
       setLoading(true);
       const res = await api.post('/auth/register', formData);
       
+      // Handle nested data structure if present
+      const responseData = res.data.data || res.data;
+      
       // Ensure the registered user has a valid company property
-      let userData = res.data.data.user;
+      let userData = responseData.user;
+      const userToken = responseData.token;
       
       // Check if user data doesn't have a company property or it's incomplete
       if (!userData.company || (typeof userData.company === 'object' && !userData.company.name)) {
@@ -81,10 +91,14 @@ export const AuthProvider = ({ children }) => {
         
         try {
           // Try to fetch company data from API if we have a token
-          localStorage.setItem('token', res.data.data.token); // Set token first for auth
+          localStorage.setItem('token', userToken); // Set token first for auth
           const companyRes = await api.get('/company');
-          if (companyRes.data.success && companyRes.data.data && companyRes.data.data.name) {
-            userData.company = companyRes.data.data;
+          
+          // Handle nested data for company response
+          const companyData = companyRes.data.data || companyRes.data;
+          
+          if (companyRes.data.success && companyData && companyData.name) {
+            userData.company = companyData;
             console.log('Successfully retrieved company data:', userData.company);
           } else {
             console.warn('Company API returned no valid data. Using test company object for development.');
@@ -105,10 +119,14 @@ export const AuthProvider = ({ children }) => {
         // If company is just an ID string, try to convert it to an object with a name
         try {
           // Try to fetch company data from API if we have a token
-          localStorage.setItem('token', res.data.data.token); // Set token first for auth
+          localStorage.setItem('token', userToken); // Set token first for auth
           const companyRes = await api.get('/company');
-          if (companyRes.data.success && companyRes.data.data) {
-            userData.company = companyRes.data.data;
+          
+          // Handle nested data for company response
+          const companyData = companyRes.data.data || companyRes.data;
+          
+          if (companyRes.data.success && companyData) {
+            userData.company = companyData;
           } else {
             // Convert the string ID to a minimal company object
             userData.company = {
@@ -126,9 +144,9 @@ export const AuthProvider = ({ children }) => {
         }
       }
       
-      localStorage.setItem('token', res.data.data.token);
+      localStorage.setItem('token', userToken);
       localStorage.setItem('user', JSON.stringify(userData));
-      setToken(res.data.data.token);
+      setToken(userToken);
       setUser(userData);
       setIsAuthenticated(true);
       setError(null);
@@ -157,8 +175,12 @@ export const AuthProvider = ({ children }) => {
       
       console.log('Login successful, response:', res.status, res.statusText);
 
+      // Handle nested data structure if present
+      const responseData = res.data.data || res.data;
+      
       // Ensure the logged in user has a valid company property
-      let userData = res.data.data.user;
+      let userData = responseData.user;
+      const userToken = responseData.token;
       
       // Only fetch company data if it's missing or just an ID string
       if (!userData.company) {
@@ -166,10 +188,14 @@ export const AuthProvider = ({ children }) => {
         
         try {
           // Try to fetch company data from API if we have a token
-          localStorage.setItem('token', res.data.data.token); // Set token first for auth
+          localStorage.setItem('token', userToken); // Set token first for auth
           const companyRes = await api.get('/company');
-          if (companyRes.data.success && companyRes.data.data && companyRes.data.data.name) {
-            userData.company = companyRes.data.data;
+          
+          // Handle nested data for company response
+          const companyData = companyRes.data.data || companyRes.data;
+          
+          if (companyRes.data.success && companyData && companyData.name) {
+            userData.company = companyData;
             console.log('Successfully retrieved company data:', userData.company);
           } else {
             console.warn('Company API returned no valid data. Using test company object for development.');
@@ -197,10 +223,14 @@ export const AuthProvider = ({ children }) => {
           };
           
           // Try to fetch company data from API if we have a token
-          localStorage.setItem('token', res.data.data.token); // Set token first for auth
+          localStorage.setItem('token', userToken); // Set token first for auth
           const companyRes = await api.get('/company');
-          if (companyRes.data.success && companyRes.data.data) {
-            userData.company = companyRes.data.data;
+          
+          // Handle nested data for company response
+          const companyData = companyRes.data.data || companyRes.data;
+          
+          if (companyRes.data.success && companyData) {
+            userData.company = companyData;
           }
         } catch (companyErr) {
           console.error('Failed to fetch company data:', companyErr);
@@ -208,9 +238,9 @@ export const AuthProvider = ({ children }) => {
         }
       }
       
-      localStorage.setItem('token', res.data.data.token);
+      localStorage.setItem('token', userToken);
       localStorage.setItem('user', JSON.stringify(userData));
-      setToken(res.data.data.token);
+      setToken(userToken);
       setUser(userData);
       setIsAuthenticated(true);
       setError(null);
