@@ -179,7 +179,27 @@ const AIAnalysisStep = ({
               throw new Error('Report ID is required for photo analysis');
             }
             
+            console.log('About to call analyzePhotos with reportId:', reportId);
+            console.log('Photo IDs before analysis:', 
+              currentBatch.map(p => ({ 
+                id: p._id || p.id, 
+                clientId: p.clientId,
+                hasFile: !!p.file,
+                hasPreview: !!p.preview
+              }))
+            );
+            
             const batchResult = await analyzePhotos(reportId, currentBatch);
+            
+            // Log the raw response to see exactly what we're getting back
+            console.log('Raw batch result structure:', Object.keys(batchResult));
+            console.log('Success status:', batchResult.success);
+            console.log('Has results array:', !!batchResult.results);
+            console.log('Has data object:', !!batchResult.data);
+            if (batchResult.data) {
+              console.log('Data object keys:', Object.keys(batchResult.data));
+              console.log('Has photos array in data:', !!(batchResult.data && batchResult.data.photos));
+            }
             
             if (!batchResult.success) {
               console.error(`Analysis failed for batch:`, batchResult.error);
@@ -207,9 +227,11 @@ const AIAnalysisStep = ({
               if (Array.isArray(batchResult.results)) {
                 resultsArray = batchResult.results;
                 console.log('Using results array from batchResult.results:', resultsArray.length);
+                console.log('Sample result structure:', resultsArray.length > 0 ? Object.keys(resultsArray[0]) : 'empty');
               } else if (batchResult.data && Array.isArray(batchResult.data)) {
                 resultsArray = batchResult.data;
                 console.log('Using results array from batchResult.data:', resultsArray.length);
+                console.log('Sample result structure:', resultsArray.length > 0 ? Object.keys(resultsArray[0]) : 'empty');
               } else if (batchResult.data && batchResult.data.photos && Array.isArray(batchResult.data.photos)) {
                 // Handle case where photos are nested in data
                 resultsArray = batchResult.data.photos.map(photo => ({
@@ -218,9 +240,30 @@ const AIAnalysisStep = ({
                   data: photo.analysis
                 }));
                 console.log('Using results array from batchResult.data.photos:', resultsArray.length);
+                console.log('Sample photo structure:', resultsArray.length > 0 ? Object.keys(resultsArray[0]) : 'empty');
+              } else {
+                // NEW: Try to handle other possible response formats
+                console.log('No standard results array found, checking for alternative formats');
+                if (batchResult.photos && Array.isArray(batchResult.photos)) {
+                  resultsArray = batchResult.photos.map(photo => ({
+                    success: true,
+                    photoId: photo._id || photo.id,
+                    data: photo.analysis
+                  }));
+                  console.log('Using results array from batchResult.photos:', resultsArray.length);
+                }
               }
               
               if (resultsArray.length > 0) {
+                // Log the structure of the results for debugging
+                console.log('Photo IDs in results:', 
+                  resultsArray.map(r => ({ 
+                    photoId: r.photoId || (r._id || r.id), 
+                    hasData: !!(r.data || r.analysis),
+                    dataKeys: r.data ? Object.keys(r.data) : (r.analysis ? Object.keys(r.analysis) : 'none')
+                  }))
+                );
+                
                 // Process results for each photo
                 resultsArray.forEach(result => {
                   if (result.success) {
@@ -233,13 +276,24 @@ const AIAnalysisStep = ({
                     
                     if (resultPhotoIndex !== -1) {
                       // Update the photo with analysis results
+                      const analysisData = result.data || result.analysis;
+                      console.log(`Updating photo at index ${resultPhotoIndex} with analysis:`, 
+                        analysisData ? Object.keys(analysisData) : 'null'
+                      );
+                      
                       updatedPhotos[resultPhotoIndex] = {
                         ...updatedPhotos[resultPhotoIndex],
                         status: 'complete',
-                        analysis: result.data || result.analysis // Handle both data formats
+                        analysis: analysisData // Handle both data formats
                       };
                       
                       photosCompleted++;
+                    } else {
+                      console.warn(`Could not find matching photo for result with photoId: ${result.photoId}`);
+                      console.log('Available photo IDs:', updatedPhotos.map(p => ({
+                        id: p._id || p.id,
+                        clientId: p.clientId
+                      })));
                     }
                   } else {
                     // If analysis wasn't successful, mark as error
@@ -264,6 +318,13 @@ const AIAnalysisStep = ({
             }
             
             // Update the UI with the latest photo statuses
+            console.log('Calling handlePhotoUploadComplete with photos:', 
+              updatedPhotos.map(p => ({
+                id: p._id || p.id,
+                hasAnalysis: !!p.analysis,
+                status: p.status
+              }))
+            );
             handlePhotoUploadComplete(updatedPhotos);
             
             // Update progress
@@ -306,7 +367,10 @@ const AIAnalysisStep = ({
       // Step 2: Generate summary
       // Only generate summary if at least some photos have been analyzed
       const analyzedPhotosCount = updatedPhotos.filter(photo => photo.analysis).length;
+      console.log(`Analysis complete. ${analyzedPhotosCount} of ${updatedPhotos.length} photos have analysis data.`);
+      
       if (analyzedPhotosCount > 0) {
+        console.log('Calling handleGenerateAISummary with analyzed photos');
         await handleGenerateAISummary();
       } else {
         console.log('No photos were successfully analyzed. Skipping summary generation.');

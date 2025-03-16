@@ -145,6 +145,15 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
   
   const handlePhotoUploadComplete = (photos) => {
     // Use photoStorageManager to ensure all photo data is preserved
+    console.log('handlePhotoUploadComplete called with photos:', 
+      photos.map(p => ({
+        id: p._id || p.id,
+        hasAnalysis: !!p.analysis,
+        status: p.status,
+        analysisKeys: p.analysis ? Object.keys(p.analysis) : 'none'
+      }))
+    );
+    
     const processedPhotos = photoStorageManager.preserveBatchPhotoData(photos);
     
     console.log('Processed photos in ReportForm:', 
@@ -152,11 +161,37 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         id: p._id || p.id,
         hasFile: !!p.file,
         hasPreview: !!p.preview,
-        hasLocalDataUrl: !!p.localDataUrl
+        hasLocalDataUrl: !!p.localDataUrl,
+        hasAnalysis: !!p.analysis,
+        status: p.status,
+        analysisKeys: p.analysis ? Object.keys(p.analysis) : 'none'
       }))
     );
     
+    // Compare the current state with the new photos to see what's changing
+    console.log('Current uploadedPhotos state:', 
+      uploadedPhotos.map(p => ({
+        id: p._id || p.id,
+        hasAnalysis: !!p.analysis,
+        status: p.status
+      }))
+    );
+    
+    // Check if we're losing analysis data
+    const losingAnalysis = uploadedPhotos.some(oldPhoto => {
+      const newPhoto = processedPhotos.find(p => 
+        (p._id && oldPhoto._id && p._id === oldPhoto._id) || 
+        (p.id && oldPhoto.id && p.id === oldPhoto.id)
+      );
+      return oldPhoto.analysis && (!newPhoto || !newPhoto.analysis);
+    });
+    
+    if (losingAnalysis) {
+      console.warn('WARNING: Some photos are losing their analysis data in this update!');
+    }
+    
     setUploadedPhotos(processedPhotos);
+    console.log('State updated with processed photos');
   };
   
   // Generate AI summary based on analyzed photos

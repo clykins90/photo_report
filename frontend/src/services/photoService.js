@@ -283,6 +283,15 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
     // Send analysis request
     const response = await api.post('/photos/analyze', payload, config);
     
+    // Log the raw response for debugging
+    console.log('Raw API response from analyzePhotos:', {
+      success: response.data.success,
+      hasData: !!response.data.data,
+      dataKeys: response.data.data ? Object.keys(response.data.data) : 'none',
+      hasPhotos: !!(response.data.photos || (response.data.data && response.data.data.photos)),
+      photosCount: (response.data.photos || (response.data.data && response.data.data.photos) || []).length
+    });
+    
     if (response.data.success) {
       // Handle nested data structure if present
       const responseData = response.data.data || response.data;
@@ -290,6 +299,16 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
       const serverAnalyzedPhotos = responseData.photos || [];
       
       photoLogger.info(`Received analysis results for ${serverAnalyzedPhotos.length} photos`);
+      
+      // Log the first photo's structure if available
+      if (serverAnalyzedPhotos.length > 0) {
+        const samplePhoto = serverAnalyzedPhotos[0];
+        photoLogger.info('Sample analyzed photo structure:', {
+          id: samplePhoto._id || samplePhoto.id,
+          hasAnalysis: !!samplePhoto.analysis,
+          analysisKeys: samplePhoto.analysis ? Object.keys(samplePhoto.analysis) : 'none'
+        });
+      }
       
       if (hasPhotoObjects) {
         // For photo objects, we need to return results in a format that matches

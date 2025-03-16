@@ -19,6 +19,11 @@ class PhotoStorageManager {
   preservePhotoData(photo) {
     if (!photo) return null;
     
+    // Log incoming photo analysis data
+    if (photo.analysis) {
+      photoLogger.info(`Preserving photo data for photo ${photo._id || photo.id}. Has analysis: ${!!photo.analysis}, keys: ${Object.keys(photo.analysis)}`);
+    }
+    
     // Create a new object to avoid modifying the original
     const processedPhoto = { ...photo };
     
@@ -53,6 +58,13 @@ class PhotoStorageManager {
     // Ensure path/URL is set
     if (!processedPhoto.url && !processedPhoto.path) {
       this.ensurePhotoUrl(processedPhoto);
+    }
+    
+    // Verify analysis data was preserved
+    if (photo.analysis && !processedPhoto.analysis) {
+      photoLogger.error(`ERROR: Analysis data was lost during preservation for photo ${photo._id || photo.id}`);
+      // Explicitly preserve analysis data
+      processedPhoto.analysis = photo.analysis;
     }
     
     return processedPhoto;
