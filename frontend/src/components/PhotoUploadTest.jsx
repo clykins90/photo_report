@@ -80,7 +80,14 @@ const PhotoUploadTest = () => {
         selectedReportId,
         (updatedPhotos, progress) => {
           setClientPhotos(updatedPhotos);
-          setUploadProgress(progress);
+          // Ensure progress is always a number
+          const safeProgress = Array.isArray(progress) 
+            ? (progress.length > 0 
+                ? progress.reduce((sum, val) => sum + (typeof val === 'number' ? val : 0), 0) / progress.length 
+                : 0)
+            : (typeof progress === 'number' ? progress : 0);
+          
+          setUploadProgress(safeProgress);
         }
       );
 

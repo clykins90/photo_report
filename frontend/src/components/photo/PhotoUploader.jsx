@@ -114,75 +114,35 @@ const PhotoUploader = ({
         fileMetadata
       );
       
-      if (result.success) {
-        // Get photos and idMapping from response
-        const photos = result.data?.photos || [];
-        const idMapping = result.data?.idMapping || {};
-        
+      if (result.success && result.data && Array.isArray(result.data.photos)) {
         // Create a local array to track updated photos with valid IDs
         const updatedPhotos = [];
         
-        if (photos.length > 0) {
-          // Update our photo collection with the server data
-          photos.forEach(serverPhoto => {
-            if (serverPhoto.clientId) {
-              // Use the shared schema to deserialize the photo
-              const updatedPhoto = PhotoSchema.deserializeFromApi(serverPhoto);
-              updatePhotoAfterUpload(serverPhoto.clientId, updatedPhoto);
-              // Add to our local array of updated photos
-              updatedPhotos.push(updatedPhoto);
-            }
-          });
-        } else if (Object.keys(idMapping).length > 0) {
-          // If we have id mapping but no photos, construct photo objects from the mapping
-          Object.entries(idMapping).forEach(([clientId, serverId]) => {
-            // Find original file with this clientId
-            const originalFile = filesToUpload.find(f => f.clientId === clientId);
-            
-            if (originalFile) {
-              // Create a standardized photo object using the shared schema
-              const photoData = PhotoSchema.createFromFile(originalFile);
-              
-              // Update with server data
-              photoData._id = serverId;
-              photoData.fileId = serverId;
-              photoData.status = 'uploaded';
-              photoData.uploadProgress = 100;
-              
-              // Deserialize using the shared schema to ensure consistent format
-              const updatedPhoto = PhotoSchema.deserializeFromApi(photoData);
-              
-              updatePhotoAfterUpload(clientId, updatedPhoto);
-              // Add to our local array of updated photos
-              updatedPhotos.push(updatedPhoto);
-            } else {
-              // Create a minimal photo object with just the server ID
-              const photoData = PhotoSchema.createEmpty();
-              photoData._id = serverId;
-              photoData.fileId = serverId;
-              photoData.clientId = clientId;
-              photoData.status = 'uploaded';
-              photoData.uploadProgress = 100;
-              
-              // Deserialize using the shared schema
-              const updatedPhoto = PhotoSchema.deserializeFromApi(photoData);
-              
-              // Add this as a new photo since we couldn't find a matching one
-              setPhotos(prev => [...prev, updatedPhoto]);
-              // Also add to our local array of updated photos
-              updatedPhotos.push(updatedPhoto);
-            }
-          });
-        } else {
-          setError('No photos or ID mappings returned from server');
-        }
+        // Process each photo from the server response
+        result.data.photos.forEach(serverPhoto => {
+          // Use the shared schema to deserialize the photo
+          const updatedPhoto = PhotoSchema.deserializeFromApi(serverPhoto);
+          
+          // If the photo has a clientId, update the existing photo in our state
+          if (serverPhoto.clientId) {
+            updatePhotoAfterUpload(serverPhoto.clientId, updatedPhoto);
+          } else {
+            // If no clientId (shouldn't happen with this API), add as new
+            setPhotos(prev => [...prev, updatedPhoto]);
+          }
+          
+          // Add to our list of updated photos to notify parent component
+          updatedPhotos.push(updatedPhoto);
+        });
         
         // After upload completes, notify parent with the updated photos
         if (onUploadComplete && updatedPhotos.length > 0) {
           onUploadComplete(updatedPhotos);
         }
       } else {
-        setError(result.error || 'Failed to upload photos');
+        // If the response doesn't match our expected format
+        console.error('Unexpected API response structure:', result);
+        setError('Upload failed: Unexpected server response');
       }
     } catch (err) {
       setError(`Upload error: ${err.message}`);
