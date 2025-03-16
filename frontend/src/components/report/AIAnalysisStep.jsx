@@ -264,54 +264,89 @@ const AIAnalysisStep = ({
                   }))
                 );
                 
-                // Process results for each photo
-                resultsArray.forEach(result => {
-                  if (result.success) {
-                    // Find the photo in our list
-                    const resultPhotoIndex = updatedPhotos.findIndex(p => 
-                      (p.id && p.id === result.photoId) || 
-                      (p._id && p._id === result.photoId) ||
-                      (p.clientId && p.clientId === result.photoId)
-                    );
+                // FIXED: Match photos by index if photoId is undefined
+                if (resultsArray.length === currentBatch.length) {
+                  console.log('Results array length matches batch length, using index-based matching');
+                  
+                  // Use index-based matching when photoIds are undefined
+                  resultsArray.forEach((result, resultIndex) => {
+                    // Get the corresponding photo from the current batch by index
+                    const batchPhoto = currentBatch[resultIndex];
                     
-                    if (resultPhotoIndex !== -1) {
-                      // Update the photo with analysis results
-                      const analysisData = result.data || result.analysis;
-                      console.log(`Updating photo at index ${resultPhotoIndex} with analysis:`, 
-                        analysisData ? Object.keys(analysisData) : 'null'
+                    if (batchPhoto) {
+                      // Find this photo in our updatedPhotos array
+                      const photoIndex = updatedPhotos.findIndex(p => 
+                        (p.id && p.id === batchPhoto.id) || 
+                        (p._id && p._id === batchPhoto._id) ||
+                        (p.clientId && p.clientId === batchPhoto.clientId)
                       );
                       
-                      updatedPhotos[resultPhotoIndex] = {
-                        ...updatedPhotos[resultPhotoIndex],
-                        status: 'complete',
-                        analysis: analysisData // Handle both data formats
-                      };
+                      if (photoIndex !== -1) {
+                        // Update the photo with analysis results
+                        const analysisData = result.data || result.analysis;
+                        console.log(`Updating photo at index ${photoIndex} with analysis from result index ${resultIndex}`);
+                        
+                        updatedPhotos[photoIndex] = {
+                          ...updatedPhotos[photoIndex],
+                          status: 'complete',
+                          analysis: analysisData // Handle both data formats
+                        };
+                        
+                        photosCompleted++;
+                      }
+                    }
+                  });
+                } else {
+                  // Fallback to ID-based matching (original logic)
+                  // Process results for each photo
+                  resultsArray.forEach(result => {
+                    if (result.success) {
+                      // Find the photo in our list
+                      const resultPhotoIndex = updatedPhotos.findIndex(p => 
+                        (p.id && p.id === result.photoId) || 
+                        (p._id && p._id === result.photoId) ||
+                        (p.clientId && p.clientId === result.photoId)
+                      );
                       
-                      photosCompleted++;
+                      if (resultPhotoIndex !== -1) {
+                        // Update the photo with analysis results
+                        const analysisData = result.data || result.analysis;
+                        console.log(`Updating photo at index ${resultPhotoIndex} with analysis:`, 
+                          analysisData ? Object.keys(analysisData) : 'null'
+                        );
+                        
+                        updatedPhotos[resultPhotoIndex] = {
+                          ...updatedPhotos[resultPhotoIndex],
+                          status: 'complete',
+                          analysis: analysisData // Handle both data formats
+                        };
+                        
+                        photosCompleted++;
+                      } else {
+                        console.warn(`Could not find matching photo for result with photoId: ${result.photoId}`);
+                        console.log('Available photo IDs:', updatedPhotos.map(p => ({
+                          id: p._id || p.id,
+                          clientId: p.clientId
+                        })));
+                      }
                     } else {
-                      console.warn(`Could not find matching photo for result with photoId: ${result.photoId}`);
-                      console.log('Available photo IDs:', updatedPhotos.map(p => ({
-                        id: p._id || p.id,
-                        clientId: p.clientId
-                      })));
+                      // If analysis wasn't successful, mark as error
+                      const failedPhotoIndex = updatedPhotos.findIndex(p => 
+                        (p.id && p.id === result.photoId) || 
+                        (p._id && p._id === result.photoId) ||
+                        (p.clientId && p.clientId === result.photoId)
+                      );
+                      
+                      if (failedPhotoIndex !== -1) {
+                        updatedPhotos[failedPhotoIndex] = {
+                          ...updatedPhotos[failedPhotoIndex],
+                          status: 'error',
+                          error: result.error || 'Analysis failed'
+                        };
+                      }
                     }
-                  } else {
-                    // If analysis wasn't successful, mark as error
-                    const failedPhotoIndex = updatedPhotos.findIndex(p => 
-                      (p.id && p.id === result.photoId) || 
-                      (p._id && p._id === result.photoId) ||
-                      (p.clientId && p.clientId === result.photoId)
-                    );
-                    
-                    if (failedPhotoIndex !== -1) {
-                      updatedPhotos[failedPhotoIndex] = {
-                        ...updatedPhotos[failedPhotoIndex],
-                        status: 'error',
-                        error: result.error || 'Analysis failed'
-                      };
-                    }
-                  }
-                });
+                  });
+                }
               } else {
                 console.warn('No results array found in batch result:', batchResult);
               }

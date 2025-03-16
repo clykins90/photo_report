@@ -368,6 +368,7 @@ const analyzePhotos = async (req, res) => {
     
     // Return serialized photos
     const serializedPhotos = analyzedPhotos.map(photo => PhotoSchema.serializeForApi(photo));
+    
     logger.info(`Returning ${serializedPhotos.length} serialized photos to client`);
     
     return apiResponse.send(res, apiResponse.success({

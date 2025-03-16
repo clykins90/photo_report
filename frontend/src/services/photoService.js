@@ -313,11 +313,19 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
       if (hasPhotoObjects) {
         // For photo objects, we need to return results in a format that matches
         // what the client expects from the previous implementation
-        const results = serverAnalyzedPhotos.map(serverPhoto => ({
-          success: true,
-          photoId: serverPhoto._id,
-          analysis: serverPhoto.analysis
-        }));
+        const results = serverAnalyzedPhotos.map((serverPhoto, index) => {
+          // Ensure we have a valid photoId by using the server's _id, id, or falling back to the original photo's id
+          const photoId = serverPhoto._id || serverPhoto.id || 
+                         (photosWithLocalData[index] ? (photosWithLocalData[index]._id || photosWithLocalData[index].id || photosWithLocalData[index].clientId) : `photo_${index}`);
+          
+          console.log(`Mapping server photo to result: index=${index}, photoId=${photoId}, hasAnalysis=${!!serverPhoto.analysis}`);
+          
+          return {
+            success: true,
+            photoId: photoId,
+            analysis: serverPhoto.analysis
+          };
+        });
         
         return {
           success: true,

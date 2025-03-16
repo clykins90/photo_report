@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { getReports, deleteReport } from '../services/reportService';
 import AuthContext from '../context/AuthContext';
@@ -9,14 +9,24 @@ const DashboardPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState('all');
+  const initialFetchDone = useRef(false);
   
   const { user } = useContext(AuthContext);
   
+  // Effect for initial data fetch
   useEffect(() => {
-    if (user) {
+    if (user && !initialFetchDone.current) {
+      fetchReports();
+      initialFetchDone.current = true;
+    }
+  }, [user]);
+  
+  // Separate effect for filter changes
+  useEffect(() => {
+    if (user && initialFetchDone.current) {
       fetchReports();
     }
-  }, [filter, user]);
+  }, [filter]);
   
   const fetchReports = async () => {
     try {
