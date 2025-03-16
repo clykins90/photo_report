@@ -88,7 +88,7 @@ const getCompany = async (req, res, next) => {
 const uploadLogo = async (req, res, next) => {
   try {
     // Check if file exists
-    if (!req.file) {
+    if (!req.file && !req.gridfsFile) {
       throw new ApiError(400, 'Please upload a file');
     }
 
@@ -103,6 +103,24 @@ const uploadLogo = async (req, res, next) => {
       user.company = {};
     }
 
+    // If using GridFS, use the gridfsFile info
+    if (req.gridfsFile) {
+      // Store the GridFS file ID in the company
+      user.company.logo = `/photos/${req.gridfsFile.id}`; // URL for frontend
+      user.company.logoId = req.gridfsFile.id; // ID for retrieval
+      await user.save();
+
+      res.status(200).json({
+        success: true,
+        data: {
+          logo: user.company.logo,
+          logoId: user.company.logoId
+        },
+      });
+      return;
+    }
+
+    // Legacy file system code (kept for backward compatibility)
     // Create public/logos directory if it doesn't exist
     const logosDir = path.join(process.cwd(), 'public', 'logos');
     if (!fs.existsSync(logosDir)) {
