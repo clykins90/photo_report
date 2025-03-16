@@ -29,7 +29,7 @@ const DashboardPage = () => {
       }
       
       const response = await getReports(params);
-      // Handle the standardized response format - reports could be directly in the response or in the data property
+      // Access the reports from the data property
       const reportsData = response.data || [];
       setReports(reportsData);
     } catch (err) {

@@ -92,8 +92,10 @@ const PhotoUploadTest = () => {
       );
 
       if (result.success) {
-        setUploadStatus(`Successfully uploaded ${result.photos.length} photos`);
-        setUploadedPhotos(result.photos);
+        setUploadStatus(`Successfully uploaded ${result.photos?.length || result.data?.photos?.length || 0} photos`);
+        // Use the correct path to photos based on the API response structure
+        const uploadedPhotosArray = result.data?.photos || result.photos || [];
+        setUploadedPhotos(uploadedPhotosArray);
         setFiles([]);
         setClientPhotos([]);
       } else {

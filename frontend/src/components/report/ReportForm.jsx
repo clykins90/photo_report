@@ -563,8 +563,10 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
             // Continue with navigation even if photo upload fails
             // The user can try uploading photos again later
           } else {
-            console.log('Photos uploaded successfully:', uploadResponse.photos?.length || 0);
-            console.log('Client ID to Server ID mapping:', uploadResponse.idMapping);
+            const uploadedPhotos = uploadResponse.data?.photos || uploadResponse.photos || [];
+            const idMapping = uploadResponse.data?.idMapping || uploadResponse.idMapping || {};
+            console.log('Photos uploaded successfully:', uploadedPhotos.length);
+            console.log('Client ID to Server ID mapping:', idMapping);
           }
         } catch (uploadErr) {
           console.error('Error during photo upload:', uploadErr.message);

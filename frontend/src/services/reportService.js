@@ -224,11 +224,14 @@ export const createReport = async (reportData) => {
 export const getReports = async () => {
   try {
     const response = await api.get('/reports');
-    // Handle nested data structure if present
-    const responseData = response.data.data || response.data;
+    
+    // Return the response with proper structure
     return {
       success: response.data.success,
-      ...responseData
+      data: response.data.data || [], // Ensure we get data from the right place
+      count: response.data.count,
+      total: response.data.total,
+      pagination: response.data.pagination
     };
   } catch (error) {
     console.error('Error getting reports:', error);
