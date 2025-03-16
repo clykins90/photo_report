@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import PhotoUploader from '../photo/PhotoUploader';
 import PhotoSchema from 'shared/schemas/photoSchema';
 import photoStorageManager from '../../services/photoStorageManager';
@@ -13,6 +13,30 @@ const PhotoUploadStep = ({
   // Add state to track upload progress and status
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
+  
+  // Initialize with preserved photos from props
+  const [currentPhotos, setCurrentPhotos] = useState(() => 
+    uploadedPhotos && uploadedPhotos.length > 0 
+      ? photoStorageManager.preserveBatchPhotoData(uploadedPhotos)
+      : []
+  );
+  
+  // Update currentPhotos when uploadedPhotos changes
+  useEffect(() => {
+    if (uploadedPhotos && uploadedPhotos.length > 0) {
+      const preservedPhotos = photoStorageManager.preserveBatchPhotoData(uploadedPhotos);
+      setCurrentPhotos(preservedPhotos);
+    }
+  }, [uploadedPhotos]);
+  
+  // Clean up blob URLs when component unmounts
+  useEffect(() => {
+    return () => {
+      if (currentPhotos && currentPhotos.length > 0) {
+        photoStorageManager.cleanupBlobUrls(currentPhotos);
+      }
+    };
+  }, []);
 
   const handleUploadComplete = (newPhotos) => {
     // Only continue if we have photos
@@ -23,6 +47,9 @@ const PhotoUploadStep = ({
       // IMPORTANT: Preserve photo data before passing to parent component
       const preservedPhotos = photoStorageManager.preserveBatchPhotoData(newPhotos);
       console.log('Preserved photo data for', preservedPhotos.length, 'photos');
+      
+      // Store the preserved photos in our local state
+      setCurrentPhotos(preservedPhotos);
       
       // Pass preserved photos to parent component
       if (onUploadComplete) {
@@ -106,7 +133,7 @@ const PhotoUploadStep = ({
       
       <PhotoUploader 
         onUploadComplete={handleUploadComplete} 
-        initialPhotos={uploadedPhotos}
+        initialPhotos={currentPhotos.length > 0 ? currentPhotos : uploadedPhotos}
         reportId={reportId}
         showUploadControls={true}
         preserveFiles={true} // Ensure the uploader keeps the file objects
@@ -127,9 +154,9 @@ const PhotoUploadStep = ({
         <button
           type="button"
           onClick={nextStep}
-          disabled={uploadedPhotos.length === 0 || isUploading}
+          disabled={currentPhotos.length === 0 || isUploading}
           className={`${
-            uploadedPhotos.length === 0 || isUploading
+            currentPhotos.length === 0 || isUploading
               ? 'bg-gray-400 cursor-not-allowed' 
               : 'bg-blue-500 hover:bg-blue-700'
           } text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline`}
