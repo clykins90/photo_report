@@ -162,28 +162,34 @@ const AIAnalysisStep = ({
                   error: batchResult.error || 'Analysis failed'
                 };
               }
-            } else if (batchResult.data && batchResult.data.length > 0) {
-              // Process results
-              batchResult.data.forEach(result => {
-                if (result.success) {
-                  // Find the photo in our list
-                  const resultPhotoIndex = updatedPhotos.findIndex(p => 
-                    (p.id && p.id === result.fileId) || 
-                    (p._id && p._id === result.fileId)
-                  );
-                  
-                  if (resultPhotoIndex !== -1) {
-                    // Update the photo with analysis results
-                    updatedPhotos[resultPhotoIndex] = {
-                      ...updatedPhotos[resultPhotoIndex],
-                      status: 'complete',
-                      analysis: result.data
-                    };
+            } else {
+              // Handle both possible API response formats
+              const resultsArray = batchResult.data?.length > 0 ? batchResult.data : 
+                                  (batchResult.results?.length > 0 ? batchResult.results : []);
+              
+              if (resultsArray.length > 0) {
+                // Process results
+                resultsArray.forEach(result => {
+                  if (result.success) {
+                    // Find the photo in our list
+                    const resultPhotoIndex = updatedPhotos.findIndex(p => 
+                      (p.id && p.id === result.fileId) || 
+                      (p._id && p._id === result.fileId)
+                    );
                     
-                    photosCompleted++;
+                    if (resultPhotoIndex !== -1) {
+                      // Update the photo with analysis results
+                      updatedPhotos[resultPhotoIndex] = {
+                        ...updatedPhotos[resultPhotoIndex],
+                        status: 'complete',
+                        analysis: result.data
+                      };
+                      
+                      photosCompleted++;
+                    }
                   }
-                }
-              });
+                });
+              }
             }
             
             // Update the UI with the latest photo statuses

@@ -114,12 +114,15 @@ const PhotoUploader = ({
         fileMetadata
       );
       
-      if (result.success && result.data && Array.isArray(result.data.photos)) {
+      // Handle both possible API response formats
+      const photoArray = result.data?.photos || result.photos;
+      
+      if (result.success && photoArray && Array.isArray(photoArray)) {
         // Create a local array to track updated photos with valid IDs
         const updatedPhotos = [];
         
         // Process each photo from the server response
-        result.data.photos.forEach(serverPhoto => {
+        photoArray.forEach(serverPhoto => {
           // Use the shared schema to deserialize the photo
           const updatedPhoto = PhotoSchema.deserializeFromApi(serverPhoto);
           
@@ -175,9 +178,12 @@ const PhotoUploader = ({
       
       const result = await analyzePhotos(reportId, photoIds);
       
-      if (result.success && result.results) {
+      if (result.success) {
+        // Handle both possible API response formats
+        const resultsArray = result.results || result.data || [];
+        
         // Update photos with analysis results
-        result.results.forEach(photoResult => {
+        resultsArray.forEach(photoResult => {
           if (photoResult.photoId && photoResult.analysis) {
             updatePhotoAnalysis(photoResult.photoId, photoResult.analysis);
           }
@@ -206,8 +212,11 @@ const PhotoUploader = ({
       
       const result = await analyzePhotos(reportId, [photo._id]);
       
-      if (result.success && result.photos && result.photos.length > 0) {
-        const analyzedPhoto = result.photos[0];
+      // Handle both possible API response formats
+      const photosArray = result.photos || (result.data && result.data.photos) || [];
+      
+      if (result.success && photosArray.length > 0) {
+        const analyzedPhoto = photosArray[0];
         updatePhotoAnalysis(photo._id, analyzedPhoto.analysis);
       } else {
         updatePhotoAnalysis(photo._id, { error: result.error || 'Analysis failed' });

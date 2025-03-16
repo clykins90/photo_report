@@ -124,8 +124,10 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
       
       return {
         success: true,
-        photos: uploadedPhotos,
-        idMapping
+        data: {
+          photos: uploadedPhotos,
+          idMapping
+        }
       };
     } else {
       return {
@@ -181,7 +183,9 @@ export const analyzePhotos = async (reportId, photoIds = []) => {
       
       return {
         success: true,
-        photos: analyzedPhotos
+        data: {
+          photos: analyzedPhotos
+        }
       };
     } else {
       return {
