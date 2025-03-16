@@ -148,35 +148,25 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       // Create a new object to avoid modifying the original
       const processedPhoto = { ...photo };
       
-      // Make sure we keep server-side URLs consistent
-      if (photo.uploadedData) {
-        // If uploaded but missing direct URLs, set them from uploadedData
-        if (!processedPhoto.thumbnailUrl && photo.uploadedData.thumbnailUrl) {
-          processedPhoto.thumbnailUrl = photo.uploadedData.thumbnailUrl;
-        }
-        if (!processedPhoto.optimizedUrl && photo.uploadedData.optimizedUrl) {
-          processedPhoto.optimizedUrl = photo.uploadedData.optimizedUrl;
-        }
-        if (!processedPhoto.originalUrl && photo.uploadedData.originalUrl) {
-          processedPhoto.originalUrl = photo.uploadedData.originalUrl;
-        }
-      }
-      
-      // Ensure preview URL is preserved
+      // Ensure preview URL is preserved for local display
       if (photo.preview) {
         processedPhoto.preview = photo.preview;
       }
       
-      // Ensure URL is set for server-side photos
-      if (photo._id && !processedPhoto.url) {
+      // Make sure we have a URL for the photo
+      if (!processedPhoto.url) {
         const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
-        processedPhoto.url = `${baseApiUrl}/api/photos/${photo._id}`;
-      }
-      
-      // If we have a filename but no URL, construct one
-      if (photo.filename && !processedPhoto.url) {
-        const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
-        processedPhoto.url = `${baseApiUrl}/api/photos/${photo.filename}`;
+        
+        // Try to construct a URL from available identifiers
+        if (processedPhoto._id) {
+          processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto._id}`;
+        } else if (processedPhoto.fileId) {
+          processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto.fileId}`;
+        } else if (processedPhoto.id) {
+          processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto.id}`;
+        } else if (processedPhoto.filename) {
+          processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto.filename}`;
+        }
       }
       
       return processedPhoto;
@@ -663,6 +653,22 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         setError('Failed to create draft report. Please try again.');
       });
     } else {
+      // If moving from step 2 to step 3, ensure photos have usable identifiers
+      if (step === 2) {
+        // Filter to only photos with usable identifiers (url, preview, id, or fileId)
+        const usablePhotos = uploadedPhotos.filter(photo => 
+          photo.url || photo.preview || photo.id || photo._id || photo.fileId || photo.filename
+        );
+        
+        if (usablePhotos.length === 0) {
+          setError('No usable photos found. Please upload photos with valid identifiers.');
+          return;
+        }
+        
+        // Update state with usable photos
+        setUploadedPhotos(usablePhotos);
+      }
+      
       setStep(step + 1);
     }
   };

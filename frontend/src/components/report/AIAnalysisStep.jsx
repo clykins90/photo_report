@@ -288,9 +288,24 @@ const AIAnalysisStep = ({
 
   // Get the best available image URL for a photo
   const getBestImageUrl = (photo) => {
-    // Use the centralized photo URL handler from photoService
-    // which properly handles path prefixes to avoid duplicates
-    return getPhotoUrl(photo);
+    // Simplified direct implementation to ensure we always have a valid URL
+    if (!photo) return '/placeholder-image.png';
+    
+    // First try to use an existing URL
+    if (photo.url) return photo.url;
+    
+    // Then try to use the preview (for locally uploaded files)
+    if (photo.preview) return photo.preview;
+    
+    // Then construct a URL from id, fileId, or _id
+    if (photo.id) return `/api/photos/${photo.id}`;
+    if (photo.fileId) return `/api/photos/${photo.fileId}`;
+    if (photo._id) return `/api/photos/${photo._id}`;
+    
+    // Finally fall back to filename or a placeholder
+    if (photo.filename) return `/api/photos/${photo.filename}`;
+    
+    return '/placeholder-image.png';
   };
 
   // Render the superhero loading screen

@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
 import PhotoUploader from '../photo/PhotoUploader';
-import { filterPhotosWithValidIds } from '../../utils/mongoUtil';
 
 const PhotoUploadStep = ({ 
   uploadedPhotos = [],
@@ -22,26 +21,35 @@ const PhotoUploadStep = ({
       // Sample the first photo to debug
       console.log('First photo:', newPhotos[0]);
       
-      // Add detailed debugging for ID validation
-      if (newPhotos[0]) {
-        const photo = newPhotos[0];
-        console.log('Photo ID validation check:', {
-          _id: photo._id,
-          fileId: photo.fileId,
-          isValidId: photo._id ? /^[0-9a-fA-F]{24}$/.test(photo._id) : false,
-          isValidFileId: photo.fileId ? /^[0-9a-fA-F]{24}$/.test(photo.fileId) : false
-        });
-      }
+      // Process all photos to ensure they have valid URLs
+      const processedPhotos = newPhotos.map(photo => {
+        // Create a new object to avoid modifying the original
+        const processedPhoto = { ...photo };
+        
+        // Ensure each photo has a URL property
+        if (!processedPhoto.url) {
+          const baseApiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+          
+          // Try to construct a URL from available identifiers
+          if (processedPhoto._id) {
+            processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto._id}`;
+          } else if (processedPhoto.fileId) {
+            processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto.fileId}`;
+          } else if (processedPhoto.id) {
+            processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto.id}`;
+          } else if (processedPhoto.filename) {
+            processedPhoto.url = `${baseApiUrl}/api/photos/${processedPhoto.filename}`;
+          }
+        }
+        
+        return processedPhoto;
+      });
       
-      // Filter to only photos with valid MongoDB IDs
-      const validPhotos = filterPhotosWithValidIds(newPhotos);
-      console.log('Photos with valid IDs:', validPhotos.length);
+      console.log('Processed photos:', processedPhotos);
       
-      // If we have valid photos, call the parent handler
-      if (validPhotos.length > 0 && onUploadComplete) {
-        onUploadComplete(validPhotos);
-      } else {
-        console.warn('No photos with valid MongoDB IDs found. Check server response format.');
+      // Pass all processed photos to the parent component
+      if (onUploadComplete) {
+        onUploadComplete(processedPhotos);
       }
     }
   };
