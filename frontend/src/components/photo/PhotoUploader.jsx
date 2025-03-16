@@ -94,7 +94,22 @@ const PhotoUploader = ({
         filesToUpload, 
         reportId, 
         (progress) => {
-          setUploadProgress(progress);
+          // Ensure progress is a number
+          let numericProgress = 0;
+          
+          if (Array.isArray(progress)) {
+            // Calculate average progress across all files
+            if (progress.length > 0) {
+              // Sum all progress values and divide by length
+              const sum = progress.reduce((total, current) => total + (typeof current === 'number' ? current : 0), 0);
+              numericProgress = sum / progress.length;
+            }
+          } else {
+            // Single progress value
+            numericProgress = typeof progress === 'number' ? progress : 0;
+          }
+          
+          setUploadProgress(numericProgress);
         },
         fileMetadata
       );
@@ -258,6 +273,23 @@ const PhotoUploader = ({
     removePhoto(photo);
   };
   
+  // Ensure progress values are always numbers
+  const safeUploadProgress = typeof uploadProgress === 'number' ? uploadProgress : 
+    (Array.isArray(uploadProgress) ? 
+      // Calculate average if it's an array
+      (uploadProgress.length > 0 ? 
+        uploadProgress.reduce((sum, val) => sum + (typeof val === 'number' ? val : 0), 0) / uploadProgress.length 
+        : 0) 
+      : 0);
+  
+  const safeAnalysisProgress = typeof analysisProgress === 'number' ? analysisProgress : 
+    (Array.isArray(analysisProgress) ? 
+      // Calculate average if it's an array
+      (analysisProgress.length > 0 ? 
+        analysisProgress.reduce((sum, val) => sum + (typeof val === 'number' ? val : 0), 0) / analysisProgress.length 
+        : 0) 
+      : 0);
+  
   return (
     <div className="photo-uploader space-y-4">
       {error && (
@@ -274,12 +306,12 @@ const PhotoUploader = ({
       )}
       
       <PhotoUploadProgress 
-        progress={uploadProgress} 
+        progress={safeUploadProgress} 
         isUploading={uploading} 
       />
       
       <PhotoAnalysisProgress 
-        progress={analysisProgress} 
+        progress={safeAnalysisProgress} 
         isAnalyzing={analyzing} 
       />
       
