@@ -454,24 +454,35 @@ export const uploadBatchPhotos = async (files, reportId, progressCallback = null
 /**
  * Analyze photos for a report using AI
  * @param {string} reportId - ID of the report containing photos to analyze
+ * @param {string[]} photoIds - Optional array of photo IDs to analyze
  * @returns {Promise} - Promise resolving to the server response
  */
-export const analyzePhotos = async (reportId) => {
+export const analyzePhotos = async (reportId, photoIds = []) => {
   try {
     if (!reportId) {
       throw new Error('Report ID is required for photo analysis');
     }
 
-    photoLogger.info(`Analyzing all photos for report: ${reportId}`);
-
-    // Don't include any query parameters
-    const response = await api.post(`/photos/analyze/${reportId}`);
+    photoLogger.info(`Analyzing ${photoIds.length > 0 ? photoIds.length : 'all'} photos for report: ${reportId}`);
     
-    photoLogger.info(`Analysis complete: ${response.data.results?.length || 0} photos analyzed`);
+    // Create request payload with photoIds if provided
+    const payload = photoIds.length > 0 ? { photoIds } : {};
+    console.log('Analysis request payload:', payload);
+
+    // Send the photoIds in the request body
+    const response = await api.post(`/photos/analyze/${reportId}`, payload);
+    
+    // Debug log the full response structure
+    console.log('Photo analysis response:', JSON.stringify(response.data, null, 2));
+    
+    // Check if results exist in the expected location
+    const results = response.data.data?.results || [];
+    
+    photoLogger.info(`Analysis complete: ${results.length} photos analyzed`);
     
     return {
       success: true,
-      results: response.data.results?.map(result => ({
+      results: results.map(result => ({
         photoId: result.photoId,
         status: result.status,
         analysis: result.analysis,
@@ -547,22 +558,29 @@ export const analyzePhoto = async (photo, reportId) => {
       photoId: photoId
     });
     
-    photoLogger.info(`Analysis complete for photo: ${photoId}`);
+    // Debug log the full response structure
+    console.log('Single photo analysis response:', JSON.stringify(response.data, null, 2));
     
-    // Extract the result for this specific photo
-    const result = response.data.results?.find(r => r.photoId === photoId);
+    // Check if results exist in the expected location
+    const results = response.data.data?.results || [];
+    const result = results.length > 0 ? results[0] : null;
     
-    if (!result) {
-      throw new Error('No analysis result returned for this photo');
+    if (result && result.status === 'success' && result.analysis) {
+      photoLogger.info(`Analysis complete for photo ${photoId}`);
+      return {
+        success: true,
+        data: result.analysis
+      };
+    } else {
+      const errorMsg = result?.error || 'No analysis results returned';
+      photoLogger.error(`Analysis failed for photo ${photoId}: ${errorMsg}`);
+      return {
+        success: false,
+        error: errorMsg
+      };
     }
-    
-    return {
-      success: result.status === 'success',
-      data: result.analysis,
-      error: result.error
-    };
   } catch (error) {
-    photoLogger.error('Error analyzing photo:', error);
+    photoLogger.error(`Error analyzing photo: ${error.message}`);
     return {
       success: false,
       error: error.response?.data?.error || error.message || 'Failed to analyze photo'

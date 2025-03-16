@@ -130,7 +130,13 @@ const usePhotoUploadState = (initialPhotos = []) => {
 
   // Get only photos with valid IDs
   const getValidPhotos = useCallback(() => {
-    return filterPhotosWithValidIds(photos);
+    console.log('Getting valid photos for analysis...');
+    const validPhotos = filterPhotosWithValidIds(photos);
+    console.log(`Found ${validPhotos.length} photos with valid MongoDB IDs for analysis`);
+    if (validPhotos.length > 0) {
+      console.log('First valid photo:', validPhotos[0]);
+    }
+    return validPhotos;
   }, [photos]);
 
   return {

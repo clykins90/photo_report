@@ -283,11 +283,20 @@ const PhotoUploader = ({
       setAnalysisProgress(0);
       setError(null);
       
-      const result = await analyzePhotos(reportId);
+      // Get the IDs of all valid photos
+      const photoIds = validPhotos.map(photo => photo._id).filter(id => id);
+      console.log(`Sending ${photoIds.length} photo IDs for analysis:`, photoIds);
+      
+      const result = await analyzePhotos(reportId, photoIds);
+      
+      console.log('Analysis result from service:', result);
       
       if (result.success && result.results) {
+        console.log(`Received ${result.results.length} analysis results to process`);
+        
         // Update photos with analysis results
         result.results.forEach(photoResult => {
+          console.log('Processing photo result:', photoResult);
           if (photoResult.photoId && photoResult.analysis) {
             updatePhotoAnalysis(photoResult.photoId, photoResult.analysis);
           }
@@ -311,19 +320,21 @@ const PhotoUploader = ({
     }
     
     try {
+      console.log(`Starting analysis for single photo: ${photo._id}`);
+      
       // Mark photo as analyzing
       updatePhotoAnalysis(photo._id, null);
       
       const result = await analyzePhoto(photo, reportId);
+      console.log(`Analysis result for photo ${photo._id}:`, result);
       
       if (result.success && result.data) {
+        console.log(`Updating photo ${photo._id} with analysis data`);
         updatePhotoAnalysis(photo._id, result.data);
       } else {
-        // Reset status on error
         updatePhotoAnalysis(photo._id, { error: result.error || 'Analysis failed' });
       }
     } catch (err) {
-      console.error('Error analyzing photo:', err);
       updatePhotoAnalysis(photo._id, { error: err.message });
     }
   };
