@@ -157,6 +157,121 @@ const analyzePhoto = async (imagePath) => {
   }
 };
 
+/**
+ * Analyze multiple photos from a report
+ * @param {Array<Object>} photos - Array of photo objects to analyze
+ * @param {String} reportId - The report ID these photos belong to
+ * @returns {Promise<Array<Object>>} - Array of analysis results with photoId and analysis data
+ */
+const analyzePhotos = async (photos, reportId) => {
+  try {
+    logger.info(`Starting batch analysis for ${photos.length} photos in report ${reportId}`);
+    
+    const results = [];
+    const gridfs = require('../utils/gridfs');
+    const path = require('path');
+    const fs = require('fs');
+    
+    // Process photos in batches of 10
+    const BATCH_SIZE = 10;
+    
+    // Split photos into batches
+    for (let i = 0; i < photos.length; i += BATCH_SIZE) {
+      const currentBatch = photos.slice(i, i + BATCH_SIZE);
+      logger.info(`Processing batch ${i/BATCH_SIZE + 1} with ${currentBatch.length} photos`);
+      
+      // Process all photos in the current batch in parallel
+      const batchPromises = currentBatch.map(async (photo) => {
+        try {
+          // Get the photo ID directly - no need for complex path handling
+          const photoId = photo._id || photo.id;
+          
+          if (!photoId) {
+            logger.error(`Photo does not have a valid ID`);
+            return {
+              photoId: photoId || 'unknown',
+              success: false,
+              error: 'Photo missing ID'
+            };
+          }
+          
+          // Create a temporary path for the photo file
+          const tempDir = process.env.TEMP_DIR || '/tmp';
+          if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+          }
+          
+          const tempPath = path.join(tempDir, `photo_${photoId}.jpg`);
+          
+          // Download the file directly from GridFS using the ID
+          try {
+            // Check if we need to download the file
+            if (!fs.existsSync(tempPath)) {
+              logger.info(`Downloading GridFS file to temp path: ${tempPath}`);
+              await gridfs.downloadFile(photoId, tempPath);
+            } else {
+              logger.info(`Using cached GridFS file at: ${tempPath}`);
+            }
+          } catch (downloadError) {
+            logger.error(`Error downloading photo ${photoId}: ${downloadError.message}`);
+            return {
+              photoId: photoId,
+              success: false,
+              error: 'Failed to download photo file'
+            };
+          }
+          
+          if (!fs.existsSync(tempPath)) {
+            logger.error(`Failed to download photo ${photoId}`);
+            return {
+              photoId: photoId,
+              success: false,
+              error: 'Photo file could not be downloaded'
+            };
+          }
+          
+          logger.info(`Analyzing photo ${photoId} at path: ${tempPath}`);
+          
+          // Analyze the photo
+          const analysis = await analyzePhoto(tempPath);
+          
+          return {
+            photoId: photoId,
+            success: true,
+            data: analysis
+          };
+          
+        } catch (photoError) {
+          const photoId = photo._id || photo.id || 'unknown';
+          logger.error(`Error analyzing photo ${photoId}: ${photoError.message}`);
+          return {
+            photoId: photoId,
+            success: false,
+            error: photoError.message
+          };
+        }
+      });
+      
+      // Wait for all photos in the current batch to be processed
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+      
+      // Add a small delay between batches to avoid overwhelming the system
+      if (i + BATCH_SIZE < photos.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    
+    logger.info(`Completed batch analysis for ${results.length} photos`);
+    return results;
+    
+  } catch (error) {
+    logger.error(`Error in analyzePhotos: ${error.message}`);
+    throw error;
+  }
+};
+
 module.exports = {
-  analyzePhoto
+  analyzePhoto,
+  analyzePhotos
 }; 
