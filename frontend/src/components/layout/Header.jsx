@@ -1,32 +1,17 @@
 import { Link } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-import { hasBackupReportData } from '../../utils/reportBackup';
+import { useState } from 'react';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { ThemeToggle } from '../ui/theme-toggle';
+import { useAuth } from '../../context/AuthContext';
 
-const Header = ({ isAuthenticated, onLogout, theme, setTheme }) => {
-  const [hasBackup, setHasBackup] = useState(false);
+const Header = ({ onLogout }) => {
+  const { user } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
-  // Check if there's a backup on initial load and when visibility changes
-  useEffect(() => {
-    const checkBackup = () => {
-      setHasBackup(hasBackupReportData());
-    };
-    
-    // Check on component mount
-    checkBackup();
-    
-    // Re-check backup status when the window visibility changes
-    // (e.g., user switches back to the tab)
-    document.addEventListener('visibilitychange', checkBackup);
-    
-    return () => {
-      document.removeEventListener('visibilitychange', checkBackup);
-    };
-  }, []);
-
+  // Check if user is authenticated
+  const isAuthenticated = !!user;
+  
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);
   };
@@ -48,7 +33,7 @@ const Header = ({ isAuthenticated, onLogout, theme, setTheme }) => {
         
         {/* Mobile menu button and theme toggle */}
         <div className="flex items-center gap-2 md:hidden">
-          <ThemeToggle theme={theme} setTheme={setTheme} />
+          <ThemeToggle />
           <button 
             className="p-2 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors"
             onClick={toggleMobileMenu}
@@ -74,14 +59,6 @@ const Header = ({ isAuthenticated, onLogout, theme, setTheme }) => {
               <Button variant="ghost" asChild>
                 <Link to="/profile">Profile</Link>
               </Button>
-              {hasBackup && (
-                <Button variant="ghost" asChild>
-                  <Link to="/reports/backup-recovery" className="flex items-center">
-                    <span className="inline-block w-2 h-2 bg-green-400 rounded-full mr-1"></span>
-                    Restore Report
-                  </Link>
-                </Button>
-              )}
               <Button variant="ghost" onClick={onLogout}>Logout</Button>
             </>
           ) : (
@@ -94,7 +71,7 @@ const Header = ({ isAuthenticated, onLogout, theme, setTheme }) => {
               </Button>
             </>
           )}
-          <ThemeToggle theme={theme} setTheme={setTheme} />
+          <ThemeToggle />
         </nav>
       </div>
       
@@ -117,16 +94,6 @@ const Header = ({ isAuthenticated, onLogout, theme, setTheme }) => {
                     <Link to="/profile">Profile</Link>
                   </Button>
                 </li>
-                {hasBackup && (
-                  <li>
-                    <Button variant="ghost" className="w-full justify-start" asChild>
-                      <Link to="/reports/backup-recovery" className="flex items-center">
-                        <span className="inline-block w-2 h-2 bg-green-400 rounded-full mr-1"></span>
-                        Restore Report
-                      </Link>
-                    </Button>
-                  </li>
-                )}
                 <li>
                   <Button variant="ghost" className="w-full justify-start" onClick={onLogout}>
                     Logout

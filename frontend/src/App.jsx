@@ -1,97 +1,79 @@
+import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useContext, useEffect } from 'react';
+import { PhotoProvider } from './context/PhotoContext';
+import { ReportProvider } from './context/ReportContext';
+
+// Import main pages
+import Dashboard from './pages/Dashboard';
+import ReportBuilder from './pages/ReportBuilder';
+import ReportViewer from './pages/ReportViewer';
+import Login from './pages/Login';
+import { useAuth } from './context/AuthContext';
+
+// Import layout
 import MainLayout from './components/layout/MainLayout';
-import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
-import DashboardPage from './pages/DashboardPage';
-import ReportDetailPage from './pages/ReportDetailPage';
-import CreateReportPage from './pages/CreateReportPage';
-import EditReportPage from './pages/EditReportPage';
-import ProfilePage from './pages/ProfilePage';
-import AuthContext from './context/AuthContext';
 
 // Protected route component
 const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated } = useContext(AuthContext);
+  const { user, isLoading } = useAuth();
   
-  if (!isAuthenticated) {
+  if (isLoading) {
+    return <div className="flex h-screen items-center justify-center">Loading...</div>;
+  }
+  
+  if (!user) {
     return <Navigate to="/login" />;
   }
   
   return children;
 };
 
-// 404 page component
-const NotFound = () => (
-  <div className="container mx-auto px-4 py-12 text-center">
-    <h1 className="text-4xl font-bold text-foreground mb-4">404 - Page Not Found</h1>
-    <p className="text-xl text-muted-foreground mb-8">The page you are looking for does not exist.</p>
-    <a 
-      href="/login" 
-      className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold py-2 px-4 rounded-lg shadow transition duration-300"
-    >
-      Return to Login
-    </a>
-  </div>
-);
-
 function App() {
   return (
-    <>
-      <MainLayout>
+    <PhotoProvider>
+      <ReportProvider>
         <Routes>
-          {/* Redirect root to login page */}
-          <Route path="/" element={<Navigate to="/login" />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+          {/* Public routes */}
+          <Route path="/login" element={<Login />} />
           
-          {/* Protected routes */}
-          <Route 
-            path="/dashboard" 
-            element={
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            } 
-          />
-          <Route 
-            path="/profile" 
-            element={
-              <ProtectedRoute>
-                <ProfilePage />
-              </ProtectedRoute>
-            } 
-          />
-          <Route 
-            path="/reports/new" 
-            element={
-              <ProtectedRoute>
-                <CreateReportPage />
-              </ProtectedRoute>
-            } 
-          />
-          <Route 
-            path="/reports/:id" 
-            element={
-              <ProtectedRoute>
-                <ReportDetailPage />
-              </ProtectedRoute>
-            } 
-          />
-          <Route 
-            path="/reports/:id/edit" 
-            element={
-              <ProtectedRoute>
-                <EditReportPage />
-              </ProtectedRoute>
-            } 
-          />
-        
-          {/* 404 route */}
-          <Route path="*" element={<NotFound />} />
+          {/* Protected routes with MainLayout */}
+          <Route path="/" element={
+            <ProtectedRoute>
+              <MainLayout>
+                <Dashboard />
+              </MainLayout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/reports/new" element={
+            <ProtectedRoute>
+              <MainLayout>
+                <ReportBuilder />
+              </MainLayout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/reports/edit/:reportId" element={
+            <ProtectedRoute>
+              <MainLayout>
+                <ReportBuilder isEditing={true} />
+              </MainLayout>
+            </ProtectedRoute>
+          } />
+          
+          <Route path="/reports/:reportId" element={
+            <ProtectedRoute>
+              <MainLayout>
+                <ReportViewer />
+              </MainLayout>
+            </ProtectedRoute>
+          } />
+          
+          {/* Fallback route */}
+          <Route path="*" element={<Navigate to="/" />} />
         </Routes>
-      </MainLayout>
-    </>
+      </ReportProvider>
+    </PhotoProvider>
   );
 }
 

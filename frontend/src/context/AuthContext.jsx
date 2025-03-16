@@ -1,7 +1,16 @@
-import { createContext, useState, useEffect } from 'react';
+import { createContext, useState, useEffect, useContext } from 'react';
 import api from '../services/api';
 
 const AuthContext = createContext();
+
+// Create and export the useAuth hook
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
 
 export const AuthProvider = ({ children }) => {
   // Initialize state from localStorage if available

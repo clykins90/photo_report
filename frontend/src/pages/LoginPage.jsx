@@ -1,9 +1,15 @@
 import { Link } from 'react-router-dom';
 import LoginForm from '../components/auth/LoginForm';
+import { ThemeToggle } from '../components/ui/theme-toggle';
 
 const LoginPage = () => {
   return (
-    <div className="min-h-screen bg-background flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-background flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative">
+      {/* Theme toggle positioned in top-right corner */}
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
+      
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <h1 className="text-center text-3xl font-extrabold text-foreground">
           HeroReport
