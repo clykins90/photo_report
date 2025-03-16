@@ -73,14 +73,9 @@ const PhotoUploader = ({
   
   // Notify parent when photos change, but only for non-upload changes
   useEffect(() => {
-    // Skip calling onUploadComplete during or right after uploads
-    // This avoids duplicate calls since we're handling it directly in uploadFilesToServer
-    if (onUploadComplete && !uploading && !analyzing && !uploadProgress) {
-      // Only pass photos with valid MongoDB IDs to the parent component
-      const validPhotos = getValidPhotos();
-      console.log('PhotoUploader sending valid photos to parent (from useEffect):', validPhotos.length);
-      onUploadComplete(validPhotos);
-    }
+    // We're removing this effect entirely since it's causing a loop
+    // The parent is already notified in uploadFilesToServer after successful uploads
+    // This prevents the circular dependency between PhotoUploader and PhotoUploadStep
   }, [photos, uploading, analyzing, uploadProgress, onUploadComplete, getValidPhotos]);
   
   // Upload files to server
@@ -228,7 +223,16 @@ const PhotoUploader = ({
           // Ensure all photos have valid MongoDB IDs
           const validPhotos = updatedPhotos.filter(photo => {
             // Check if photo has a valid MongoDB ID
-            const hasValidId = photo._id || photo.fileId || photo.id;
+            const mongoId = photo._id || photo.fileId || photo.id;
+            
+            // For File objects or those without MongoDB IDs, check if they have a clientId
+            // This allows us to include photos that are still being processed
+            if (!mongoId && photo.clientId) {
+              console.log('Photo has clientId but no MongoDB ID yet:', photo.clientId);
+              return true; // Keep photos with clientId even if they don't have MongoDB ID yet
+            }
+            
+            const hasValidId = mongoId && /^[0-9a-fA-F]{24}$/.test(mongoId.toString());
             
             if (!hasValidId) {
               console.warn('Photo missing valid ID:', photo);
