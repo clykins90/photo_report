@@ -209,6 +209,22 @@ const PhotoUploadAnalysisStep = () => {
   const analysingCount = getPhotosByStatus('analyzing').length;
   const errorCount = getPhotosByStatus('error').length;
 
+  // Debug function to log photo statuses
+  const debugPhotoStatuses = () => {
+    console.log("All photos:", photos);
+    
+    // Count by status
+    const statusCounts = {};
+    photos.forEach(p => {
+      statusCounts[p.status || 'unknown'] = (statusCounts[p.status || 'unknown'] || 0) + 1;
+    });
+    console.log("Status counts:", statusCounts);
+    
+    // Log uploaded photos
+    const uploadedPhotos = getPhotosByStatus('uploaded');
+    console.log("Uploaded photos:", uploadedPhotos);
+  };
+
   // Render the analysis controls
   const renderAnalysisControls = () => {
     // Only show if we have uploaded photos
@@ -241,6 +257,20 @@ const PhotoUploadAnalysisStep = () => {
             <span className="block text-2xl font-bold text-red-600">{errorCount}</span>
             <span className="text-sm text-gray-500 dark:text-gray-400">Errors</span>
           </div>
+          
+          {/* Debug button - only visible in development */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="col-span-4 mt-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={debugPhotoStatuses}
+                className="w-full text-xs bg-gray-100"
+              >
+                Debug Photo Statuses
+              </Button>
+            </div>
+          )}
         </div>
         
         <div className="flex flex-col gap-4">

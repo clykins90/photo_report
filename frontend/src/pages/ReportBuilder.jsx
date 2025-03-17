@@ -87,7 +87,12 @@ const ReportBuilder = ({ isEditing = false }) => {
   
   // Handle back button click
   const handleBack = () => {
-    navigate('/');
+    // If we're beyond the first step, use prevStep instead of navigating away
+    if (step > 1) {
+      prevStep();
+    } else {
+      navigate('/');
+    }
   };
   
   // Render loading state

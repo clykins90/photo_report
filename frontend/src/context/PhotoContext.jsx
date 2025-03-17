@@ -200,9 +200,16 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       if (result.success) {
         const { photos: uploadedPhotos, idMapping } = result.data;
         
+        // Debug idMapping to see what's coming back from server
+        console.log("Received from server:", { 
+          uploadedPhotosCount: uploadedPhotos?.length,
+          idMapping
+        });
+        
         // Update photos with server data
         setPhotos(prevPhotos => {
-          return prevPhotos.map(photo => {
+          // First, map client IDs to server photos using idMapping
+          const updatedPhotos = prevPhotos.map(photo => {
             // Check if this photo's clientId is in the idMapping
             const serverPhotoId = idMapping && photo.clientId && idMapping[photo.clientId];
             
@@ -214,19 +221,44 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             );
             
             if (uploadedPhoto) {
-              // Use our utility to properly update the photo
-              const updatedPhoto = updatePhotoWithServerData(photo, uploadedPhoto);
-              
-              // Ensure status is set to 'uploaded'
-              return {
-                ...updatedPhoto,
-                status: 'uploaded',
-                _id: uploadedPhoto._id || updatedPhoto._id
+              // Create updated photo with proper status
+              const updatedPhoto = {
+                ...photo,
+                _id: uploadedPhoto._id,
+                status: 'uploaded', // Explicitly set status
+                uploadProgress: 100,
+                url: uploadedPhoto.url || uploadedPhoto.path
               };
+              
+              // Preserve important properties
+              return preservePhotoData(updatedPhoto);
+            }
+            
+            // If using idMapping directly
+            if (serverPhotoId) {
+              const matchingServerPhoto = uploadedPhotos.find(p => p._id === serverPhotoId);
+              if (matchingServerPhoto) {
+                return {
+                  ...photo,
+                  _id: serverPhotoId,
+                  status: 'uploaded', // Explicitly set status
+                  uploadProgress: 100,
+                  url: matchingServerPhoto.url || matchingServerPhoto.path
+                };
+              }
             }
             
             return photo;
           });
+          
+          // Debug photo statuses after update
+          const statusCounts = {};
+          updatedPhotos.forEach(p => {
+            statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
+          });
+          console.log("Photo statuses after update:", statusCounts);
+          
+          return updatedPhotos;
         });
       } else {
         // Handle error

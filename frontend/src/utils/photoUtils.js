@@ -219,7 +219,22 @@ export const filterPhotosByStatus = (photos, status) => {
   
   const statusArray = Array.isArray(status) ? status : [status];
   
-  return photos.filter(photo => statusArray.includes(photo.status));
+  // Add debugging for development environments
+  if (process.env.NODE_ENV === 'development' && status === 'uploaded') {
+    console.log(`Filtering ${photos.length} photos for status '${status}'`, {
+      photoStatuses: photos.map(p => p.status),
+      lookingFor: statusArray
+    });
+  }
+  
+  const filteredPhotos = photos.filter(photo => statusArray.includes(photo.status));
+  
+  // More debugging
+  if (process.env.NODE_ENV === 'development' && status === 'uploaded') {
+    console.log(`Found ${filteredPhotos.length} photos with status '${status}'`);
+  }
+  
+  return filteredPhotos;
 };
 
 /**

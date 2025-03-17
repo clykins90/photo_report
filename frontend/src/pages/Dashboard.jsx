@@ -81,7 +81,7 @@ const ReportCard = ({ report, onDelete }) => {
               size="sm"
               asChild
             >
-              <Link to={`/reports/${report._id}/edit`}>
+              <Link to={`/reports/edit/${report._id}`}>
                 Edit
               </Link>
             </Button>
