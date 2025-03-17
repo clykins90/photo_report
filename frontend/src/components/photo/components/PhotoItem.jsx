@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
-import { getBestPhotoUrl } from '../../../utils/photoUtils';
+import { getPhotoUrl } from '../../../utils/photoUtils';
 
 /**
  * Component for displaying individual photo with status and controls
@@ -16,7 +16,7 @@ const PhotoItem = ({
   const [retryCount, setRetryCount] = useState(0);
   
   // Get the appropriate URL for the photo using our utility
-  const imageUrl = getBestPhotoUrl(photo);
+  const imageUrl = getPhotoUrl(photo);
   
   // Reset image states when photo changes
   useEffect(() => {
