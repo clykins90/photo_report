@@ -1,37 +1,28 @@
 import api from './api';
 import PhotoSchema from 'shared/schemas/photoSchema';
 import { photoLogger } from '../utils/logger';
-import photoStorageManager from './photoStorageManager';
+import { 
+  createPhotoFromFile, 
+  getPhotoUrl as getPhotoUrlUtil,
+  preservePhotoData,
+  dataURLtoBlob,
+  getBestDataSource,
+  groupPhotosByDataAvailability
+} from '../utils/photoUtils';
 
 /**
  * Simplified photo service for handling photo operations
  * Uses the shared PhotoSchema for consistent object handling
- * and PhotoStorageManager for data source management
  */
 
 /**
- * Get the URL for a photo - delegates to photoStorageManager
+ * Get the URL for a photo - delegates to photoUtils
  * @param {String|Object} photoOrId - Photo object or ID
  * @param {String} size - Size variant ('original', 'thumbnail', 'medium')
  * @returns {String} Photo URL
  */
 export const getPhotoUrl = (photoOrId, size = 'original') => {
-  // Handle string IDs
-  if (typeof photoOrId === 'string') {
-    const baseUrl = `/api/photos/${photoOrId}`;
-    
-    switch(size) {
-      case 'thumbnail':
-        return `${baseUrl}?size=thumbnail`;
-      case 'medium':
-        return `${baseUrl}?size=medium`;
-      default:
-        return baseUrl;
-    }
-  }
-  
-  // Otherwise delegate to storage manager
-  return photoStorageManager.getPhotoUrl(photoOrId, size);
+  return getPhotoUrlUtil(photoOrId, { size });
 };
 
 /**
@@ -53,17 +44,8 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
     
     // Create client photo objects for tracking
     const clientPhotos = Array.from(files).map(file => {
-      // Ensure we're creating proper photo objects with file references
-      const photoObj = PhotoSchema.createFromFile(file);
-      // Explicitly store the file object
-      photoObj.file = file;
-      
-      // Ensure preview URL exists
-      if (!photoObj.preview && file) {
-        photoObj.preview = URL.createObjectURL(file);
-      }
-      
-      return photoObj;
+      // Create photo objects using our consolidated utility
+      return createPhotoFromFile(file);
     });
     
     // Create form data for upload
@@ -71,7 +53,7 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
     formData.append('reportId', reportId);
     
     // Add client IDs for tracking
-    const clientIds = clientPhotos.map(photo => photo.clientId);
+    const clientIds = clientPhotos.map(photo => photo.clientId || photo.id);
     formData.append('clientIds', JSON.stringify(clientIds));
     
     // Add files to form data
@@ -113,7 +95,7 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
       
       // Create properly formed photo objects
       const uploadedPhotos = clientPhotos.map(clientPhoto => {
-        const serverId = idMapping && idMapping[clientPhoto.clientId];
+        const serverId = idMapping && idMapping[clientPhoto.clientId || clientPhoto.id];
         const serverPhoto = serverPhotos && serverPhotos.find(p => p._id === serverId);
         
         if (serverPhoto) {
@@ -127,33 +109,21 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
             localDataUrl: clientPhoto.localDataUrl || (clientPhoto.preview && clientPhoto.preview.startsWith('data:') ? clientPhoto.preview : null)
           };
           
-          // If we still don't have a preview URL but have a file, create one
-          if (!mergedPhoto.preview && mergedPhoto.file) {
-            mergedPhoto.preview = URL.createObjectURL(mergedPhoto.file);
-          }
-          
-          // Deserialize using the schema
-          const photoObj = PhotoSchema.deserializeFromApi(mergedPhoto);
-          
-          // Double-check file is preserved
-          if (!photoObj.file && clientPhoto.file) {
-            photoObj.file = clientPhoto.file;
-          }
-          
-          // Double-check preview is preserved
-          if (!photoObj.preview && clientPhoto.preview) {
-            photoObj.preview = clientPhoto.preview;
-          }
-          
-          // Ensure local data is preserved
-          return photoStorageManager.preservePhotoData(photoObj);
+          // Use our preservePhotoData function to ensure consistency
+          return preservePhotoData(mergedPhoto);
         }
         
-        return photoStorageManager.preservePhotoData(clientPhoto);
+        return preservePhotoData(clientPhoto);
       });
       
-      // Log the photo data availability to verify files are preserved
-      photoStorageManager.logPhotoDataAvailability(uploadedPhotos);
+      // Log the photo data availability
+      photoLogger.info('Upload complete with photos:', 
+        uploadedPhotos.map(p => ({
+          id: p._id || p.id,
+          hasFile: !!p.file,
+          hasPreview: !!p.preview
+        }))
+      );
       
       return {
         success: true,
@@ -178,7 +148,7 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
       success: false,
       error: error.message || 'Upload failed',
       photos: files ? Array.from(files).map(file => ({
-        ...PhotoSchema.createFromFile(file),
+        ...createPhotoFromFile(file),
         status: 'error'
       })) : []
     };
@@ -204,9 +174,6 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
     // Check if we're dealing with photo objects or just IDs
     const hasPhotoObjects = photosOrIds.some(item => typeof item === 'object');
     
-    // Import photoStorageManager to check for local files
-    const photoStorageManager = (await import('./photoStorageManager')).default;
-    
     // Group photos by data availability
     let photoIds = [];
     let photosWithLocalData = [];
@@ -215,13 +182,8 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
       // Process photo objects to determine which ones have local data
       const photoObjects = photosOrIds.filter(item => typeof item === 'object');
       
-      // Log photo data availability for debugging
-      photoStorageManager.logPhotoDataAvailability(photoObjects);
-      
-      // Group photos by data availability
-      const { withLocalData, needsServerAnalysis } = 
-        photoStorageManager.groupPhotosByDataAvailability(photoObjects);
-      
+      // Use the groupPhotosByDataAvailability utility to separate photos with local data
+      const { withLocalData, needsServerAnalysis } = groupPhotosByDataAvailability(photoObjects);
       photosWithLocalData = withLocalData;
       photoIds = needsServerAnalysis.map(photo => photo._id || photo.id).filter(id => id);
       
@@ -248,27 +210,26 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
       
       // Add local files to the FormData
       photosWithLocalData.forEach((photo, index) => {
-        const source = photoStorageManager.getBestDataSource(photo);
+        // Get the best source for uploading
+        const source = getBestDataSource(photo);
+        let file = null;
         
         if (source.type === 'file' && photo.file) {
           // We have a file object
-          payload.append('photos', photo.file);
-          payload.append('photoMetadata', JSON.stringify({
-            index,
-            id: photo._id || photo.id,
-            clientId: photo.clientId
-          }));
+          file = photo.file;
         } else if (source.type === 'dataUrl' && source.data) {
           // Convert data URL to file
           const dataUrl = source.data;
           const blob = dataURLtoBlob(dataUrl);
-          const file = new File([blob], `photo_${photo._id || photo.clientId || index}.jpg`, { type: 'image/jpeg' });
-          
+          file = new File([blob], `photo_${photo._id || photo.id || index}.jpg`, { type: 'image/jpeg' });
+        }
+        
+        if (file) {
           payload.append('photos', file);
           payload.append('photoMetadata', JSON.stringify({
             index,
             id: photo._id || photo.id,
-            clientId: photo.clientId
+            clientId: photo.clientId || photo.id
           }));
         }
       });
@@ -284,7 +245,7 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
     const response = await api.post('/photos/analyze', payload, config);
     
     // Log the raw response for debugging
-    console.log('Raw API response from analyzePhotos:', {
+    photoLogger.debug('Raw API response from analyzePhotos:', {
       success: response.data.success,
       hasData: !!response.data.data,
       dataKeys: response.data.data ? Object.keys(response.data.data) : 'none',
@@ -300,25 +261,12 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
       
       photoLogger.info(`Received analysis results for ${serverAnalyzedPhotos.length} photos`);
       
-      // Log the first photo's structure if available
-      if (serverAnalyzedPhotos.length > 0) {
-        const samplePhoto = serverAnalyzedPhotos[0];
-        photoLogger.info('Sample analyzed photo structure:', {
-          id: samplePhoto._id || samplePhoto.id,
-          hasAnalysis: !!samplePhoto.analysis,
-          analysisKeys: samplePhoto.analysis ? Object.keys(samplePhoto.analysis) : 'none'
-        });
-      }
-      
       if (hasPhotoObjects) {
         // For photo objects, we need to return results in a format that matches
         // what the client expects from the previous implementation
-        const results = serverAnalyzedPhotos.map((serverPhoto, index) => {
-          // Ensure we have a valid photoId by using the server's _id, id, or falling back to the original photo's id
-          const photoId = serverPhoto._id || serverPhoto.id || 
-                         (photosWithLocalData[index] ? (photosWithLocalData[index]._id || photosWithLocalData[index].id || photosWithLocalData[index].clientId) : `photo_${index}`);
-          
-          console.log(`Mapping server photo to result: index=${index}, photoId=${photoId}, hasAnalysis=${!!serverPhoto.analysis}`);
+        const results = serverAnalyzedPhotos.map((serverPhoto) => {
+          // Ensure we have a valid photoId
+          const photoId = serverPhoto._id || serverPhoto.id || '';
           
           return {
             success: true,
@@ -335,7 +283,7 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
         // For photo IDs, return the photos directly
         // Transform photos to client format if needed
         const clientAnalyzedPhotos = serverAnalyzedPhotos.map(photo => 
-          PhotoSchema.deserializeFromApi(photo)
+          preservePhotoData(PhotoSchema.deserializeFromApi(photo))
         );
         
         return {
@@ -360,25 +308,6 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
     };
   }
 };
-
-/**
- * Helper function to convert a data URL to a Blob
- * @param {String} dataUrl - The data URL to convert
- * @returns {Blob} - The resulting Blob
- */
-function dataURLtoBlob(dataUrl) {
-  const arr = dataUrl.split(',');
-  const mime = arr[0].match(/:(.*?);/)[1];
-  const bstr = atob(arr[1]);
-  let n = bstr.length;
-  const u8arr = new Uint8Array(n);
-  
-  while (n--) {
-    u8arr[n] = bstr.charCodeAt(n);
-  }
-  
-  return new Blob([u8arr], { type: mime });
-}
 
 /**
  * Delete a photo

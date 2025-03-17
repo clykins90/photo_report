@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { validateReportForm } from '../../utils/formValidation';
 import { useReportContext } from '../../context/ReportContext';
 import { useAuth } from '../../context/AuthContext';
@@ -19,6 +19,31 @@ const BasicInfoStep = () => {
     nextStep,
     error: contextError
   } = useReportContext();
+
+  // Memoize the report values to prevent unnecessary re-renders
+  const reportValues = useMemo(() => ({
+    title: report.title || '',
+    clientName: report.clientName || '',
+    propertyAddress: {
+      street: report.propertyAddress?.street || '',
+      city: report.propertyAddress?.city || '',
+      state: report.propertyAddress?.state || '',
+      zipCode: report.propertyAddress?.zipCode || '',
+    },
+    inspectionDate: report.inspectionDate || '',
+    weather: {
+      temperature: report.weather?.temperature || '',
+      conditions: report.weather?.conditions || '',
+      windSpeed: report.weather?.windSpeed || '',
+    }
+  }), [report]);
+
+  // Create a stable onChange handler to avoid recreating it on every render
+  const onChange = useCallback((e) => {
+    if (handleChange) {
+      handleChange(e);
+    }
+  }, [handleChange]);
 
   // Handle next button click
   const handleNextClick = useCallback(() => {
@@ -48,8 +73,8 @@ const BasicInfoStep = () => {
             id="title"
             type="text"
             name="title"
-            value={report.title}
-            onChange={handleChange}
+            value={reportValues.title}
+            onChange={onChange}
             placeholder="e.g., Roof Inspection Report"
             className={errors.title ? 'border-red-500' : ''}
           />
@@ -66,8 +91,8 @@ const BasicInfoStep = () => {
             id="clientName"
             type="text"
             name="clientName"
-            value={report.clientName}
-            onChange={handleChange}
+            value={reportValues.clientName}
+            onChange={onChange}
             placeholder="e.g., John Smith"
             className={errors.clientName ? 'border-red-500' : ''}
           />
@@ -88,8 +113,8 @@ const BasicInfoStep = () => {
                 id="street"
                 type="text"
                 name="propertyAddress.street"
-                value={report.propertyAddress?.street || ''}
-                onChange={handleChange}
+                value={reportValues.propertyAddress.street}
+                onChange={onChange}
                 placeholder="e.g., 123 Main St"
                 className={errors['propertyAddress.street'] ? 'border-red-500' : ''}
               />
@@ -105,8 +130,8 @@ const BasicInfoStep = () => {
                 id="city"
                 type="text"
                 name="propertyAddress.city"
-                value={report.propertyAddress?.city || ''}
-                onChange={handleChange}
+                value={reportValues.propertyAddress.city}
+                onChange={onChange}
                 placeholder="e.g., San Francisco"
                 className={errors['propertyAddress.city'] ? 'border-red-500' : ''}
               />
@@ -122,8 +147,8 @@ const BasicInfoStep = () => {
                 id="state"
                 type="text"
                 name="propertyAddress.state"
-                value={report.propertyAddress?.state || ''}
-                onChange={handleChange}
+                value={reportValues.propertyAddress.state}
+                onChange={onChange}
                 placeholder="e.g., CA"
                 className={errors['propertyAddress.state'] ? 'border-red-500' : ''}
               />
@@ -139,8 +164,8 @@ const BasicInfoStep = () => {
                 id="zipCode"
                 type="text"
                 name="propertyAddress.zipCode"
-                value={report.propertyAddress?.zipCode || ''}
-                onChange={handleChange}
+                value={reportValues.propertyAddress.zipCode}
+                onChange={onChange}
                 placeholder="e.g., 94105"
                 className={errors['propertyAddress.zipCode'] ? 'border-red-500' : ''}
               />
@@ -160,8 +185,8 @@ const BasicInfoStep = () => {
             id="inspectionDate"
             type="date"
             name="inspectionDate"
-            value={report.inspectionDate || ''}
-            onChange={handleChange}
+            value={reportValues.inspectionDate}
+            onChange={onChange}
             className={errors.inspectionDate ? 'border-red-500' : ''}
           />
           {errors.inspectionDate && (
@@ -179,8 +204,8 @@ const BasicInfoStep = () => {
                 id="temperature"
                 type="text"
                 name="weather.temperature"
-                value={report.weather?.temperature || ''}
-                onChange={handleChange}
+                value={reportValues.weather.temperature}
+                onChange={onChange}
                 placeholder="e.g., 75°F"
               />
             </div>
@@ -190,8 +215,8 @@ const BasicInfoStep = () => {
                 id="conditions"
                 type="text"
                 name="weather.conditions"
-                value={report.weather?.conditions || ''}
-                onChange={handleChange}
+                value={reportValues.weather.conditions}
+                onChange={onChange}
                 placeholder="e.g., Partly Cloudy"
               />
             </div>
@@ -201,8 +226,8 @@ const BasicInfoStep = () => {
                 id="windSpeed"
                 type="text"
                 name="weather.windSpeed"
-                value={report.weather?.windSpeed || ''}
-                onChange={handleChange}
+                value={reportValues.weather.windSpeed}
+                onChange={onChange}
                 placeholder="e.g., 5-10 mph"
               />
             </div>

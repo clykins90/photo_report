@@ -21,12 +21,29 @@ const PhotoUploadStep = ({
       : []
   );
   
-  // Update currentPhotos when uploadedPhotos changes
+  // Update currentPhotos when uploadedPhotos changes, but more carefully to avoid loops
   useEffect(() => {
-    if (uploadedPhotos && uploadedPhotos.length > 0) {
-      const preservedPhotos = photoStorageManager.preserveBatchPhotoData(uploadedPhotos);
-      setCurrentPhotos(preservedPhotos);
+    // Skip effect if uploadedPhotos is empty
+    if (!uploadedPhotos || uploadedPhotos.length === 0) return;
+    
+    // Skip if the arrays have the same length and we likely already processed these photos
+    // This prevents unnecessary reprocessing of the same photos
+    if (currentPhotos.length === uploadedPhotos.length) {
+      // Check if the photos are likely the same based on some key property
+      // This isn't a deep equality check but should prevent most loops
+      const currentIds = new Set(currentPhotos.map(p => p.id || p.name || p.path || JSON.stringify(p)));
+      const uploadedIds = new Set(uploadedPhotos.map(p => p.id || p.name || p.path || JSON.stringify(p)));
+      
+      // If the sets are the same size and every ID in uploadedIds exists in currentIds
+      if (currentIds.size === uploadedIds.size && 
+          [...uploadedIds].every(id => currentIds.has(id))) {
+        return; // Skip updating as we likely have the same photos
+      }
     }
+    
+    // Only preserve and update if we actually have different photos
+    const preservedPhotos = photoStorageManager.preserveBatchPhotoData(uploadedPhotos);
+    setCurrentPhotos(preservedPhotos);
   }, [uploadedPhotos]);
   
   // Clean up blob URLs when component unmounts

@@ -2,7 +2,6 @@ import React, { useState, useCallback, useRef } from 'react';
 import { usePhotoContext } from '../../context/PhotoContext';
 import { useReportContext } from '../../context/ReportContext';
 import { useAuth } from '../../context/AuthContext';
-import { filterPhotosByStatus } from '../../utils/photoUtils';
 import PhotoDropzone from '../photo/components/PhotoDropzone';
 import PhotoGrid from '../photo/components/PhotoGrid';
 import { Button } from '../ui/button';
@@ -11,7 +10,7 @@ import { Spinner } from '../ui/spinner';
 const PhotoUploadAnalysisStep = () => {
   const { user } = useAuth();
   
-  // Get photo context
+  // Get photo context with all the utilities we need
   const { 
     photos, 
     isUploading, 
@@ -23,6 +22,7 @@ const PhotoUploadAnalysisStep = () => {
     uploadPhotosToServer, 
     analyzePhotos,
     removePhoto,
+    getPhotosByStatus,
     setError: setPhotoError
   } = usePhotoContext();
 
@@ -44,8 +44,8 @@ const PhotoUploadAnalysisStep = () => {
     if (!files || files.length === 0) return;
     
     // Add files to context - the context will handle creating blob URLs
-    addPhotosFromFiles(files, report._id);
-  }, [addPhotosFromFiles, report._id]);
+    addPhotosFromFiles(files, report?._id);
+  }, [addPhotosFromFiles, report?._id]);
 
   // Handle photo removal
   const handleRemovePhoto = useCallback((photo) => {
@@ -59,22 +59,23 @@ const PhotoUploadAnalysisStep = () => {
 
   // Handle individual photo analysis (if needed)
   const handleAnalyzePhoto = useCallback((photo) => {
-    if (!report._id || !photo._id) {
+    if (!report?._id || !photo?._id) {
       setPhotoError('Cannot analyze photo without report ID or photo ID');
       return;
     }
     
     analyzePhotos(report._id, [photo._id]);
-  }, [analyzePhotos, report._id, setPhotoError]);
+  }, [analyzePhotos, report?._id, setPhotoError]);
 
   // Start analysis of all photos
   const handleAnalyzeAll = useCallback(() => {
-    if (!report._id) {
+    if (!report?._id) {
       setPhotoError('Report ID is required for analysis');
       return;
     }
     
-    const uploadedPhotos = filterPhotosByStatus(photos, 'uploaded');
+    // Get uploaded photos using the context function
+    const uploadedPhotos = getPhotosByStatus('uploaded');
     
     if (uploadedPhotos.length === 0) {
       setPhotoError('No uploaded photos to analyze');
@@ -82,11 +83,12 @@ const PhotoUploadAnalysisStep = () => {
     }
     
     analyzePhotos(report._id);
-  }, [analyzePhotos, photos, report._id, setPhotoError]);
+  }, [analyzePhotos, getPhotosByStatus, report?._id, setPhotoError]);
 
   // Generate AI summary from analyzed photos
   const handleGenerateSummary = useCallback(() => {
-    const analyzedPhotos = filterPhotosByStatus(photos, 'analyzed');
+    // Get analyzed photos using the context function
+    const analyzedPhotos = getPhotosByStatus('analyzed');
     
     if (analyzedPhotos.length === 0) {
       setPhotoError('Please analyze photos before generating a summary');
@@ -94,7 +96,7 @@ const PhotoUploadAnalysisStep = () => {
     }
     
     generateSummary();
-  }, [generateSummary, photos, setPhotoError]);
+  }, [generateSummary, getPhotosByStatus, setPhotoError]);
 
   // Navigation handlers
   const handleBack = useCallback(() => {
@@ -128,7 +130,7 @@ const PhotoUploadAnalysisStep = () => {
   // Render the analysis controls
   const renderAnalysisControls = () => {
     // Only show if we have uploaded photos
-    const uploadedPhotos = filterPhotosByStatus(photos, 'uploaded');
+    const uploadedPhotos = getPhotosByStatus('uploaded');
     
     if (uploadedPhotos.length === 0) {
       return null;
@@ -173,7 +175,7 @@ const PhotoUploadAnalysisStep = () => {
             
             <Button
               onClick={handleGenerateSummary}
-              disabled={generatingSummary || filterPhotosByStatus(photos, 'analyzed').length === 0}
+              disabled={generatingSummary || getPhotosByStatus('analyzed').length === 0}
               variant="outline"
             >
               {generatingSummary ? (

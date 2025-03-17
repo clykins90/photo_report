@@ -1,12 +1,17 @@
 import React, { createContext, useState, useContext, useCallback, useEffect, useMemo } from 'react';
 import { uploadPhotos, analyzePhotos as analyzePhotosService, deletePhoto } from '../services/photoService';
-import { createAndTrackBlobUrl, safelyRevokeBlobUrl, cleanupAllBlobUrls } from '../utils/blobUrlManager';
+import { safelyRevokeBlobUrl, cleanupAllBlobUrls } from '../utils/blobUrlManager';
 import {
   createPhotoFromFile,
   updatePhotoWithServerData,
   updatePhotoWithAnalysis,
   extractPhotoIds,
-  filterPhotosByStatus
+  filterPhotosByStatus,
+  getPhotoUrl,
+  preservePhotoData,
+  preserveBatchPhotoData,
+  groupPhotosByDataAvailability,
+  getBestDataSource
 } from '../utils/photoUtils';
 
 // Create context
@@ -21,9 +26,11 @@ export const usePhotoContext = () => {
   return context;
 };
 
-export const PhotoProvider = ({ children }) => {
-  // Main photo state
-  const [photos, setPhotos] = useState([]);
+export const PhotoProvider = ({ children, initialPhotos = [] }) => {
+  // Main photo state - initialize with preserved data if provided
+  const [photos, setPhotos] = useState(() => 
+    preserveBatchPhotoData(initialPhotos)
+  );
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -40,15 +47,17 @@ export const PhotoProvider = ({ children }) => {
     extractPhotoIds(filterPhotosByStatus(photos, 'uploaded'), { serverOnly: true }),
   [photos]);
 
+  // Update with new initialPhotos if they change
+  useEffect(() => {
+    if (initialPhotos && initialPhotos.length > 0) {
+      setPhotos(preserveBatchPhotoData(initialPhotos));
+    }
+  }, [initialPhotos]);
+  
   // Clean up blob URLs when component unmounts
   useEffect(() => {
     return () => {
-      // Cleanup blob URLs to prevent memory leaks
-      photos.forEach(photo => {
-        if (photo.preview && photo.preview.startsWith('blob:')) {
-          safelyRevokeBlobUrl(photo.preview);
-        }
-      });
+      cleanupAllBlobUrls();
     };
   }, []);
 
@@ -58,8 +67,8 @@ export const PhotoProvider = ({ children }) => {
 
     // Create standardized photo objects using our utility
     const newPhotos = Array.from(files).map(file => {
-      const preview = createAndTrackBlobUrl(file);
-      return createPhotoFromFile(file, { preview });
+      // Use the existing createPhotoFromFile which now handles blob creation
+      return createPhotoFromFile(file);
     });
 
     // Add photos to state
@@ -73,6 +82,62 @@ export const PhotoProvider = ({ children }) => {
     return newPhotos;
   }, []);
 
+  // Add photos directly (objects that follow our photo object structure)
+  const addPhotos = useCallback((newPhotos) => {
+    if (!newPhotos || !Array.isArray(newPhotos) || newPhotos.length === 0) return [];
+    
+    const processedPhotos = preserveBatchPhotoData(newPhotos);
+    
+    setPhotos(prevPhotos => [...prevPhotos, ...processedPhotos]);
+    
+    return processedPhotos;
+  }, []);
+
+  // Update existing photos
+  const updatePhotos = useCallback((newPhotos) => {
+    if (!newPhotos || !Array.isArray(newPhotos)) return;
+    
+    setPhotos(preserveBatchPhotoData(newPhotos));
+  }, []);
+
+  // Update a single photo by ID
+  const updatePhoto = useCallback((photoId, updatedData) => {
+    if (!photoId) return;
+    
+    setPhotos(prevPhotos => 
+      prevPhotos.map(photo => {
+        const id = photo._id || photo.id;
+        if (id === photoId) {
+          return preservePhotoData({
+            ...photo,
+            ...updatedData
+          });
+        }
+        return photo;
+      })
+    );
+  }, []);
+  
+  // Update photo upload progress for a specific photo
+  const updatePhotoUploadProgress = useCallback((photoIdentifier, progress) => {
+    setPhotos(prevPhotos => {
+      return prevPhotos.map(photo => {
+        // Match by ID, clientId, or name
+        if (photo.id === photoIdentifier || 
+            photo._id === photoIdentifier || 
+            photo.clientId === photoIdentifier) {
+          
+          return preservePhotoData({
+            ...photo, 
+            uploadProgress: progress, 
+            status: progress < 100 ? 'uploading' : 'uploaded'
+          });
+        }
+        return photo;
+      });
+    });
+  }, []);
+
   // Upload photos to server
   const uploadPhotosToServer = useCallback(async (photosToUpload, reportId) => {
     if (!reportId || !photosToUpload || photosToUpload.length === 0) return;
@@ -83,7 +148,13 @@ export const PhotoProvider = ({ children }) => {
       setError(null);
 
       // Get files to upload
-      const files = photosToUpload.map(photo => photo.file);
+      const files = photosToUpload.map(photo => photo.file).filter(Boolean);
+      
+      if (files.length === 0) {
+        setError('No valid files to upload');
+        setIsUploading(false);
+        return;
+      }
       
       // Upload the files
       const result = await uploadPhotos(
@@ -98,14 +169,17 @@ export const PhotoProvider = ({ children }) => {
             setPhotos(prevPhotos => {
               return prevPhotos.map(photo => {
                 const matchingPhoto = updatedPhotos.find(
-                  up => up.clientId === photo.id || up.name === photo.name
+                  up => up.id === photo.id || up.clientId === photo.clientId
                 );
+                
                 if (matchingPhoto) {
                   return {
                     ...photo,
-                    uploadProgress: matchingPhoto.uploadProgress || progress
+                    uploadProgress: progress,
+                    status: progress < 100 ? 'uploading' : 'uploaded'
                   };
                 }
+                
                 return photo;
               });
             });
@@ -114,153 +188,302 @@ export const PhotoProvider = ({ children }) => {
       );
 
       if (result.success) {
-        // Update photos with server data using our utility
-        const serverPhotos = result.data?.photos || [];
+        const { photos: uploadedPhotos } = result.data;
         
+        // Update photos with server data
         setPhotos(prevPhotos => {
           return prevPhotos.map(photo => {
-            const serverPhoto = serverPhotos.find(
-              sp => sp.clientId === photo.id || sp.name === photo.name
+            // Find matching uploaded photo by id or clientId
+            const uploadedPhoto = uploadedPhotos.find(
+              up => up.id === photo.id || 
+                   up.clientId === photo.clientId || 
+                   up._id === photo._id
             );
             
-            if (serverPhoto) {
-              return updatePhotoWithServerData(photo, serverPhoto);
+            if (uploadedPhoto) {
+              // Use our utility to properly update the photo
+              return updatePhotoWithServerData(photo, uploadedPhoto);
             }
+            
             return photo;
           });
         });
       } else {
-        setError(result.error || 'Upload failed');
+        // Handle error
+        setError(result.error || 'Failed to upload photos');
+        
+        // Mark photos as error
+        setPhotos(prevPhotos => {
+          return prevPhotos.map(photo => {
+            if (photosToUpload.some(p => p.id === photo.id || p._id === photo._id)) {
+              return { ...photo, status: 'error' };
+            }
+            return photo;
+          });
+        });
       }
-    } catch (err) {
-      setError(`Upload error: ${err.message}`);
+    } catch (error) {
+      console.error('Error uploading photos:', error);
+      setError(error.message || 'Failed to upload photos');
+      
+      // Mark photos as error
+      setPhotos(prevPhotos => {
+        return prevPhotos.map(photo => {
+          if (photosToUpload.some(p => p.id === photo.id || p._id === photo._id)) {
+            return { ...photo, status: 'error' };
+          }
+          return photo;
+        });
+      });
     } finally {
       setIsUploading(false);
     }
   }, []);
 
-  // Analyze photos
-  const analyzePhotos = useCallback(async (reportId, photoIds = null) => {
+  // Analyze photos (either all uploaded photos or specified photos)
+  const analyzePhotos = useCallback(async (reportId, photosToAnalyze = null) => {
     if (!reportId) {
-      setError('Report ID is required for photo analysis');
+      setError('Report ID is required for analysis');
       return;
     }
-
-    // If no specific photo IDs are provided, use all uploaded photos
-    const photosToAnalyzeIds = photoIds || uploadedPhotoIds;
-
-    if (photosToAnalyzeIds.length === 0) {
+    
+    // If no specific photos provided, use all uploaded photos
+    let photosForAnalysis = photosToAnalyze;
+    
+    if (!photosForAnalysis) {
+      const uploadedPhotos = filterPhotosByStatus(photos, 'uploaded');
+      photosForAnalysis = uploadedPhotos.length > 0 ? uploadedPhotos : [];
+    } else if (!Array.isArray(photosForAnalysis)) {
+      // If a single photo or ID was provided, convert to array
+      photosForAnalysis = [photosForAnalysis];
+    }
+    
+    if (!photosForAnalysis || photosForAnalysis.length === 0) {
       setError('No photos to analyze');
       return;
     }
-
+    
     try {
       setIsAnalyzing(true);
       setAnalysisProgress(0);
       setError(null);
       
-      // Call analysis API with IDs
-      const result = await analyzePhotosService(reportId, photosToAnalyzeIds);
+      // Start with initial progress
+      setAnalysisProgress(10);
+      
+      // Call the service
+      const result = await analyzePhotosService(reportId, photosForAnalysis);
+      
+      // Update progress halfway
+      setAnalysisProgress(50);
       
       if (result.success) {
-        // Get analysis results
-        const analysisResults = result.results || [];
+        // Handle success
+        setAnalysisProgress(75);
         
-        // Update photos with analysis data using our utility
+        // If we got individual results for each photo
+        if (result.results && Array.isArray(result.results)) {
+          setPhotos(prevPhotos => {
+            return prevPhotos.map(photo => {
+              // Find matching result by ID
+              const photoId = photo._id || photo.id;
+              const matchingResult = result.results.find(r => r.photoId === photoId);
+              
+              if (matchingResult && matchingResult.analysis) {
+                // Use utility to update with analysis
+                return updatePhotoWithAnalysis(photo, matchingResult.analysis);
+              }
+              
+              return photo;
+            });
+          });
+        } 
+        // If we got a new array of analyzed photos
+        else if (result.data && result.data.photos) {
+          const analyzedPhotos = result.data.photos;
+          
+          setPhotos(prevPhotos => {
+            return prevPhotos.map(photo => {
+              // Find matching analyzed photo
+              const analyzedPhoto = analyzedPhotos.find(
+                ap => ap._id === photo._id || ap.id === photo.id
+              );
+              
+              if (analyzedPhoto && analyzedPhoto.analysis) {
+                // Use preservePhotoData to ensure we don't lose file data
+                return preservePhotoData({
+                  ...photo,
+                  ...analyzedPhoto,
+                  status: 'analyzed'
+                });
+              }
+              
+              return photo;
+            });
+          });
+        }
+        
+        // Complete progress
+        setAnalysisProgress(100);
+      } else {
+        // Handle error
+        setError(result.error || 'Failed to analyze photos');
+        
+        // Mark photos as error
         setPhotos(prevPhotos => {
           return prevPhotos.map(photo => {
-            const analysis = analysisResults.find(r => r.photoId === photo._id);
+            const photoId = typeof photo === 'string' ? photo : photo._id || photo.id;
+            const photoIds = photosForAnalysis.map(p => 
+              typeof p === 'string' ? p : p._id || p.id
+            );
             
-            if (analysis) {
-              return updatePhotoWithAnalysis(photo, analysis.analysis);
+            if (photoIds.includes(photoId)) {
+              return { ...photo, status: 'error' };
             }
             return photo;
           });
         });
-        
-        setAnalysisProgress(100);
-      } else {
-        setError(result.error || 'Analysis failed');
       }
-    } catch (err) {
-      setError(`Analysis error: ${err.message}`);
+    } catch (error) {
+      console.error('Error analyzing photos:', error);
+      setError(error.message || 'Failed to analyze photos');
+      
+      // Mark photos as error
+      setPhotos(prevPhotos => {
+        return prevPhotos.map(photo => {
+          const photoId = typeof photo === 'string' ? photo : photo._id || photo.id;
+          const photoIds = photosForAnalysis.map(p => 
+            typeof p === 'string' ? p : p._id || p.id
+          );
+          
+          if (photoIds.includes(photoId)) {
+            return { ...photo, status: 'error' };
+          }
+          return photo;
+        });
+      });
     } finally {
       setIsAnalyzing(false);
+      
+      // Reset progress eventually
+      setTimeout(() => {
+        setAnalysisProgress(0);
+      }, 1000);
     }
-  }, [uploadedPhotoIds]); // Depend only on the IDs of uploaded photos, not the entire photos array
+  }, [photos]); // Using photos dependency is not ideal - consider refactoring
 
   // Remove a photo
-  const removePhoto = useCallback(async (photoToRemove) => {
-    // If photo has server ID, delete from server
-    if (photoToRemove._id) {
-      try {
-        await deletePhoto(photoToRemove._id);
-      } catch (err) {
-        setError(`Failed to delete photo: ${err.message}`);
+  const removePhoto = useCallback((photoToRemove) => {
+    if (!photoToRemove) return;
+    
+    setPhotos(prevPhotos => {
+      // Handle when photoToRemove is a string ID
+      if (typeof photoToRemove === 'string') {
+        return prevPhotos.filter(photo => {
+          const shouldKeep = photo._id !== photoToRemove && 
+                            photo.id !== photoToRemove && 
+                            photo.clientId !== photoToRemove;
+          
+          // If removing, cleanup any blob URLs
+          if (!shouldKeep && photo.preview && photo.preview.startsWith('blob:')) {
+            safelyRevokeBlobUrl(photo.preview);
+          }
+          
+          return shouldKeep;
+        });
       }
-    }
-
-    // Remove from local state
-    setPhotos(prevPhotos => prevPhotos.filter(photo => 
-      photo.id !== photoToRemove.id && photo._id !== photoToRemove._id
-    ));
-
-    // Clean up blob URL if it exists
-    if (photoToRemove.preview && photoToRemove.preview.startsWith('blob:')) {
-      safelyRevokeBlobUrl(photoToRemove.preview);
-    }
+      
+      // Handle when photoToRemove is an object
+      return prevPhotos.filter(photo => {
+        const photoId = photoToRemove._id || photoToRemove.id || photoToRemove.clientId;
+        const shouldKeep = photo._id !== photoId && 
+                           photo.id !== photoId && 
+                           photo.clientId !== photoId;
+        
+        // If removing, cleanup any blob URLs
+        if (!shouldKeep && photo.preview && photo.preview.startsWith('blob:')) {
+          safelyRevokeBlobUrl(photo.preview);
+        }
+        
+        return shouldKeep;
+      });
+    });
   }, []);
 
-  // Clear all photos with blob URL cleanup
+  // Clear all photos
   const clearPhotos = useCallback(() => {
-    // Clean up blob URLs
+    // Cleanup blob URLs before clearing
     photos.forEach(photo => {
-      if (photo.preview && photo.preview.startsWith('blob:')) {
+      if (photo && photo.preview && photo.preview.startsWith('blob:')) {
         safelyRevokeBlobUrl(photo.preview);
       }
     });
     
     setPhotos([]);
+    setUploadProgress(0);
+    setAnalysisProgress(0);
+    setIsUploading(false);
+    setIsAnalyzing(false);
+    setError(null);
+  }, []); // No dependency on photos to avoid causing rerenders
+
+  // Get best data source for a photo
+  const getBestPhotoDataSource = useCallback((photo) => {
+    return getBestDataSource(photo);
+  }, []);
+
+  // Get URL for a photo
+  const getPhotoUrlFromContext = useCallback((photo, options = {}) => {
+    return getPhotoUrl(photo, options);
+  }, []);
+  
+  // Group photos by data availability
+  const groupPhotosByAvailability = useCallback((photosToGroup = photos) => {
+    return groupPhotosByDataAvailability(photosToGroup);
   }, [photos]);
 
-  // Reset photo state for a new report
-  const resetPhotoState = useCallback(() => {
-    // We call clearPhotos directly, not through the dependency
-    // Clean up blob URLs
-    photos.forEach(photo => {
-      if (photo.preview && photo.preview.startsWith('blob:')) {
-        safelyRevokeBlobUrl(photo.preview);
-      }
-    });
-    
-    setPhotos([]);
-    
-    setIsUploading(false);
-    setUploadProgress(0);
-    setIsAnalyzing(false);
-    setAnalysisProgress(0);
-    setError(null);
+  // Filter photos by status
+  const getPhotosByStatus = useCallback((status) => {
+    return filterPhotosByStatus(photos, status);
   }, [photos]);
 
   // Context value
-  const contextValue = {
+  const value = {
+    // State
     photos,
     isUploading,
     uploadProgress,
     isAnalyzing,
     analysisProgress,
     error,
-    setError,
+    
+    // Photo management
     addPhotosFromFiles,
-    uploadPhotosToServer,
-    analyzePhotos,
+    addPhotos,
+    updatePhotos,
+    updatePhoto,
     removePhoto,
     clearPhotos,
-    resetPhotoState
+    
+    // Upload functions
+    uploadPhotosToServer,
+    updatePhotoUploadProgress,
+    
+    // Analysis
+    analyzePhotos,
+    
+    // Filtering and data access
+    getPhotosByStatus,
+    groupPhotosByAvailability,
+    getBestPhotoDataSource,
+    getPhotoUrl: getPhotoUrlFromContext,
+    
+    // Error handling
+    setError,
   };
 
   return (
-    <PhotoContext.Provider value={contextValue}>
+    <PhotoContext.Provider value={value}>
       {children}
     </PhotoContext.Provider>
   );
