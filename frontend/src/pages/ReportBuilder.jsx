@@ -34,7 +34,7 @@ const ReportBuilder = ({ isEditing = false }) => {
     goToStep
   } = useReportContext();
   
-  const { photos, resetPhotoState } = usePhotoContext();
+  const { photos, clearPhotos } = usePhotoContext();
   
   // Local state for loading
   const [loading, setLoading] = useState(isEditing);
@@ -63,9 +63,9 @@ const ReportBuilder = ({ isEditing = false }) => {
     } else {
       // Reset states for a new report
       resetReport();
-      resetPhotoState();
+      clearPhotos();
     }
-  }, [isEditing, reportId, loadReport, resetReport, resetPhotoState]);
+  }, [isEditing, reportId, loadReport, resetReport, clearPhotos]);
   
   // Handle form submission
   const handleSubmit = async () => {
