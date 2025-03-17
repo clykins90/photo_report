@@ -36,15 +36,10 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   // Store a reference to the initialPhotos for comparison
   const initialPhotosRef = React.useRef(initialPhotos);
   
-  // Track whether we've initialized photos from initialPhotos
-  const [hasInitialized, setHasInitialized] = React.useState(false);
-  
   // Main photo state - initialize with preserved data if provided
   const [photos, setPhotos] = useState(() => {
     console.log("Initializing photos state with:", initialPhotos?.length);
     if (initialPhotos?.length > 0) {
-      // Mark that we've initialized from initialPhotos
-      setHasInitialized(true);
       // Store reference for comparison
       initialPhotosRef.current = initialPhotos;
       // Return preserved batch
@@ -52,6 +47,8 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     }
     return []; // Empty array if no initialPhotos
   });
+  
+  // Rest of your existing state declarations
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -86,12 +83,11 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     // Save reference for future comparisons
     initialPhotosRef.current = initialPhotos;
     
-    // Don't override existing photos if we've already loaded some with statuses
+    // Don't override existing photos if we've already loaded some
     setPhotos(prevPhotos => {
-      // Never replace non-empty photo array with initialPhotos if we've already processed uploads
-      // This avoids wiping out completed uploads when the parent component rerenders
-      if (prevPhotos.length > 0 && prevPhotos.some(p => p.status === 'uploaded')) {
-        console.log("Already have photos with uploaded status, preserving current state");
+      // Don't overwrite photos that are already in progress or uploaded
+      if (prevPhotos && prevPhotos.length > 0) {
+        console.log("Keeping existing photos instead of replacing with initialPhotos");
         return prevPhotos;
       }
       
@@ -258,7 +254,6 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         // Check if server returns status field
         console.log("Server photo sample:", uploadedPhotos[0]);
         console.log("Does server photo have status field?", uploadedPhotos[0].hasOwnProperty('status'));
-        console.log("Server photo status value:", uploadedPhotos[0].status);
         
         // Debug client photos pre-update
         console.log("Client photo statuses pre-update:", photos.map(p => ({
@@ -266,85 +261,55 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           status: p.status
         })));
         
-        // Debug the state replacement approach
-        const newUploadedState = [];
+        // SIMPLE APPROACH: Create a complete array of updated photos first,
+        // then update state in one operation to avoid race conditions
+        const updatedPhotoArray = [];
         
-        // Update photos with server data in a single, clear operation
-        setPhotos(prevPhotos => {
-          console.log("SetPhotos called with prevPhotos count:", prevPhotos.length);
-          console.log("PrevPhotos status summary:", 
-            prevPhotos.reduce((acc, p) => {
-              acc[p.status] = (acc[p.status] || 0) + 1;
-              return acc;
-            }, {})
+        // First, process all existing photos that need server data
+        photos.forEach(photo => {
+          // Check if this photo's clientId is in the idMapping
+          const serverPhotoId = idMapping && photo.clientId && idMapping[photo.clientId];
+          
+          // Find matching uploaded photo by id, _id, or through the idMapping
+          const uploadedPhoto = uploadedPhotos.find(
+            up => up.id === photo.id || 
+                 up._id === photo._id ||
+                 up._id === serverPhotoId
           );
           
-          const updatedPhotos = prevPhotos.map(photo => {
-            // Check if this photo's clientId is in the idMapping
-            const serverPhotoId = idMapping && photo.clientId && idMapping[photo.clientId];
+          if (uploadedPhoto) {
+            // Update with server data but ENSURE status is 'uploaded'
+            const updatedPhoto = {
+              ...photo,
+              ...uploadedPhoto,
+              _id: uploadedPhoto._id,
+              // Critical: Preserve the file and preview from client
+              file: photo.file,
+              preview: photo.preview,
+              // Critical: Force status to 'uploaded'
+              status: 'uploaded',
+              uploadProgress: 100
+            };
             
-            // Find matching uploaded photo by id, _id, or through the idMapping
-            const uploadedPhoto = uploadedPhotos.find(
-              up => up.id === photo.id || 
-                   up._id === photo._id ||
-                   up._id === serverPhotoId
-            );
-            
-            if (uploadedPhoto) {
-              // Create a completely new object with all required properties
-              // explicitly set status to 'uploaded'
-              const updatedPhoto = updatePhotoWithServerData(photo, uploadedPhoto);
-              console.log("After updatePhotoWithServerData, status is:", updatedPhoto.status);
-              const finalPhoto = preservePhotoData(updatedPhoto);
-              console.log("Final photo status after preserve:", finalPhoto.status);
-              newUploadedState.push(finalPhoto); // Track for debugging
-              return finalPhoto;
-            }
-            
-            // If we have a server ID from the mapping but no matching photo object
-            if (serverPhotoId) {
-              const matchingServerPhoto = uploadedPhotos.find(p => p._id === serverPhotoId);
-              if (matchingServerPhoto) {
-                const updatedPhoto = updatePhotoWithServerData(photo, matchingServerPhoto);
-                console.log("After updatePhotoWithServerData (via idMapping), status is:", updatedPhoto.status);
-                const finalPhoto = preservePhotoData(updatedPhoto);
-                console.log("Final photo status after preserve:", finalPhoto.status);
-                newUploadedState.push(finalPhoto); // Track for debugging
-                return finalPhoto;
-              }
-            }
-            
-            return photo;
-          });
-          
-          // Debug photo statuses after update
-          const statusCounts = {};
-          updatedPhotos.forEach(p => {
-            statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
-          });
-          console.log("Photo statuses after update:", statusCounts);
-          console.log("Updated photos count:", updatedPhotos.length);
-          
-          return updatedPhotos;
+            updatedPhotoArray.push(updatedPhoto);
+          } else {
+            // Keep the original photo if no server match
+            updatedPhotoArray.push(photo);
+          }
         });
         
-        // Log the new state outside the setState callback
-        setTimeout(() => {
-          console.log("Current photos state after update:", 
-            photos.map(p => ({
+        // Update state with our carefully constructed array
+        if (updatedPhotoArray.length > 0) {
+          console.log("Setting photos with explicit status:", 
+            updatedPhotoArray.map(p => ({
               id: p._id || p.id,
-              status: p.status,
-              _processedBy: p._processedBy
+              status: p.status
             }))
           );
-          console.log("New uploaded state we created:", 
-            newUploadedState.map(p => ({
-              id: p._id || p.id,
-              status: p.status,
-              _processedBy: p._processedBy
-            }))
-          );
-        }, 0);
+          
+          // Use the functional update to ensure we're working with latest state
+          setPhotos(updatedPhotoArray);
+        }
       } else {
         // Handle error
         setError(result.error || 'Failed to upload photos');

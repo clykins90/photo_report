@@ -5,7 +5,7 @@ import { uploadPhotos } from '../../services/photoService';
 import { validateReportForm, getFormErrorMessage } from '../../utils/formValidation';
 import AuthContext from '../../context/AuthContext';
 import api from '../../services/api';
-import photoStorageManager from '../../services/photoStorageManager';
+import blobUrlManager from '../../utils/blobUrlManager';
 
 // Import components
 import BasicInfoStep from './BasicInfoStep';
@@ -153,7 +153,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
       }))
     );
     
-    const processedPhotos = photoStorageManager.preserveBatchPhotoData(photos);
+    const processedPhotos = blobUrlManager.preserveBatchPhotoData(photos);
     
     console.log('Processed photos in ReportForm:', 
       processedPhotos.map(p => ({
@@ -689,7 +689,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         }
         
         // Use photoStorageManager to ensure all photo data is preserved
-        const photosWithPreservedData = photoStorageManager.preserveBatchPhotoData(usablePhotos);
+        const photosWithPreservedData = blobUrlManager.preserveBatchPhotoData(usablePhotos);
         
         console.log('Moving to analysis step with photos:', 
           photosWithPreservedData.map(p => ({

@@ -74,6 +74,12 @@ export const createPhotoFromFile = (file, options = {}) => {
 export const updatePhotoWithServerData = (photo, serverData) => {
   if (!photo || !serverData) return photo;
   
+  console.log("updatePhotoWithServerData called with:", {
+    photoId: photo._id || photo.id,
+    photoStatus: photo.status,
+    serverPhotoId: serverData._id
+  });
+  
   // Create a new photo object with merged properties
   const updatedPhoto = {
     ...photo,
@@ -87,6 +93,8 @@ export const updatePhotoWithServerData = (photo, serverData) => {
   
   // Force status to be 'uploaded' - critical for UI state
   updatedPhoto.status = 'uploaded';
+  
+  console.log("updatePhotoWithServerData returning photo with status:", updatedPhoto.status);
   
   return updatedPhoto;
 };
