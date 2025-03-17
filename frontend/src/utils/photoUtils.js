@@ -40,20 +40,29 @@ export const createPhotoFromFile = (file, options = {}) => {
   // Create and track blob URL if needed and not provided
   const preview = options.preview || (file ? createAndTrackBlobUrl(file) : null);
   
-  return {
+  // Create the base photo object
+  const photoObject = {
     // Use client ID from schema for consistency
     id: schemaPhoto.clientId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
     name: file.name || 'Unnamed photo',
     file,
     preview,
-    status: options.status || 'pending',
     uploadProgress: options.uploadProgress || 0,
     // Preserve originalName and other properties from schema
     originalName: file.name,
     contentType: file.type,
-    ...schemaPhoto,
-    ...options
   };
+  
+  // Merge in schema properties
+  Object.assign(photoObject, schemaPhoto);
+  
+  // Merge in options, but ensure status is properly set
+  Object.assign(photoObject, options);
+  
+  // Explicitly set status last to ensure it's not overridden
+  photoObject.status = options.status || 'pending';
+  
+  return photoObject;
 };
 
 /**
@@ -65,16 +74,21 @@ export const createPhotoFromFile = (file, options = {}) => {
 export const updatePhotoWithServerData = (photo, serverData) => {
   if (!photo || !serverData) return photo;
   
-  return {
+  // Create a new photo object with merged properties
+  const updatedPhoto = {
     ...photo,
     _id: serverData._id || serverData.id,
     url: serverData.url || serverData.path,
-    status: 'uploaded',
     uploadProgress: 100,
     // Preserve local data that server doesn't have
     file: photo.file,
     preview: photo.preview
   };
+  
+  // Force status to be 'uploaded' - critical for UI state
+  updatedPhoto.status = 'uploaded';
+  
+  return updatedPhoto;
 };
 
 /**
@@ -164,6 +178,9 @@ export const preservePhotoData = (photo) => {
   
   // Create a new object to avoid modifying the original
   const processedPhoto = { ...photo };
+  
+  // Explicitly preserve status - never lose this information
+  processedPhoto.status = photo.status || 'pending';
   
   // Ensure file object is preserved
   if (photo.file) {

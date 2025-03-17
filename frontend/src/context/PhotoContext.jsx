@@ -206,9 +206,8 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           idMapping
         });
         
-        // Update photos with server data
+        // Update photos with server data in a single, clear operation
         setPhotos(prevPhotos => {
-          // First, map client IDs to server photos using idMapping
           const updatedPhotos = prevPhotos.map(photo => {
             // Check if this photo's clientId is in the idMapping
             const serverPhotoId = idMapping && photo.clientId && idMapping[photo.clientId];
@@ -221,30 +220,28 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             );
             
             if (uploadedPhoto) {
-              // Create updated photo with proper status
-              const updatedPhoto = {
+              // Create a completely new object with all required properties
+              // explicitly set status to 'uploaded'
+              return preservePhotoData({
                 ...photo,
                 _id: uploadedPhoto._id,
-                status: 'uploaded', // Explicitly set status
+                status: 'uploaded', // This is now guaranteed to stick due to our preservePhotoData fix
                 uploadProgress: 100,
                 url: uploadedPhoto.url || uploadedPhoto.path
-              };
-              
-              // Preserve important properties
-              return preservePhotoData(updatedPhoto);
+              });
             }
             
-            // If using idMapping directly
+            // If we have a server ID from the mapping but no matching photo object
             if (serverPhotoId) {
               const matchingServerPhoto = uploadedPhotos.find(p => p._id === serverPhotoId);
               if (matchingServerPhoto) {
-                return {
+                return preservePhotoData({
                   ...photo,
                   _id: serverPhotoId,
-                  status: 'uploaded', // Explicitly set status
+                  status: 'uploaded', // Again, guaranteed to stick with our fixes
                   uploadProgress: 100,
                   url: matchingServerPhoto.url || matchingServerPhoto.path
-                };
+                });
               }
             }
             
