@@ -430,7 +430,8 @@ export const createDataUrlFromFile = (file) => {
   });
 };
 
-export default {
+// Default export that combines function and object access
+const photoUtils = {
   // Photo object management
   createPhotoFromFile,
   updatePhotoWithServerData,
@@ -453,4 +454,16 @@ export default {
   blobToDataURL,
   blobToFile,
   createDataUrlFromFile
-}; 
+};
+
+// Make the default export callable as a function
+// This ensures backward compatibility with code that might be calling the module directly
+const moduleExport = function(arg) {
+  // Default behavior when called as a function - redirect to most commonly used function
+  return createPhotoFromFile(arg);
+};
+
+// Add all the properties from photoUtils to the function
+Object.assign(moduleExport, photoUtils);
+
+export default moduleExport; 
