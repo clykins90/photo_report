@@ -482,7 +482,8 @@ export const ReportProvider = ({ children }) => {
     prevStep,
     goToStep,
     resetReport,
-    setError
+    setError,
+    createDraftReport
   };
 
   return (
