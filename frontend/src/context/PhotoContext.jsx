@@ -14,6 +14,9 @@ import {
   getBestDataSource
 } from '../utils/photoUtils';
 
+// Log which preservePhotoData we're using to debug the issue
+console.log('PhotoContext is using preservePhotoData from:', preservePhotoData.toString().substring(0, 100));
+
 // Create context
 const PhotoContext = createContext();
 
@@ -216,6 +219,16 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           idMapping
         });
         
+        // Check if server returns status field
+        console.log("Server photo sample:", uploadedPhotos[0]);
+        console.log("Does server photo have status field?", uploadedPhotos[0].hasOwnProperty('status'));
+        
+        // Debug client photos pre-update
+        console.log("Client photo statuses pre-update:", photos.map(p => ({
+          id: p._id || p.id || p.clientId,
+          status: p.status
+        })));
+        
         // Update photos with server data in a single, clear operation
         setPhotos(prevPhotos => {
           const updatedPhotos = prevPhotos.map(photo => {
@@ -232,26 +245,18 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             if (uploadedPhoto) {
               // Create a completely new object with all required properties
               // explicitly set status to 'uploaded'
-              return preservePhotoData({
-                ...photo,
-                _id: uploadedPhoto._id,
-                status: 'uploaded', // This is now guaranteed to stick due to our preservePhotoData fix
-                uploadProgress: 100,
-                url: uploadedPhoto.url || uploadedPhoto.path
-              });
+              const updatedPhoto = updatePhotoWithServerData(photo, uploadedPhoto);
+              console.log("After updatePhotoWithServerData, status is:", updatedPhoto.status);
+              return preservePhotoData(updatedPhoto);
             }
             
             // If we have a server ID from the mapping but no matching photo object
             if (serverPhotoId) {
               const matchingServerPhoto = uploadedPhotos.find(p => p._id === serverPhotoId);
               if (matchingServerPhoto) {
-                return preservePhotoData({
-                  ...photo,
-                  _id: serverPhotoId,
-                  status: 'uploaded', // Again, guaranteed to stick with our fixes
-                  uploadProgress: 100,
-                  url: matchingServerPhoto.url || matchingServerPhoto.path
-                });
+                const updatedPhoto = updatePhotoWithServerData(photo, matchingServerPhoto);
+                console.log("After updatePhotoWithServerData (via idMapping), status is:", updatedPhoto.status);
+                return preservePhotoData(updatedPhoto);
               }
             }
             

@@ -149,7 +149,13 @@ export const preservePhotoData = (photo) => {
   
   // Ensure path/URL is set
   if (!processedPhoto.url && !processedPhoto.path) {
-    processedPhoto = ensurePhotoUrl(processedPhoto);
+    const urlUpdatedPhoto = ensurePhotoUrl(processedPhoto);
+    // Don't directly assign - it would overwrite the object
+    // Instead, copy just the url/path properties
+    if (urlUpdatedPhoto) {
+      if (urlUpdatedPhoto.url) processedPhoto.url = urlUpdatedPhoto.url;
+      if (urlUpdatedPhoto.path) processedPhoto.path = urlUpdatedPhoto.path;
+    }
   }
   
   // Verify analysis data was preserved

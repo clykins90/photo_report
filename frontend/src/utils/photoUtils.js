@@ -174,6 +174,9 @@ export const groupPhotosByDataAvailability = (photos) => {
  * @returns {Object} - Enhanced photo object with preserved data
  */
 export const preservePhotoData = (photo) => {
+  // Add a unique identifier to verify this is the function being called
+  const SOURCE = "photoUtils.js"; // This helps us track the source
+  
   if (!photo) return null;
   
   console.log("photoUtils.preservePhotoData called with photo:", {
@@ -212,6 +215,9 @@ export const preservePhotoData = (photo) => {
   if (photo.localDataUrl) {
     processedPhoto.localDataUrl = photo.localDataUrl;
   }
+  
+  // Add a debug flag to confirm this function was used
+  processedPhoto._processedBy = SOURCE;
   
   console.log("photoUtils.preservePhotoData returning photo with status:", processedPhoto.status);
   
