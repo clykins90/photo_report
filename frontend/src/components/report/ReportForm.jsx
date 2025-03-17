@@ -9,8 +9,7 @@ import photoStorageManager from '../../services/photoStorageManager';
 
 // Import components
 import BasicInfoStep from './BasicInfoStep';
-import PhotoUploadStep from './PhotoUploadStep';
-import AIAnalysisStep from './AIAnalysisStep';
+import PhotoUploadAnalysisStep from './PhotoUploadAnalysisStep';
 import ReviewStep from './ReviewStep';
 import StepIndicator from './StepIndicator';
 
@@ -781,7 +780,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
         );
       case 2:
         return (
-          <PhotoUploadStep 
+          <PhotoUploadAnalysisStep 
             uploadedPhotos={uploadedPhotos}
             onUploadComplete={handlePhotoUploadComplete}
             reportId={existingReport?._id || formData._id}
@@ -790,22 +789,6 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
           />
         );
       case 3:
-        return (
-          <AIAnalysisStep 
-            uploadedPhotos={uploadedPhotos} 
-            formData={formData} 
-            handlePhotoUploadComplete={handlePhotoUploadComplete} 
-            handleGenerateAISummary={handleGenerateAISummary}
-            generatingSummary={generatingSummary}
-            addDamage={addDamage}
-            updateDamage={updateDamage}
-            removeDamage={removeDamage}
-            reportId={existingReport?._id || formData._id}
-            prevStep={prevStep} 
-            nextStep={nextStep} 
-          />
-        );
-      case 4:
         return (
           <ReviewStep 
             formData={formData}

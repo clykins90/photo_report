@@ -3,8 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import ReportForm from '../ReportForm';
 import BasicInfoStep from '../BasicInfoStep';
-import PhotoUploadStep from '../PhotoUploadStep';
-import AIAnalysisStep from '../AIAnalysisStep';
+import PhotoUploadAnalysisStep from '../PhotoUploadAnalysisStep';
 import ReviewStep from '../ReviewStep';
 import StepIndicator from '../StepIndicator';
 import DamageForm from '../DamageForm';
@@ -65,22 +64,19 @@ describe('Report Form Components', () => {
   
   describe('StepIndicator', () => {
     it('renders the correct step indicators', () => {
-      render(<StepIndicator currentStep={2} totalSteps={4} />);
+      render(<StepIndicator currentStep={2} totalSteps={3} />);
       
       // Step 1 should be completed
       const step1 = screen.getByText('Basic Info').parentElement;
       expect(step1).toHaveClass('text-green-500');
       
       // Step 2 should be active
-      const step2 = screen.getByText('Upload Photos').parentElement;
+      const step2 = screen.getByText('Photos & Analysis').parentElement;
       expect(step2).toHaveClass('text-blue-500');
       
-      // Steps 3 and 4 should be inactive
-      const step3 = screen.getByText('AI Analysis').parentElement;
+      // Step 3 should be inactive
+      const step3 = screen.getByText('Review & Submit').parentElement;
       expect(step3).toHaveClass('text-gray-400');
-      
-      const step4 = screen.getByText('Review & Finalize').parentElement;
-      expect(step4).toHaveClass('text-gray-400');
     });
   });
   
