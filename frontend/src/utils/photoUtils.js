@@ -176,6 +176,12 @@ export const groupPhotosByDataAvailability = (photos) => {
 export const preservePhotoData = (photo) => {
   if (!photo) return null;
   
+  console.log("photoUtils.preservePhotoData called with photo:", {
+    id: photo._id || photo.id,
+    status: photo.status,
+    hasFile: !!photo.file
+  });
+  
   // Create a new object to avoid modifying the original
   const processedPhoto = { ...photo };
   
@@ -206,6 +212,8 @@ export const preservePhotoData = (photo) => {
   if (photo.localDataUrl) {
     processedPhoto.localDataUrl = photo.localDataUrl;
   }
+  
+  console.log("photoUtils.preservePhotoData returning photo with status:", processedPhoto.status);
   
   return processedPhoto;
 };

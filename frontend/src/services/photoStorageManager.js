@@ -27,6 +27,9 @@ class PhotoStorageManager {
     // Create a new object to avoid modifying the original
     const processedPhoto = { ...photo };
     
+    // Explicitly preserve status - critical to ensure it's not lost
+    processedPhoto.status = photo.status || 'pending';
+    
     // Ensure file object is preserved
     if (photo.file) {
       processedPhoto.file = photo.file;

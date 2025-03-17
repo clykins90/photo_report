@@ -183,6 +183,16 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
                 );
                 
                 if (matchingPhoto) {
+                  // When we reach 100%, make absolutely sure the status is 'uploaded'
+                  if (progress >= 100) {
+                    console.log(`Progress callback: Setting photo ${photo.id || photo.clientId} status to 'uploaded'`);
+                    return {
+                      ...photo,
+                      uploadProgress: 100,
+                      status: 'uploaded'
+                    };
+                  }
+                  
                   return {
                     ...photo,
                     uploadProgress: progress,
@@ -520,6 +530,20 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   // Filter photos by status
   const getPhotosByStatus = useCallback((status) => {
     return filterPhotosByStatus(photos, status);
+  }, [photos]);
+
+  // Monitor photo status changes
+  useEffect(() => {
+    // Count photos by status
+    const statusCounts = {};
+    photos.forEach(p => {
+      statusCounts[p.status || 'unknown'] = (statusCounts[p.status || 'unknown'] || 0) + 1;
+    });
+    
+    // Log when we have uploads
+    if (statusCounts.uploaded > 0) {
+      console.log("DETECTED STATUS CHANGE: Now have", statusCounts.uploaded, "uploaded photos");
+    }
   }, [photos]);
 
   // Context value
