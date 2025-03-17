@@ -281,7 +281,33 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       // Start with initial progress
       setAnalysisProgress(10);
       
-      // Call the service
+      // Log what photos we're analyzing for debugging
+      console.log('Sending photo analysis request', {
+        reportId,
+        photoCount: photosForAnalysis.length,
+        photoIds: photosForAnalysis.map(p => typeof p === 'string' ? p : p._id || p.id)
+      });
+      
+      // Update photos status to 'analyzing'
+      setPhotos(prevPhotos => {
+        return prevPhotos.map(photo => {
+          // Check if this photo is being analyzed
+          const isBeingAnalyzed = photosForAnalysis.some(p => {
+            if (typeof p === 'string') {
+              return p === photo._id || p === photo.id;
+            }
+            return p._id === photo._id || p.id === photo.id;
+          });
+          
+          if (isBeingAnalyzed) {
+            return { ...photo, status: 'analyzing' };
+          }
+          
+          return photo;
+        });
+      });
+      
+      // Call the service - this makes the API request to the backend
       const result = await analyzePhotosService(reportId, photosForAnalysis);
       
       // Update progress halfway
@@ -290,6 +316,8 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       if (result.success) {
         // Handle success
         setAnalysisProgress(75);
+        
+        console.log('Analysis successful:', result);
         
         // If we got individual results for each photo
         if (result.results && Array.isArray(result.results)) {
@@ -338,6 +366,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       } else {
         // Handle error
         setError(result.error || 'Failed to analyze photos');
+        console.error('Analysis failed:', result.error);
         
         // Mark photos as error
         setPhotos(prevPhotos => {
@@ -350,12 +379,13 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             if (photoIds.includes(photoId)) {
               return { ...photo, status: 'error' };
             }
+            
             return photo;
           });
         });
       }
     } catch (error) {
-      console.error('Error analyzing photos:', error);
+      console.error('Error during analysis:', error);
       setError(error.message || 'Failed to analyze photos');
       
       // Mark photos as error
@@ -369,18 +399,14 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           if (photoIds.includes(photoId)) {
             return { ...photo, status: 'error' };
           }
+          
           return photo;
         });
       });
     } finally {
       setIsAnalyzing(false);
-      
-      // Reset progress eventually
-      setTimeout(() => {
-        setAnalysisProgress(0);
-      }, 1000);
     }
-  }, [photos]); // Using photos dependency is not ideal - consider refactoring
+  }, [photos]);
 
   // Remove a photo
   const removePhoto = useCallback((photoToRemove) => {

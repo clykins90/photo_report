@@ -456,14 +456,5 @@ const photoUtils = {
   createDataUrlFromFile
 };
 
-// Make the default export callable as a function while preserving object properties
-// This ensures backward compatibility with code that calls the module directly
-const moduleExport = function(arg) {
-  // When called as a function, redirect to createPhotoFromFile
-  return createPhotoFromFile(arg);
-};
-
-// Add all the properties from photoUtils to the function
-Object.assign(moduleExport, photoUtils);
-
-export default moduleExport; 
+// Export the utilities as a plain object
+export default photoUtils; 

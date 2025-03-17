@@ -152,7 +152,7 @@ const PhotoUploadAnalysisStep = () => {
     if (!showLoading) return null;
     
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center z-50 p-4">
+      <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
         <div className="bg-white dark:bg-gray-800 p-6 rounded-lg max-w-md w-full text-center">
           <Spinner className="h-10 w-10 mx-auto mb-4" />
           
@@ -203,12 +203,19 @@ const PhotoUploadAnalysisStep = () => {
     );
   };
 
+  // Count photos by status
+  const uploadedCount = getPhotosByStatus('uploaded').length;
+  const analyzedCount = getPhotosByStatus('analyzed').length;
+  const analysingCount = getPhotosByStatus('analyzing').length;
+  const errorCount = getPhotosByStatus('error').length;
+
   // Render the analysis controls
   const renderAnalysisControls = () => {
     // Only show if we have uploaded photos
     const uploadedPhotos = getPhotosByStatus('uploaded');
+    const analyzedPhotos = getPhotosByStatus('analyzed');
     
-    if (uploadedPhotos.length === 0) {
+    if (photos.length === 0) {
       return null;
     }
     
@@ -216,55 +223,107 @@ const PhotoUploadAnalysisStep = () => {
       <div className="mt-6 p-4 border rounded-lg bg-gray-50 dark:bg-gray-800">
         <h3 className="text-lg font-medium mb-3">AI Photo Analysis</h3>
         
-        <div className="flex flex-col gap-4">
-          <div className="flex justify-between items-center">
-            <div>
-              <p className="font-medium">Analyze all photos</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Use AI to detect damage and analyze roof conditions
-              </p>
-            </div>
-            
-            <Button
-              onClick={handleAnalyzeAll}
-              disabled={isAnalyzing || uploadedPhotos.length === 0}
-            >
-              {isAnalyzing ? (
-                <>
-                  <Spinner className="mr-2 h-4 w-4" />
-                  Analyzing...
-                </>
-              ) : (
-                'Analyze All'
-              )}
-            </Button>
+        {/* Status summary for uploaded photos */}
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          <div className="bg-white dark:bg-gray-700 p-3 rounded-md text-center">
+            <span className="block text-2xl font-bold">{photos.length}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Total</span>
           </div>
-          
-          {/* Summary generation */}
-          <div className="flex justify-between items-center pt-4 border-t">
-            <div>
-              <p className="font-medium">Generate report summary</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Create AI-powered summary based on photo analysis
-              </p>
-            </div>
-            
-            <Button
-              onClick={handleGenerateSummary}
-              disabled={generatingSummary || getPhotosByStatus('analyzed').length === 0}
-              variant="outline"
-            >
-              {generatingSummary ? (
-                <>
-                  <Spinner className="mr-2 h-4 w-4" />
-                  Generating...
-                </>
-              ) : (
-                'Generate Summary'
-              )}
-            </Button>
+          <div className="bg-white dark:bg-gray-700 p-3 rounded-md text-center">
+            <span className="block text-2xl font-bold text-yellow-600">{uploadedCount}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Uploaded</span>
+          </div>
+          <div className="bg-white dark:bg-gray-700 p-3 rounded-md text-center">
+            <span className="block text-2xl font-bold text-green-600">{analyzedCount}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Analyzed</span>
+          </div>
+          <div className="bg-white dark:bg-gray-700 p-3 rounded-md text-center">
+            <span className="block text-2xl font-bold text-red-600">{errorCount}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Errors</span>
           </div>
         </div>
+        
+        <div className="flex flex-col gap-4">
+          {uploadedPhotos.length > 0 && (
+            <div className="flex justify-between items-center p-3 bg-white dark:bg-gray-900 rounded-lg">
+              <div>
+                <p className="font-medium">Analyze all uploaded photos</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Use AI to detect damage and analyze roof conditions
+                </p>
+              </div>
+              
+              <Button
+                onClick={handleAnalyzeAll}
+                disabled={isAnalyzing || uploadedPhotos.length === 0}
+                className="px-6"
+              >
+                {isAnalyzing ? (
+                  <>
+                    <Spinner className="mr-2 h-4 w-4" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
+                        d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                    Analyze All ({uploadedPhotos.length})
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+          
+          {/* Summary generation */}
+          {analyzedPhotos.length > 0 && (
+            <div className="flex justify-between items-center p-3 bg-white dark:bg-gray-900 rounded-lg mt-2">
+              <div>
+                <p className="font-medium">Generate report summary</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Create AI-powered summary based on {analyzedPhotos.length} analyzed photos
+                </p>
+              </div>
+              
+              <Button
+                onClick={handleGenerateSummary}
+                disabled={generatingSummary || analyzedPhotos.length === 0}
+                variant={analyzedPhotos.length > 0 ? "default" : "outline"}
+                className="px-6"
+              >
+                {generatingSummary ? (
+                  <>
+                    <Spinner className="mr-2 h-4 w-4" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Generate Summary
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
+        
+        {/* Analysis instructions */}
+        {photos.length > 0 && (
+          <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-100 dark:border-blue-900 rounded-md">
+            <p className="text-sm text-blue-800 dark:text-blue-300">
+              <span className="font-medium block mb-1">How to analyze your photos:</span>
+              1. Upload photos using the dropzone above<br/>
+              2. Click "Analyze All" to process all photos at once, or<br/>
+              3. Hover over individual photos and click the analyze icon<br/>
+              4. Once analyzed, click on the "AI Analyzed" tag to view results<br/>
+              5. Generate a summary report after analyzing your photos
+            </p>
+          </div>
+        )}
       </div>
     );
   };
@@ -338,10 +397,30 @@ const PhotoUploadAnalysisStep = () => {
         disabled={isUploading} 
       />
       
+      {/* Analytics controls */}
+      {renderAnalysisControls()}
+      
       {/* Use PhotoGrid component for the photo gallery */}
       {photos.length > 0 && (
         <div className="mt-6">
-          <h3 className="text-lg font-medium mb-3">Uploaded Photos ({photos.length})</h3>
+          <h3 className="text-lg font-medium mb-3">
+            Uploaded Photos ({photos.length})
+            {uploadedCount > 0 && !isAnalyzing && (
+              <Button 
+                onClick={handleAnalyzeAll}
+                variant="outline" 
+                size="sm" 
+                className="ml-2"
+                disabled={uploadedCount === 0}
+              >
+                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
+                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                Analyze All ({uploadedCount})
+              </Button>
+            )}
+          </h3>
           <PhotoGrid 
             photos={photos}
             onRemovePhoto={handleRemovePhoto}
@@ -350,7 +429,6 @@ const PhotoUploadAnalysisStep = () => {
         </div>
       )}
       
-      {renderAnalysisControls()}
       {renderNavigation()}
       {renderLoadingOverlay()}
     </div>
