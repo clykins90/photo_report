@@ -13,6 +13,7 @@ This document outlines the refactored frontend architecture for the Photo Report
 7. [Authentication & Login](#authentication--login)
 8. [Blob URL Management](#blob-url-management)
 9. [Component Refactoring Progress](#component-refactoring-progress)
+10. [Photo Upload System Refactoring Plan](#photo-upload-system-refactoring-plan)
 
 ## Overview
 
@@ -824,3 +825,142 @@ function App() {
 ```
 
 This structure ensures proper data flow and context availability throughout the application. 
+
+## Photo Upload System Refactoring Plan
+
+This section outlines our comprehensive plan for refactoring the photo upload and management system, addressing current issues and improving the overall architecture.
+
+### Target Architecture
+
+After refactoring, we'll have a streamlined architecture with these key files:
+
+#### Core Files in Final Architecture
+1. **State Management**
+   - `PhotoContext.jsx` - Central state management for photos
+   - `ReportContext.jsx` - Central state management for reports
+
+2. **Services Layer**
+   - `photoService.js` - API calls for photo operations
+   - `reportService.js` - API calls for report operations
+
+3. **Utilities**
+   - `blobManager.js` - Centralized blob URL management
+   - `photoUtils.js` - Pure functions for photo transformations
+
+4. **Components**
+   - `PhotoUploadAnalysisStep.jsx` - Main UI component
+   - `PhotoItem.jsx` - Individual photo display
+   - `PhotoGrid.jsx` - Photo collection display
+
+#### Files to Eliminate or Consolidate
+- `usePhotoStorage.js` → Merge into PhotoContext
+- `usePhotoUploadState.js` → Merge into PhotoContext
+- `photoStorageManager.js` → Consolidate with blobManager.js
+- Simplify or eliminate redundant utilities
+
+### Refactoring Steps
+
+#### Phase 1: Fix Immediate Issues
+
+1. **Fix PhotoContext.jsx Dependency Arrays**
+   - Update `analyzePhotos` dependency to avoid using entire photos array
+   - Fix `clearPhotos` and other methods with proper dependencies
+   - Ensure all callbacks have stable references
+
+2. **Fix Memory Management**
+   - Ensure proper cleanup of blob URLs
+   - Implement consistent pattern for resource lifecycle
+
+#### Phase 2: Restructure Core Components
+
+3. **Create Centralized Blob Management**
+   - Refactor or create `blobManager.js` to handle all blob URL operations
+   - Move URL tracking from various places to this single manager
+   - Implement registration system for created URLs
+
+4. **Consolidate Photo Utilities**
+   - Create consistent photo object structure in `photoUtils.js`
+   - Move transformation logic from multiple places to this utility
+   - Document the expected properties of photo objects
+
+#### Phase 3: Streamline State Management
+
+5. **Integrate Logic from Custom Hooks**
+   - Move preservation logic from `usePhotoStorage` to PhotoContext
+   - Integrate upload state management from `usePhotoUploadState`
+   - Ensure backward compatibility during transition
+
+6. **Clarify Context Responsibilities**
+   - Separate state management from API calls
+   - Define clear public interface for contexts
+   - Improve error handling patterns
+
+#### Phase 4: Update UI Components
+
+7. **Refactor PhotoUploadAnalysisStep**
+   - Update to use simplified context interface
+   - Reduce component complexity 
+   - Ensure consistent resource management
+
+8. **Simplify Photo Display Components**
+   - Update to use new photo object structure
+   - Remove any state duplication
+   - Improve performance with proper memoization
+
+### Best Practices for Architecture
+
+1. **Clear Dependency Hierarchy**
+   ```
+   UI Components → Contexts → Services → Utilities
+   ```
+   - Components should only depend on contexts
+   - Contexts can use services for API calls
+   - Services use utilities for data transformations
+   - Utilities should be pure functions with no dependencies
+
+2. **Separation of State vs. API Calls**
+   - **Context files**: Handle state management
+   - **Service files**: Handle API calls
+   - Never mix these responsibilities
+
+3. **Clean Interface Design**
+   - **PhotoContext Interface**:
+     ```javascript
+     // Simple, clear interface
+     {
+       photos: [],                         // The photos array
+       status: { uploading, analyzing },   // Upload/analysis status
+       actions: {                          // Functions to modify state
+         addPhotos(),
+         removePhoto(),
+         uploadPhotos(),
+         analyzePhotos()
+       }
+     }
+     ```
+
+4. **Strict State Flow Pattern**
+   1. User interacts with UI
+   2. Component calls context function
+   3. Context updates state and calls service if needed
+   4. Service makes API call and returns result
+   5. Context updates state based on result
+   6. Components re-render with new state
+
+5. **Resource Management**
+   - Single system for tracking and cleaning up resources (blob URLs)
+   - Clear lifecycle hooks for resource creation and cleanup
+   - No reliance on component cleanup for critical operations
+
+### Success Metrics
+
+The refactoring will be successful when:
+
+1. The form input infinite loop issue is resolved
+2. Photo uploads and analysis work correctly
+3. No memory leaks from unreleased blob URLs
+4. Clear separation of responsibilities between files
+5. Simpler, more maintainable code structure
+6. Minimal duplication of logic across files
+
+This refactoring approach prioritizes stability and maintainability while addressing the immediate performance issues. It follows the principle of making the minimal changes necessary to fix problems while improving the overall design.

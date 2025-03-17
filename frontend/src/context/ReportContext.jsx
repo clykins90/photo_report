@@ -283,7 +283,7 @@ export const ReportProvider = ({ children }) => {
       setError('Error creating draft report: ' + err.message);
       throw err;
     }
-  }, [report]);
+  }, [report.title, report.clientName, report.propertyAddress, report.inspectionDate]);
 
   // Submit the report
   const submitReport = useCallback(async (user) => {
@@ -385,7 +385,7 @@ export const ReportProvider = ({ children }) => {
     
     setError(null);
     return true;
-  }, [report, step]);
+  }, [report, step, setError]);
 
   // Move to the next step
   const nextStep = useCallback(async (user) => {
@@ -406,7 +406,7 @@ export const ReportProvider = ({ children }) => {
       setStep(step + 1);
       return report._id;
     }
-  }, [createDraftReport, report._id, step, validateStep]);
+  }, [createDraftReport, report._id, step, validateStep, setError]);
 
   // Move to the previous step
   const prevStep = useCallback(() => {
@@ -428,7 +428,7 @@ export const ReportProvider = ({ children }) => {
     }
     
     setStep(stepNumber);
-  }, [photos.length, validateStep]);
+  }, [photos.length, validateStep, setError]);
 
   // Reset the report state for a new report
   const resetReport = useCallback(() => {

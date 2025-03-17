@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
-import { getPhotoUrl } from '../../../services/photoService';
+import { getBestPhotoUrl } from '../../../utils/photoUtils';
 
 /**
  * Component for displaying individual photo with status and controls
@@ -15,8 +15,8 @@ const PhotoItem = ({
   const [loadError, setLoadError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   
-  // Get the appropriate URL for the photo
-  const imageUrl = getPhotoUrl(photo, 'thumbnail');
+  // Get the appropriate URL for the photo using our utility
+  const imageUrl = getBestPhotoUrl(photo);
   
   // Reset image states when photo changes
   useEffect(() => {
@@ -34,6 +34,24 @@ const PhotoItem = ({
       }, 1000 * (retryCount + 1)); // Increasing backoff
     } else {
       setLoadError(true);
+    }
+  };
+
+  // Determine the status display based on photo.status
+  const getStatusDisplay = () => {
+    if (!photo.status) return null;
+    
+    switch(photo.status) {
+      case 'analyzing':
+        return <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded">Analyzing</span>;
+      case 'analyzed':
+        return <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">AI Analyzed</span>;
+      case 'uploading':
+        return <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">{photo.uploadProgress ? `${photo.uploadProgress}%` : 'Uploading'}</span>;
+      case 'error':
+        return <span className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded">Error</span>;
+      default:
+        return null;
     }
   };
 
@@ -71,8 +89,8 @@ const PhotoItem = ({
         )}
         
         <img
-          src={imageUrl + (retryCount > 0 ? `&retry=${retryCount}` : '')}
-          alt={photo.originalName || "Photo"}
+          src={imageUrl + (retryCount > 0 ? `?retry=${retryCount}` : '')}
+          alt={photo.name || photo.originalName || "Photo"}
           className={`w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
           onLoad={() => setImageLoaded(true)}
           onError={handleImageError}
@@ -81,25 +99,18 @@ const PhotoItem = ({
       
       <div className="flex justify-between items-center">
         <div className="max-w-[70%] truncate text-sm">
-          {photo.originalName || "Unnamed photo"}
+          {photo.name || photo.originalName || "Unnamed photo"}
         </div>
         
         <div className="flex space-x-1">
-          {photo.status === 'analyzing' && (
-            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded">Analyzing</span>
-          )}
-          {photo.analysis && (
-            <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">AI Analyzed</span>
-          )}
-          {photo.error && (
-            <span className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded">Error</span>
-          )}
+          {getStatusDisplay()}
         </div>
       </div>
       
       <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
         <div className="flex space-x-2">
-          {!photo.analysis && photo._id && (
+          {/* Only show analyze button for uploaded photos without analysis */}
+          {photo.status === 'uploaded' && !photo.analysis && (
             <button
               onClick={() => onAnalyze(photo)}
               className="bg-indigo-600 text-white rounded-full p-2 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"

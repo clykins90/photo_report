@@ -1,9 +1,11 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { usePhotoContext } from '../../context/PhotoContext';
 import { useReportContext } from '../../context/ReportContext';
 import { useAuth } from '../../context/AuthContext';
+import { filterPhotosByStatus } from '../../utils/photoUtils';
+import PhotoDropzone from '../photo/components/PhotoDropzone';
+import PhotoGrid from '../photo/components/PhotoGrid';
 import { Button } from '../ui/button';
-import { Card } from '../ui/card';
 import { Spinner } from '../ui/spinner';
 
 const PhotoUploadAnalysisStep = () => {
@@ -34,296 +36,203 @@ const PhotoUploadAnalysisStep = () => {
     nextStep
   } = useReportContext();
 
-  // Local state for the dropzone and analysis UI
-  const [isDragging, setIsDragging] = useState(false);
+  // Local state for selected photo (if needed for details view)
   const [selectedPhoto, setSelectedPhoto] = useState(null);
-  const [batchAnalysisMode, setBatchAnalysisMode] = useState(true);
-  const fileInputRef = useRef(null);
 
-  // Handle file drop
-  const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    // Get files from event
-    const files = e.dataTransfer.files;
+  // Handle file drop from PhotoDropzone
+  const handleDrop = useCallback((files) => {
     if (!files || files.length === 0) return;
     
     // Add files to context - the context will handle creating blob URLs
     addPhotosFromFiles(files, report._id);
   }, [addPhotosFromFiles, report._id]);
 
-  // Handle file selection via the file input
-  const handleFileSelect = useCallback((e) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    
-    addPhotosFromFiles(files, report._id);
-    
-    // Reset the file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  }, [addPhotosFromFiles, report._id]);
-
-  // Handle drag events
-  const handleDragOver = useCallback((e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
-
-  // Handle photo selection (for viewing details)
-  const handlePhotoClick = useCallback((photo) => {
-    setSelectedPhoto(photo);
-  }, []);
-
   // Handle photo removal
-  const handleRemovePhoto = useCallback((photoId) => {
-    removePhoto(photoId);
-    if (selectedPhoto && selectedPhoto.id === photoId) {
+  const handleRemovePhoto = useCallback((photo) => {
+    removePhoto(photo);
+    
+    // If this was the selected photo, clear selection
+    if (selectedPhoto && (selectedPhoto.id === photo.id || selectedPhoto._id === photo._id)) {
       setSelectedPhoto(null);
     }
   }, [removePhoto, selectedPhoto]);
 
-  // Handle photo upload
-  const handleUploadPhotos = useCallback(async () => {
-    try {
-      await uploadPhotosToServer(report._id);
-    } catch (err) {
-      console.error('Error uploading photos:', err);
-      setPhotoError('Failed to upload photos. Please try again.');
+  // Handle individual photo analysis (if needed)
+  const handleAnalyzePhoto = useCallback((photo) => {
+    if (!report._id || !photo._id) {
+      setPhotoError('Cannot analyze photo without report ID or photo ID');
+      return;
     }
-  }, [uploadPhotosToServer, report._id, setPhotoError]);
-
-  // Handle photo analysis
-  const handleAnalyzePhotos = useCallback(async () => {
-    try {
-      await analyzePhotos(report._id);
-    } catch (err) {
-      console.error('Error analyzing photos:', err);
-      setPhotoError('Failed to analyze photos. Please try again.');
-    }
+    
+    analyzePhotos(report._id, [photo._id]);
   }, [analyzePhotos, report._id, setPhotoError]);
 
-  // Handle AI summary generation
-  const handleGenerateSummary = useCallback(async () => {
-    try {
-      await generateSummary(report._id);
-    } catch (err) {
-      console.error('Error generating summary:', err);
-      setPhotoError('Failed to generate summary. Please try again.');
+  // Start analysis of all photos
+  const handleAnalyzeAll = useCallback(() => {
+    if (!report._id) {
+      setPhotoError('Report ID is required for analysis');
+      return;
     }
-  }, [generateSummary, report._id, setPhotoError]);
+    
+    const uploadedPhotos = filterPhotosByStatus(photos, 'uploaded');
+    
+    if (uploadedPhotos.length === 0) {
+      setPhotoError('No uploaded photos to analyze');
+      return;
+    }
+    
+    analyzePhotos(report._id);
+  }, [analyzePhotos, photos, report._id, setPhotoError]);
 
-  return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Photo Upload & Analysis</h2>
-      
-      {(photoError || reportError) && (
-        <div className="bg-red-50 border-l-4 border-red-500 p-4 text-red-700 rounded">
-          <p>{photoError || reportError}</p>
-        </div>
-      )}
-      
-      {/* Photo Upload Area */}
-      <Card className={`border-2 border-dashed p-6 text-center transition-colors ${
-        isDragging ? 'border-primary bg-primary/5' : 'border-gray-300 dark:border-gray-600'
-      }`}>
-        <div
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          className="w-full h-full flex flex-col items-center justify-center py-8"
-        >
-          {isUploading ? (
-            <div className="text-center">
-              <Spinner className="mx-auto h-8 w-8 text-primary mb-4" />
-              <p className="text-gray-600 dark:text-gray-300">
-                Uploading photos... {uploadProgress}%
+  // Generate AI summary from analyzed photos
+  const handleGenerateSummary = useCallback(() => {
+    const analyzedPhotos = filterPhotosByStatus(photos, 'analyzed');
+    
+    if (analyzedPhotos.length === 0) {
+      setPhotoError('Please analyze photos before generating a summary');
+      return;
+    }
+    
+    generateSummary();
+  }, [generateSummary, photos, setPhotoError]);
+
+  // Navigation handlers
+  const handleBack = useCallback(() => {
+    prevStep();
+  }, [prevStep]);
+
+  const handleNext = useCallback(() => {
+    nextStep();
+  }, [nextStep]);
+
+  // Render error messages
+  const renderErrors = () => {
+    const error = photoError || reportError;
+    
+    if (!error) {
+      return null;
+    }
+    
+    return (
+      <div className="mt-4 p-3 bg-red-50 text-red-800 rounded-md border border-red-200">
+        <p className="flex items-center">
+          <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+          {error}
+        </p>
+      </div>
+    );
+  };
+
+  // Render the analysis controls
+  const renderAnalysisControls = () => {
+    // Only show if we have uploaded photos
+    const uploadedPhotos = filterPhotosByStatus(photos, 'uploaded');
+    
+    if (uploadedPhotos.length === 0) {
+      return null;
+    }
+    
+    return (
+      <div className="mt-6 p-4 border rounded-lg">
+        <h3 className="text-lg font-medium mb-3">Photo Analysis</h3>
+        
+        <div className="flex flex-col gap-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="font-medium">Analyze all photos</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Use AI to detect damage and analyze roof conditions
               </p>
             </div>
-          ) : (
-            <>
-              <svg 
-                className="w-16 h-16 text-gray-400 dark:text-gray-500 mb-4" 
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24"
-              >
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth="1.5" 
-                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                />
-              </svg>
-              
-              <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Drag & drop your photos here
-              </h3>
-              
-              <p className="text-gray-500 dark:text-gray-400 mb-4">
-                or click the button below to select files
-              </p>
-              
-              <Button 
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="mb-4"
-              >
-                Select Photos
-              </Button>
-              
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Supported formats: JPG, PNG, HEIC (max 10MB per file)
-              </p>
-              
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="image/*"
-                onChange={handleFileSelect}
-                className="hidden"
-              />
-            </>
-          )}
-        </div>
-      </Card>
-      
-      {/* Photos Gallery */}
-      {photos.length > 0 && (
-        <div className="mt-8">
-          <h3 className="text-lg font-semibold mb-4 text-gray-700 dark:text-gray-300">
-            Uploaded Photos ({photos.length})
-          </h3>
-          
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-6">
-            {photos.map((photo, index) => (
-              <div 
-                key={photo.id || index} 
-                className={`relative overflow-hidden rounded-md border cursor-pointer transition ${
-                  selectedPhoto && selectedPhoto.id === photo.id 
-                    ? 'ring-2 ring-primary border-primary' 
-                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
-                }`}
-                onClick={() => handlePhotoClick(photo)}
-              >
-                {/* Analysis status indicator */}
-                {photo.isAnalyzing && (
-                  <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
-                    <Spinner className="h-6 w-6 text-white" />
-                  </div>
-                )}
-                
-                {/* Analysis completed indicator */}
-                {photo.analysis && (
-                  <div className="absolute top-2 right-2 bg-green-500 text-white rounded-full p-1 z-10">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                )}
-                
-                {/* Image */}
-                <img 
-                  src={photo.url || photo.preview} 
-                  alt={`Photo ${index + 1}`} 
-                  className="w-full h-32 object-cover"
-                />
-                
-                {/* Remove button */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleRemovePhoto(photo.id);
-                  }}
-                  className="absolute top-2 left-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-                
-                {/* Title overlay at bottom */}
-                <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-60 text-white p-1 text-xs truncate">
-                  {photo.name || `Photo ${index + 1}`}
-                </div>
-              </div>
-            ))}
-          </div>
-          
-          {/* Analysis Controls */}
-          <div className="flex flex-wrap gap-3 mt-6">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={handleUploadPhotos}
-              disabled={isUploading || photos.every(p => p.uploaded)}
-            >
-              {isUploading ? (
-                <>
-                  <Spinner className="mr-2 h-4 w-4" />
-                  Uploading...
-                </>
-              ) : 'Upload All Photos'}
-            </Button>
             
             <Button
-              type="button"
-              variant="secondary"
-              onClick={handleAnalyzePhotos}
-              disabled={isAnalyzing || !photos.some(p => p.uploaded) || photos.every(p => p.analysis)}
+              onClick={handleAnalyzeAll}
+              disabled={isAnalyzing || uploadedPhotos.length === 0}
             >
               {isAnalyzing ? (
                 <>
                   <Spinner className="mr-2 h-4 w-4" />
                   Analyzing... {analysisProgress}%
                 </>
-              ) : 'Analyze All Photos'}
+              ) : (
+                'Analyze All'
+              )}
             </Button>
+          </div>
+          
+          {/* Summary generation */}
+          <div className="flex justify-between items-center pt-4 border-t">
+            <div>
+              <p className="font-medium">Generate report summary</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Create AI-powered summary based on photo analysis
+              </p>
+            </div>
             
             <Button
-              type="button"
-              variant="secondary"
               onClick={handleGenerateSummary}
-              disabled={generatingSummary || !photos.some(p => p.analysis)}
+              disabled={generatingSummary || filterPhotosByStatus(photos, 'analyzed').length === 0}
+              variant="outline"
             >
               {generatingSummary ? (
                 <>
                   <Spinner className="mr-2 h-4 w-4" />
-                  Generating Summary...
+                  Generating...
                 </>
-              ) : 'Generate AI Summary'}
+              ) : (
+                'Generate Summary'
+              )}
             </Button>
           </div>
         </div>
+      </div>
+    );
+  };
+
+  // Render navigation buttons
+  const renderNavigation = () => (
+    <div className="mt-8 flex justify-between">
+      <Button onClick={handleBack} variant="outline">
+        Previous
+      </Button>
+      
+      <Button 
+        onClick={handleNext}
+        disabled={photos.length === 0}
+      >
+        Next Step
+      </Button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Photo Upload & Analysis</h2>
+      
+      {renderErrors()}
+      
+      {/* Use the PhotoDropzone component instead of custom implementation */}
+      <PhotoDropzone 
+        onDrop={handleDrop} 
+        disabled={isUploading} 
+      />
+      
+      {/* Use PhotoGrid component for the photo gallery */}
+      {photos.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-lg font-medium mb-3">Uploaded Photos ({photos.length})</h3>
+          <PhotoGrid 
+            photos={photos}
+            onRemovePhoto={handleRemovePhoto}
+            onAnalyzePhoto={handleAnalyzePhoto}
+          />
+        </div>
       )}
       
-      {/* Navigation */}
-      <div className="flex justify-between pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={prevStep}
-        >
-          Previous Step
-        </Button>
-        
-        <Button
-          type="button"
-          onClick={nextStep}
-          disabled={!photos.length || photos.some(p => !p.uploaded)}
-        >
-          Next Step
-        </Button>
-      </div>
+      {renderAnalysisControls()}
+      {renderNavigation()}
     </div>
   );
 };

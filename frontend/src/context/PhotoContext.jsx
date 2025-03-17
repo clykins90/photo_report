@@ -1,5 +1,13 @@
-import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
-import { uploadPhotos, analyzePhotos, deletePhoto } from '../services/photoService';
+import React, { createContext, useState, useContext, useCallback, useEffect, useMemo } from 'react';
+import { uploadPhotos, analyzePhotos as analyzePhotosService, deletePhoto } from '../services/photoService';
+import { createAndTrackBlobUrl, safelyRevokeBlobUrl, cleanupAllBlobUrls } from '../utils/blobUrlManager';
+import {
+  createPhotoFromFile,
+  updatePhotoWithServerData,
+  updatePhotoWithAnalysis,
+  extractPhotoIds,
+  filterPhotosByStatus
+} from '../utils/photoUtils';
 
 // Create context
 const PhotoContext = createContext();
@@ -22,13 +30,23 @@ export const PhotoProvider = ({ children }) => {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [error, setError] = useState(null);
 
+  // Extract photo IDs for dependency arrays using our utility
+  const photoIds = useMemo(() => 
+    extractPhotoIds(photos, { includeClientIds: true }),
+  [photos]);
+
+  // Extract uploaded photo IDs for analysis using our utility
+  const uploadedPhotoIds = useMemo(() => 
+    extractPhotoIds(filterPhotosByStatus(photos, 'uploaded'), { serverOnly: true }),
+  [photos]);
+
   // Clean up blob URLs when component unmounts
   useEffect(() => {
     return () => {
       // Cleanup blob URLs to prevent memory leaks
       photos.forEach(photo => {
         if (photo.preview && photo.preview.startsWith('blob:')) {
-          URL.revokeObjectURL(photo.preview);
+          safelyRevokeBlobUrl(photo.preview);
         }
       });
     };
@@ -38,17 +56,10 @@ export const PhotoProvider = ({ children }) => {
   const addPhotosFromFiles = useCallback((files, reportId = null) => {
     if (!files || files.length === 0) return;
 
-    // Create standardized photo objects
+    // Create standardized photo objects using our utility
     const newPhotos = Array.from(files).map(file => {
-      const photoObj = {
-        id: `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-        name: file.name,
-        file,
-        preview: URL.createObjectURL(file),
-        status: 'pending',
-        uploadProgress: 0
-      };
-      return photoObj;
+      const preview = createAndTrackBlobUrl(file);
+      return createPhotoFromFile(file, { preview });
     });
 
     // Add photos to state
@@ -103,7 +114,7 @@ export const PhotoProvider = ({ children }) => {
       );
 
       if (result.success) {
-        // Update photos with server data
+        // Update photos with server data using our utility
         const serverPhotos = result.data?.photos || [];
         
         setPhotos(prevPhotos => {
@@ -113,13 +124,7 @@ export const PhotoProvider = ({ children }) => {
             );
             
             if (serverPhoto) {
-              return {
-                ...photo,
-                _id: serverPhoto._id,
-                status: 'uploaded',
-                uploadProgress: 100,
-                url: serverPhoto.url || photo.preview
-              };
+              return updatePhotoWithServerData(photo, serverPhoto);
             }
             return photo;
           });
@@ -142,11 +147,9 @@ export const PhotoProvider = ({ children }) => {
     }
 
     // If no specific photo IDs are provided, use all uploaded photos
-    const photosToAnalyze = photoIds 
-      ? photos.filter(p => photoIds.includes(p._id))
-      : photos.filter(p => p._id && p.status === 'uploaded');
+    const photosToAnalyzeIds = photoIds || uploadedPhotoIds;
 
-    if (photosToAnalyze.length === 0) {
+    if (photosToAnalyzeIds.length === 0) {
       setError('No photos to analyze');
       return;
     }
@@ -155,28 +158,21 @@ export const PhotoProvider = ({ children }) => {
       setIsAnalyzing(true);
       setAnalysisProgress(0);
       setError(null);
-
-      // Extract IDs for analysis
-      const idsForAnalysis = photosToAnalyze.map(p => p._id);
       
-      // Call analysis API
-      const result = await analyzePhotos(reportId, idsForAnalysis);
+      // Call analysis API with IDs
+      const result = await analyzePhotosService(reportId, photosToAnalyzeIds);
       
       if (result.success) {
         // Get analysis results
         const analysisResults = result.results || [];
         
-        // Update photos with analysis data
+        // Update photos with analysis data using our utility
         setPhotos(prevPhotos => {
           return prevPhotos.map(photo => {
             const analysis = analysisResults.find(r => r.photoId === photo._id);
             
             if (analysis) {
-              return {
-                ...photo,
-                analysis: analysis.analysis,
-                status: 'analyzed'
-              };
+              return updatePhotoWithAnalysis(photo, analysis.analysis);
             }
             return photo;
           });
@@ -191,7 +187,7 @@ export const PhotoProvider = ({ children }) => {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [photos]);
+  }, [uploadedPhotoIds]); // Depend only on the IDs of uploaded photos, not the entire photos array
 
   // Remove a photo
   const removePhoto = useCallback(async (photoToRemove) => {
@@ -211,16 +207,16 @@ export const PhotoProvider = ({ children }) => {
 
     // Clean up blob URL if it exists
     if (photoToRemove.preview && photoToRemove.preview.startsWith('blob:')) {
-      URL.revokeObjectURL(photoToRemove.preview);
+      safelyRevokeBlobUrl(photoToRemove.preview);
     }
   }, []);
 
-  // Clear all photos
+  // Clear all photos with blob URL cleanup
   const clearPhotos = useCallback(() => {
     // Clean up blob URLs
     photos.forEach(photo => {
       if (photo.preview && photo.preview.startsWith('blob:')) {
-        URL.revokeObjectURL(photo.preview);
+        safelyRevokeBlobUrl(photo.preview);
       }
     });
     
@@ -229,13 +225,22 @@ export const PhotoProvider = ({ children }) => {
 
   // Reset photo state for a new report
   const resetPhotoState = useCallback(() => {
-    clearPhotos();
+    // We call clearPhotos directly, not through the dependency
+    // Clean up blob URLs
+    photos.forEach(photo => {
+      if (photo.preview && photo.preview.startsWith('blob:')) {
+        safelyRevokeBlobUrl(photo.preview);
+      }
+    });
+    
+    setPhotos([]);
+    
     setIsUploading(false);
     setUploadProgress(0);
     setIsAnalyzing(false);
     setAnalysisProgress(0);
     setError(null);
-  }, [clearPhotos]);
+  }, [photos]);
 
   // Context value
   const contextValue = {
