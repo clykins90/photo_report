@@ -19,6 +19,7 @@ const PhotoContext = createContext();
 
 // Custom hook for using the photo context
 export const usePhotoContext = () => {
+  console.log("usePhotoContext called");
   const context = useContext(PhotoContext);
   if (!context) {
     throw new Error('usePhotoContext must be used within a PhotoProvider');
@@ -27,10 +28,13 @@ export const usePhotoContext = () => {
 };
 
 export const PhotoProvider = ({ children, initialPhotos = [] }) => {
+  console.log("PhotoProvider rendering with initialPhotos:", initialPhotos?.length);
+  
   // Main photo state - initialize with preserved data if provided
-  const [photos, setPhotos] = useState(() => 
-    preserveBatchPhotoData(initialPhotos)
-  );
+  const [photos, setPhotos] = useState(() => {
+    console.log("Initializing photos state with:", initialPhotos?.length);
+    return preserveBatchPhotoData(initialPhotos);
+  });
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -38,17 +42,20 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   const [error, setError] = useState(null);
 
   // Extract photo IDs for dependency arrays using our utility
-  const photoIds = useMemo(() => 
-    extractPhotoIds(photos, { includeClientIds: true }),
-  [photos]);
+  const photoIds = useMemo(() => {
+    console.log("Extracting photoIds");
+    return extractPhotoIds(photos, { includeClientIds: true });
+  }, [photos]);
 
   // Extract uploaded photo IDs for analysis using our utility
-  const uploadedPhotoIds = useMemo(() => 
-    extractPhotoIds(filterPhotosByStatus(photos, 'uploaded'), { serverOnly: true }),
-  [photos]);
+  const uploadedPhotoIds = useMemo(() => {
+    console.log("Extracting uploadedPhotoIds");
+    return extractPhotoIds(filterPhotosByStatus(photos, 'uploaded'), { serverOnly: true });
+  }, [photos]);
 
   // Update with new initialPhotos if they change
   useEffect(() => {
+    console.log("initialPhotos useEffect running:", initialPhotos?.length);
     if (initialPhotos && initialPhotos.length > 0) {
       setPhotos(preserveBatchPhotoData(initialPhotos));
     }
@@ -56,13 +63,16 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   
   // Clean up blob URLs when component unmounts
   useEffect(() => {
+    console.log("Setting up blob URL cleanup on unmount");
     return () => {
+      console.log("Cleaning up blob URLs on unmount");
       cleanupAllBlobUrls();
     };
   }, []);
 
   // Add new photos from files
   const addPhotosFromFiles = useCallback((files, reportId = null) => {
+    console.log("addPhotosFromFiles called with files:", files?.length, "reportId:", reportId);
     if (!files || files.length === 0) return;
 
     // Create standardized photo objects using our utility
@@ -481,6 +491,12 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     // Error handling
     setError,
   };
+  
+  console.log("PhotoContext providing with:", { 
+    photosCount: photos.length, 
+    isUploading, 
+    isAnalyzing 
+  });
 
   return (
     <PhotoContext.Provider value={value}>

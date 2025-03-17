@@ -9,6 +9,7 @@ const ReportContext = createContext();
 
 // Custom hook for using the report context
 export const useReportContext = () => {
+  console.log("useReportContext called");
   const context = useContext(ReportContext);
   if (!context) {
     throw new Error('useReportContext must be used within a ReportProvider');
@@ -17,12 +18,16 @@ export const useReportContext = () => {
 };
 
 export const ReportProvider = ({ children }) => {
+  console.log("ReportProvider rendering");
+  
   // Get photo context
   const { 
     photos, 
     uploadPhotosToServer, 
     analyzePhotos: analyzePhotosInContext 
   } = usePhotoContext();
+  
+  console.log("PhotoContext values retrieved:", { photosLength: photos?.length });
 
   // Report state
   const [report, setReport] = useState({
@@ -47,6 +52,7 @@ export const ReportProvider = ({ children }) => {
     materials: '',
     tags: []
   });
+  console.log("Initial report state:", report);
 
   // Additional state
   const [step, setStep] = useState(1);
@@ -58,6 +64,7 @@ export const ReportProvider = ({ children }) => {
 
   // Handle field changes
   const handleChange = useCallback((e) => {
+    console.log("handleChange called with:", e.target?.name, e.target?.value);
     const { name, value } = e.target;
     
     if (name.includes('.')) {
@@ -79,6 +86,7 @@ export const ReportProvider = ({ children }) => {
 
   // Load existing report
   const loadReport = useCallback((reportData) => {
+    console.log("loadReport called with:", reportData);
     if (!reportData) return;
 
     // Set report data
@@ -258,6 +266,7 @@ export const ReportProvider = ({ children }) => {
 
   // Create a draft report to get an ID
   const createDraftReport = useCallback(async (user) => {
+    console.log("createDraftReport called with user:", user);
     try {
       // Create a minimal report with just the basic info
       const draftData = {
@@ -269,8 +278,10 @@ export const ReportProvider = ({ children }) => {
         user: user?._id
       };
       
+      console.log("Creating draft with data:", draftData);
       const response = await createReport(draftData);
       const reportId = response._id || response.data._id;
+      console.log("Draft report created with ID:", reportId);
       
       // Update report with the new ID
       setReport(prev => ({
@@ -280,6 +291,7 @@ export const ReportProvider = ({ children }) => {
       
       return reportId;
     } catch (err) {
+      console.error("Error creating draft report:", err);
       setError('Error creating draft report: ' + err.message);
       throw err;
     }
@@ -287,6 +299,7 @@ export const ReportProvider = ({ children }) => {
 
   // Submit the report
   const submitReport = useCallback(async (user) => {
+    console.log("submitReport called with user:", user);
     if (!user) {
       setError('You must be logged in to submit a report');
       return;
@@ -376,6 +389,7 @@ export const ReportProvider = ({ children }) => {
 
   // Validate the current step
   const validateStep = useCallback((currentStep = step) => {
+    console.log("validateStep called for step:", currentStep);
     const { isValid, errors } = validateReportForm(report, currentStep);
     
     if (!isValid) {
@@ -389,6 +403,7 @@ export const ReportProvider = ({ children }) => {
 
   // Move to the next step
   const nextStep = useCallback(async (user) => {
+    console.log("nextStep called with user:", user);
     // Validate current step
     if (!validateStep()) return;
     
@@ -485,6 +500,12 @@ export const ReportProvider = ({ children }) => {
     setError,
     createDraftReport
   };
+
+  console.log("Providing context with value:", { 
+    reportHasId: !!report._id,
+    currentStep: step,
+    hasError: !!error
+  });
 
   return (
     <ReportContext.Provider value={contextValue}>
