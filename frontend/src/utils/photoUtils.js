@@ -188,8 +188,16 @@ export const preservePhotoData = (photo) => {
   // Create a new object to avoid modifying the original
   const processedPhoto = { ...photo };
   
-  // Explicitly preserve status - never lose this information
-  processedPhoto.status = photo.status || 'pending';
+  // Skip defaults and ALWAYS keep existing status if present
+  // This is critical to prevent overwriting 'uploaded' status
+  if (photo.status) {
+    processedPhoto.status = photo.status;
+    console.log(`Preserving existing status: ${photo.status} for photo ${photo._id || photo.id}`);
+  } else {
+    // Only use default if truly missing
+    processedPhoto.status = 'pending';
+    console.log(`No status found, defaulting to 'pending' for photo ${photo._id || photo.id}`);
+  }
   
   // Ensure file object is preserved
   if (photo.file) {

@@ -33,10 +33,24 @@ export const usePhotoContext = () => {
 export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   console.log("PhotoProvider rendering with initialPhotos:", initialPhotos?.length);
   
+  // Store a reference to the initialPhotos for comparison
+  const initialPhotosRef = React.useRef(initialPhotos);
+  
+  // Track whether we've initialized photos from initialPhotos
+  const [hasInitialized, setHasInitialized] = React.useState(false);
+  
   // Main photo state - initialize with preserved data if provided
   const [photos, setPhotos] = useState(() => {
     console.log("Initializing photos state with:", initialPhotos?.length);
-    return preserveBatchPhotoData(initialPhotos);
+    if (initialPhotos?.length > 0) {
+      // Mark that we've initialized from initialPhotos
+      setHasInitialized(true);
+      // Store reference for comparison
+      initialPhotosRef.current = initialPhotos;
+      // Return preserved batch
+      return preserveBatchPhotoData(initialPhotos);
+    }
+    return []; // Empty array if no initialPhotos
   });
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -59,9 +73,31 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   // Update with new initialPhotos if they change
   useEffect(() => {
     console.log("initialPhotos useEffect running:", initialPhotos?.length);
-    if (initialPhotos && initialPhotos.length > 0) {
-      setPhotos(preserveBatchPhotoData(initialPhotos));
+    
+    // Skip if we have no initialPhotos
+    if (!initialPhotos || initialPhotos.length === 0) return;
+    
+    // Skip if these are the same initialPhotos we've already processed
+    if (initialPhotosRef.current === initialPhotos) {
+      console.log("initialPhotos reference hasn't changed, skipping update");
+      return;
     }
+    
+    // Save reference for future comparisons
+    initialPhotosRef.current = initialPhotos;
+    
+    // Don't override existing photos if we've already loaded some with statuses
+    setPhotos(prevPhotos => {
+      // Never replace non-empty photo array with initialPhotos if we've already processed uploads
+      // This avoids wiping out completed uploads when the parent component rerenders
+      if (prevPhotos.length > 0 && prevPhotos.some(p => p.status === 'uploaded')) {
+        console.log("Already have photos with uploaded status, preserving current state");
+        return prevPhotos;
+      }
+      
+      console.log("Loading new initialPhotos");
+      return preserveBatchPhotoData(initialPhotos);
+    });
   }, [initialPhotos]);
   
   // Clean up blob URLs when component unmounts
@@ -222,6 +258,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         // Check if server returns status field
         console.log("Server photo sample:", uploadedPhotos[0]);
         console.log("Does server photo have status field?", uploadedPhotos[0].hasOwnProperty('status'));
+        console.log("Server photo status value:", uploadedPhotos[0].status);
         
         // Debug client photos pre-update
         console.log("Client photo statuses pre-update:", photos.map(p => ({
@@ -229,8 +266,19 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           status: p.status
         })));
         
+        // Debug the state replacement approach
+        const newUploadedState = [];
+        
         // Update photos with server data in a single, clear operation
         setPhotos(prevPhotos => {
+          console.log("SetPhotos called with prevPhotos count:", prevPhotos.length);
+          console.log("PrevPhotos status summary:", 
+            prevPhotos.reduce((acc, p) => {
+              acc[p.status] = (acc[p.status] || 0) + 1;
+              return acc;
+            }, {})
+          );
+          
           const updatedPhotos = prevPhotos.map(photo => {
             // Check if this photo's clientId is in the idMapping
             const serverPhotoId = idMapping && photo.clientId && idMapping[photo.clientId];
@@ -247,7 +295,10 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
               // explicitly set status to 'uploaded'
               const updatedPhoto = updatePhotoWithServerData(photo, uploadedPhoto);
               console.log("After updatePhotoWithServerData, status is:", updatedPhoto.status);
-              return preservePhotoData(updatedPhoto);
+              const finalPhoto = preservePhotoData(updatedPhoto);
+              console.log("Final photo status after preserve:", finalPhoto.status);
+              newUploadedState.push(finalPhoto); // Track for debugging
+              return finalPhoto;
             }
             
             // If we have a server ID from the mapping but no matching photo object
@@ -256,7 +307,10 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
               if (matchingServerPhoto) {
                 const updatedPhoto = updatePhotoWithServerData(photo, matchingServerPhoto);
                 console.log("After updatePhotoWithServerData (via idMapping), status is:", updatedPhoto.status);
-                return preservePhotoData(updatedPhoto);
+                const finalPhoto = preservePhotoData(updatedPhoto);
+                console.log("Final photo status after preserve:", finalPhoto.status);
+                newUploadedState.push(finalPhoto); // Track for debugging
+                return finalPhoto;
               }
             }
             
@@ -269,9 +323,28 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
           });
           console.log("Photo statuses after update:", statusCounts);
+          console.log("Updated photos count:", updatedPhotos.length);
           
           return updatedPhotos;
         });
+        
+        // Log the new state outside the setState callback
+        setTimeout(() => {
+          console.log("Current photos state after update:", 
+            photos.map(p => ({
+              id: p._id || p.id,
+              status: p.status,
+              _processedBy: p._processedBy
+            }))
+          );
+          console.log("New uploaded state we created:", 
+            newUploadedState.map(p => ({
+              id: p._id || p.id,
+              status: p.status,
+              _processedBy: p._processedBy
+            }))
+          );
+        }, 0);
       } else {
         // Handle error
         setError(result.error || 'Failed to upload photos');
