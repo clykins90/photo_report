@@ -198,21 +198,31 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       );
 
       if (result.success) {
-        const { photos: uploadedPhotos } = result.data;
+        const { photos: uploadedPhotos, idMapping } = result.data;
         
         // Update photos with server data
         setPhotos(prevPhotos => {
           return prevPhotos.map(photo => {
-            // Find matching uploaded photo by id or clientId
+            // Check if this photo's clientId is in the idMapping
+            const serverPhotoId = idMapping && photo.clientId && idMapping[photo.clientId];
+            
+            // Find matching uploaded photo by id, _id, or through the idMapping
             const uploadedPhoto = uploadedPhotos.find(
               up => up.id === photo.id || 
-                   up.clientId === photo.clientId || 
-                   up._id === photo._id
+                   up._id === photo._id ||
+                   up._id === serverPhotoId
             );
             
             if (uploadedPhoto) {
               // Use our utility to properly update the photo
-              return updatePhotoWithServerData(photo, uploadedPhoto);
+              const updatedPhoto = updatePhotoWithServerData(photo, uploadedPhoto);
+              
+              // Ensure status is set to 'uploaded'
+              return {
+                ...updatedPhoto,
+                status: 'uploaded',
+                _id: uploadedPhoto._id || updatedPhoto._id
+              };
             }
             
             return photo;
