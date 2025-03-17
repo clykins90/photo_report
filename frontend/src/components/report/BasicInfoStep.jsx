@@ -3,6 +3,11 @@ import { validateReportForm } from '../../utils/formValidation';
 import { useReportContext } from '../../context/ReportContext';
 import { useAuth } from '../../context/AuthContext';
 
+// Import UI components
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+
 const BasicInfoStep = () => {
   const [errors, setErrors] = useState({});
   const { user } = useAuth();
@@ -32,171 +37,186 @@ const BasicInfoStep = () => {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800">Basic Information</h2>
+      <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Basic Information</h2>
       
       <div className="grid grid-cols-1 gap-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="title">
+          <Label htmlFor="title">
             Report Title <span className="text-red-500">*</span>
-          </label>
-          <input
-            className={`block w-full rounded-md shadow-sm py-2 px-3 bg-white border ${errors.title ? 'border-red-500' : 'border-gray-300'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+          </Label>
+          <Input
             id="title"
             type="text"
             name="title"
             value={report.title}
             onChange={handleChange}
             placeholder="e.g., Roof Inspection Report"
+            className={errors.title ? 'border-red-500' : ''}
           />
           {errors.title && (
-            <p className="mt-1 text-sm text-red-600">{errors.title}</p>
+            <p className="mt-1 text-sm text-red-500">{errors.title}</p>
           )}
         </div>
-        
+
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="clientName">
+          <Label htmlFor="clientName">
             Client Name <span className="text-red-500">*</span>
-          </label>
-          <input
-            className={`block w-full rounded-md shadow-sm py-2 px-3 bg-white border ${errors.clientName ? 'border-red-500' : 'border-gray-300'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+          </Label>
+          <Input
             id="clientName"
             type="text"
             name="clientName"
             value={report.clientName}
             onChange={handleChange}
-            placeholder="e.g., John Doe"
+            placeholder="e.g., John Smith"
+            className={errors.clientName ? 'border-red-500' : ''}
           />
           {errors.clientName && (
-            <p className="mt-1 text-sm text-red-600">{errors.clientName}</p>
+            <p className="mt-1 text-sm text-red-500">{errors.clientName}</p>
           )}
         </div>
-        
+
+        {/* Property Address */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="inspectionDate">
-            Inspection Date <span className="text-red-500">*</span>
-          </label>
-          <input
-            className={`block w-full rounded-md shadow-sm py-2 px-3 bg-white border ${errors.inspectionDate ? 'border-red-500' : 'border-gray-300'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
-            id="inspectionDate"
-            type="date"
-            name="inspectionDate"
-            value={report.inspectionDate}
-            onChange={handleChange}
-          />
-          {errors.inspectionDate && (
-            <p className="mt-1 text-sm text-red-600">{errors.inspectionDate}</p>
-          )}
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Property Address <span className="text-red-500">*</span>
-          </label>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <h3 className="text-lg font-semibold mb-3 text-gray-700 dark:text-gray-300">Property Address</h3>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
-              <input
-                className={`block w-full rounded-md shadow-sm py-2 px-3 bg-white border ${errors['propertyAddress.street'] ? 'border-red-500' : 'border-gray-300'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+              <Label htmlFor="street">
+                Street Address <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="street"
                 type="text"
                 name="propertyAddress.street"
                 value={report.propertyAddress?.street || ''}
                 onChange={handleChange}
-                placeholder="Street Address"
+                placeholder="e.g., 123 Main St"
+                className={errors['propertyAddress.street'] ? 'border-red-500' : ''}
               />
               {errors['propertyAddress.street'] && (
-                <p className="mt-1 text-sm text-red-600">{errors['propertyAddress.street']}</p>
+                <p className="mt-1 text-sm text-red-500">{errors['propertyAddress.street']}</p>
               )}
             </div>
             <div>
-              <input
-                className={`block w-full rounded-md shadow-sm py-2 px-3 bg-white border ${errors['propertyAddress.city'] ? 'border-red-500' : 'border-gray-300'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+              <Label htmlFor="city">
+                City <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="city"
                 type="text"
                 name="propertyAddress.city"
                 value={report.propertyAddress?.city || ''}
                 onChange={handleChange}
-                placeholder="City"
+                placeholder="e.g., San Francisco"
+                className={errors['propertyAddress.city'] ? 'border-red-500' : ''}
               />
               {errors['propertyAddress.city'] && (
-                <p className="mt-1 text-sm text-red-600">{errors['propertyAddress.city']}</p>
+                <p className="mt-1 text-sm text-red-500">{errors['propertyAddress.city']}</p>
               )}
             </div>
             <div>
-              <input
-                className={`block w-full rounded-md shadow-sm py-2 px-3 bg-white border ${errors['propertyAddress.state'] ? 'border-red-500' : 'border-gray-300'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+              <Label htmlFor="state">
+                State <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="state"
                 type="text"
                 name="propertyAddress.state"
                 value={report.propertyAddress?.state || ''}
                 onChange={handleChange}
-                placeholder="State"
+                placeholder="e.g., CA"
+                className={errors['propertyAddress.state'] ? 'border-red-500' : ''}
               />
               {errors['propertyAddress.state'] && (
-                <p className="mt-1 text-sm text-red-600">{errors['propertyAddress.state']}</p>
+                <p className="mt-1 text-sm text-red-500">{errors['propertyAddress.state']}</p>
               )}
             </div>
             <div>
-              <input
-                className={`block w-full rounded-md shadow-sm py-2 px-3 bg-white border ${errors['propertyAddress.zipCode'] ? 'border-red-500' : 'border-gray-300'} focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
+              <Label htmlFor="zipCode">
+                ZIP Code <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="zipCode"
                 type="text"
                 name="propertyAddress.zipCode"
                 value={report.propertyAddress?.zipCode || ''}
                 onChange={handleChange}
-                placeholder="ZIP Code"
+                placeholder="e.g., 94105"
+                className={errors['propertyAddress.zipCode'] ? 'border-red-500' : ''}
               />
               {errors['propertyAddress.zipCode'] && (
-                <p className="mt-1 text-sm text-red-600">{errors['propertyAddress.zipCode']}</p>
+                <p className="mt-1 text-sm text-red-500">{errors['propertyAddress.zipCode']}</p>
               )}
             </div>
           </div>
         </div>
-        
+
+        {/* Inspection Date */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Weather Conditions (Optional)
-          </label>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Label htmlFor="inspectionDate">
+            Inspection Date <span className="text-red-500">*</span>
+          </Label>
+          <Input
+            id="inspectionDate"
+            type="date"
+            name="inspectionDate"
+            value={report.inspectionDate || ''}
+            onChange={handleChange}
+            className={errors.inspectionDate ? 'border-red-500' : ''}
+          />
+          {errors.inspectionDate && (
+            <p className="mt-1 text-sm text-red-500">{errors.inspectionDate}</p>
+          )}
+        </div>
+
+        {/* Weather Conditions */}
+        <div>
+          <h3 className="text-lg font-semibold mb-3 text-gray-700 dark:text-gray-300">Weather Conditions</h3>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
-              <input
-                className="block w-full rounded-md shadow-sm py-2 px-3 bg-white border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              <Label htmlFor="temperature">Temperature</Label>
+              <Input
+                id="temperature"
                 type="text"
                 name="weather.temperature"
                 value={report.weather?.temperature || ''}
                 onChange={handleChange}
-                placeholder="Temperature (e.g., 75°F)"
+                placeholder="e.g., 75°F"
               />
             </div>
             <div>
-              <input
-                className="block w-full rounded-md shadow-sm py-2 px-3 bg-white border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              <Label htmlFor="conditions">Conditions</Label>
+              <Input
+                id="conditions"
                 type="text"
                 name="weather.conditions"
                 value={report.weather?.conditions || ''}
                 onChange={handleChange}
-                placeholder="Conditions (e.g., Sunny)"
+                placeholder="e.g., Partly Cloudy"
               />
             </div>
             <div>
-              <input
-                className="block w-full rounded-md shadow-sm py-2 px-3 bg-white border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              <Label htmlFor="windSpeed">Wind Speed</Label>
+              <Input
+                id="windSpeed"
                 type="text"
                 name="weather.windSpeed"
                 value={report.weather?.windSpeed || ''}
                 onChange={handleChange}
-                placeholder="Wind Speed (e.g., 5 mph)"
+                placeholder="e.g., 5-10 mph"
               />
             </div>
           </div>
         </div>
       </div>
-      
-      <div className="pt-5">
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={handleNextClick}
-            className="ml-3 inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-          >
-            Next: Photos & Analysis
-          </button>
-        </div>
+
+      <div className="flex justify-end mt-8">
+        <Button
+          type="button"
+          onClick={handleNextClick}
+        >
+          Next Step
+        </Button>
       </div>
     </div>
   );

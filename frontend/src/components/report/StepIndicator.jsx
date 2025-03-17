@@ -1,4 +1,5 @@
 import React from 'react';
+import { cn } from '../../lib/utils';
 
 const StepIndicator = ({ steps, currentStep, onStepClick }) => {
   // Default steps if not provided
@@ -20,22 +21,22 @@ const StepIndicator = ({ steps, currentStep, onStepClick }) => {
         const isClickable = onStepClick && (isCompleted || step.number === currentStep);
         
         // Determine the styling based on step status
-        const circleClasses = `
-          h-10 w-10 rounded-full flex items-center justify-center text-sm font-medium
-          ${isActive ? 'bg-blue-600 text-white' : ''}
-          ${isCompleted ? 'bg-green-500 text-white' : ''}
-          ${!isActive && !isCompleted ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300' : ''}
-          ${isClickable ? 'cursor-pointer hover:opacity-90' : 'cursor-default'}
-        `;
+        const circleClasses = cn(
+          "h-10 w-10 rounded-full flex items-center justify-center text-sm font-medium transition-all duration-200",
+          isActive ? "bg-primary text-primary-foreground" : "",
+          isCompleted ? "bg-green-500 text-white" : "",
+          !isActive && !isCompleted ? "bg-muted text-muted-foreground" : "",
+          isClickable ? "cursor-pointer hover:opacity-90" : "cursor-default"
+        );
         
         // Line that connects steps
-        const lineClasses = `
-          flex-1 h-0.5 mx-2
-          ${index < displaySteps.length - 1 ? 'block' : 'hidden'}
-          ${isCompleted && displaySteps[index + 1] && displaySteps[index + 1].number <= currentStep 
-            ? 'bg-green-500' 
-            : 'bg-gray-300 dark:bg-gray-600'}
-        `;
+        const lineClasses = cn(
+          "flex-1 h-0.5 mx-2 transition-colors",
+          index < displaySteps.length - 1 ? "block" : "hidden",
+          isCompleted && displaySteps[index + 1] && displaySteps[index + 1].number <= currentStep 
+            ? "bg-green-500" 
+            : "bg-muted"
+        );
         
         return (
           <React.Fragment key={step.number}>
@@ -45,16 +46,20 @@ const StepIndicator = ({ steps, currentStep, onStepClick }) => {
                 onClick={() => isClickable ? onStepClick(step.number) : null}
                 role={isClickable ? "button" : undefined}
                 tabIndex={isClickable ? 0 : undefined}
+                aria-label={`Step ${step.number}: ${step.label}`}
               >
                 {isCompleted ? (
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
                   </svg>
                 ) : (
                   step.number
                 )}
               </div>
-              <span className="mt-2 text-xs text-gray-600 dark:text-gray-400 font-medium">
+              <span className={cn(
+                "mt-2 text-xs font-medium",
+                isActive ? "text-primary" : "text-muted-foreground"
+              )}>
                 {step.label}
               </span>
             </div>

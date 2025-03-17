@@ -10,7 +10,7 @@ We have several pairs of duplicate pages that need to be consolidated:
 |------|--------|-------------|
 | `Dashboard.jsx` | ✅ `DashboardPage.jsx` | Main reports listing page |
 | `ReportViewer.jsx` | ✅ `ReportDetailPage.jsx` | Page to view a single report |
-| `ReportBuilder.jsx` | `CreateReportPage.jsx` & `EditReportPage.jsx` | Report creation/editing wizard |
+| `ReportBuilder.jsx` | ✅ `CreateReportPage.jsx` & ✅ `EditReportPage.jsx` | Report creation/editing wizard |
 
 ## UI Component Migration
 
@@ -52,15 +52,15 @@ We're standardizing on the components in the `/components/ui/` directory:
 
 ### 4. Clean Up Report Builder
 
-- [ ] Update ReportBuilder.jsx to use new UI components
-- [ ] Ensure ReportBuilder.jsx handles both creation and editing flows
-- [ ] Update App.jsx routes to use ReportBuilder.jsx exclusively
-- [ ] Remove CreateReportPage.jsx and EditReportPage.jsx once migration is complete
+- [x] Update ReportBuilder.jsx to use new UI components
+- [x] Ensure ReportBuilder.jsx handles both creation and editing flows
+- [x] Update App.jsx routes to use ReportBuilder.jsx exclusively
+- [x] Remove CreateReportPage.jsx and EditReportPage.jsx once migration is complete
 
 ### 5. Final Cleanup
 
 - [x] Remove `/components/common/` directory and its components
-- [ ] Update any remaining imports in the codebase
+- [x] Update any remaining imports in the codebase
 - [ ] Run thorough testing of all application flows
 - [ ] Document the new component usage in README
 
@@ -82,16 +82,16 @@ To minimize risk during migration:
   - [x] Deleting reports
   - [x] Status badges
   - [x] Data refresh
-- [ ] Report Builder functionality
-  - [ ] All three steps working (Basic Info, Photos & Analysis, Review)
-  - [ ] Saving drafts
-  - [ ] Submitting completed reports
-  - [ ] Edit mode working properly
+- [x] Report Builder functionality
+  - [x] All three steps working (Basic Info, Photos & Analysis, Review)
+  - [x] Saving drafts
+  - [x] Submitting completed reports
+  - [x] Edit mode working properly
 - [x] Report Viewer functionality
   - [x] Displaying all report information correctly
   - [x] Photo display and analysis results
   - [x] PDF generation
-  - [ ] Edit functionality
+  - [x] Edit functionality
 
 ## Next Steps
 
@@ -104,13 +104,14 @@ To minimize risk during migration:
 2. **ReportViewer Page**:
    - [x] Migrate to new UI components ✓
    - [x] Remove ReportDetailPage.jsx ✓
-   - [ ] Finalize testing
+   - [x] Finalize testing
 
 3. **ReportBuilder Page**:
-   - [ ] Update three-step wizard with new UI
-   - [ ] Test creation and editing flows
+   - [x] Update three-step wizard with new UI ✓
+   - [x] Test creation and editing flows ✓
+   - [x] Remove redundant CreateReportPage.jsx and EditReportPage.jsx ✓
 
 4. **Component Cleanup**:
    - [x] Remove duplicate components from `/components/common/` ✓
-   - [ ] Check for any remaining imports of old components
+   - [x] Check for any remaining imports of old components ✓
    - [ ] Document UI component usage for future development 

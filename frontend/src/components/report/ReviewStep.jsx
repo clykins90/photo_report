@@ -2,8 +2,11 @@ import React, { useState } from 'react';
 import { usePhotoContext } from '../../context/PhotoContext';
 import { useReportContext } from '../../context/ReportContext';
 import { useAuth } from '../../context/AuthContext';
+import { Button } from '../ui/button';
+import { Card } from '../ui/card';
+import { Spinner } from '../ui/spinner';
 
-const ReviewStep = ({ user, navigate }) => {
+const ReviewStep = ({ navigate }) => {
   const { photos } = usePhotoContext();
   
   const {
@@ -42,7 +45,7 @@ const ReviewStep = ({ user, navigate }) => {
     e.preventDefault();
     
     try {
-      const reportId = await submitReport(user);
+      const reportId = await submitReport(authUser);
       if (reportId) {
         navigate(`/reports/${reportId}`);
       }
@@ -54,173 +57,286 @@ const ReviewStep = ({ user, navigate }) => {
   // Handle PDF generation
   const handleGeneratePdf = async () => {
     try {
-      await generatePdf(user);
+      await generatePdf(report._id);
     } catch (err) {
       console.error('Error generating PDF:', err);
     }
   };
 
-  // Format date for display
-  const formattedDate = new Date(report.inspectionDate).toLocaleDateString();
-  
-  // Get photo statistics
-  const totalPhotos = photos.length;
-  const analyzedPhotos = photos.filter(p => p.analysis).length;
-  const damagedPhotos = photos.filter(p => p.analysis && p.analysis.damageDetected).length;
-
   return (
-    <div className="space-y-6">
-      <h3 className="text-xl font-semibold">Review & Submit</h3>
+    <div className="space-y-8">
+      <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Review Your Report</h2>
       
-      {/* Error display */}
       {error && (
-        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded">
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded text-red-700">
           <p>{error}</p>
         </div>
       )}
       
-      <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
-        <div className="flex">
-          <div className="flex-shrink-0">
-            <svg className="h-5 w-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="ml-3">
-            <p className="text-sm text-blue-700">
-              Review your report before submission. You can go back to previous steps to make changes.
-            </p>
-          </div>
-        </div>
-      </div>
-      
-      {/* Report Summary */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
-        <div className="border-b border-gray-200 dark:border-gray-700 px-4 py-3 bg-gray-50 dark:bg-gray-700">
-          <h2 className="text-lg font-medium text-gray-900 dark:text-white">Report Summary</h2>
-        </div>
-        
-        <div className="p-4 space-y-4">
-          {/* Basic Info */}
-          <div>
-            <h3 className="text-md font-medium text-gray-900 dark:text-white mb-2">Basic Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <form onSubmit={handleSubmit}>
+        {/* Basic Info Section */}
+        <section className="mb-8">
+          <Card className="p-5">
+            <h3 className="text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Basic Information</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Title</p>
-                <p className="font-medium">{report.title}</p>
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Report Title</p>
+                <p className="text-gray-900 dark:text-gray-100">{report.title}</p>
               </div>
               
               <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Client</p>
-                <p className="font-medium">{report.clientName}</p>
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Client Name</p>
+                <p className="text-gray-900 dark:text-gray-100">{report.clientName}</p>
               </div>
               
               <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Inspection Date</p>
-                <p className="font-medium">{formattedDate}</p>
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Inspection Date</p>
+                <p className="text-gray-900 dark:text-gray-100">{new Date(report.inspectionDate).toLocaleDateString()}</p>
               </div>
               
               <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Address</p>
-                <p className="font-medium">
-                  {report.propertyAddress.street}, {report.propertyAddress.city}, {report.propertyAddress.state} {report.propertyAddress.zipCode}
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Property Address</p>
+                <p className="text-gray-900 dark:text-gray-100">
+                  {report.propertyAddress?.street}, {report.propertyAddress?.city}, {report.propertyAddress?.state} {report.propertyAddress?.zipCode}
                 </p>
               </div>
-            </div>
-          </div>
-          
-          {/* Photos */}
-          <div>
-            <h3 className="text-md font-medium text-gray-900 dark:text-white mb-2">Photos</h3>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded text-center">
-                <div className="text-xl font-bold">{totalPhotos}</div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">Total Photos</div>
-              </div>
               
-              <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded text-center">
-                <div className="text-xl font-bold">{analyzedPhotos}</div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">Analyzed</div>
-              </div>
-              
-              <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded text-center">
-                <div className="text-xl font-bold">{damagedPhotos}</div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">With Damage</div>
-              </div>
+              {report.weather?.conditions && (
+                <div>
+                  <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Weather Conditions</p>
+                  <p className="text-gray-900 dark:text-gray-100">
+                    {report.weather.conditions}, {report.weather.temperature ? `${report.weather.temperature}, ` : ''}
+                    {report.weather.windSpeed ? `Wind: ${report.weather.windSpeed}` : ''}
+                  </p>
+                </div>
+              )}
             </div>
-          </div>
-          
-          {/* Summary */}
-          {report.summary && (
-            <div>
-              <h3 className="text-md font-medium text-gray-900 dark:text-white mb-2">Summary</h3>
-              <p className="text-gray-700 dark:text-gray-300 whitespace-pre-line">
-                {report.summary.length > 300 
-                  ? `${report.summary.substring(0, 300)}...` 
-                  : report.summary}
-              </p>
+            
+            <div className="mt-4">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                type="button" 
+                onClick={() => prevStep()}
+              >
+                Edit Basic Info
+              </Button>
             </div>
-          )}
-          
-          {/* Damages */}
-          {report.damages && report.damages.length > 0 && (
-            <div>
-              <h3 className="text-md font-medium text-gray-900 dark:text-white mb-2">
-                Damages Identified ({report.damages.length})
-              </h3>
-              <ul className="list-disc pl-5 space-y-1">
-                {report.damages.map((damage, index) => (
-                  <li key={index} className="text-gray-700 dark:text-gray-300">
-                    {damage.type} ({damage.severity})
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          
-          {/* Tags */}
-          {report.tags && report.tags.length > 0 && (
-            <div>
-              <h3 className="text-md font-medium text-gray-900 dark:text-white mb-2">Tags</h3>
-              <div className="flex flex-wrap gap-2">
-                {report.tags.map((tag, index) => (
-                  <span key={index} className="bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 text-xs px-2 py-1 rounded">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-      
-      {/* Navigation */}
-      <div className="flex justify-between pt-4 mt-6 border-t">
-        <button
-          type="button"
-          onClick={prevStep}
-          className="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded"
-        >
-          Back
-        </button>
+          </Card>
+        </section>
         
-        <button
-          type="button"
-          onClick={() => handleSubmit(authUser)}
-          disabled={isSubmitting}
-          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded disabled:opacity-50 flex items-center"
-        >
-          {isSubmitting ? (
-            <>
-              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Submitting...
-            </>
-          ) : 'Submit Report'}
-        </button>
-      </div>
+        {/* Photos Section */}
+        <section className="mb-8">
+          <Card className="p-5">
+            <h3 className="text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">
+              Photos & Analysis
+              <span className="ml-2 text-sm font-medium text-gray-500">{photos.length} photos</span>
+            </h3>
+            
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+              {photos.map((photo, index) => (
+                <div key={photo.id || index} className="relative group">
+                  <img 
+                    src={photo.url || photo.preview} 
+                    alt={`Photo ${index + 1}`} 
+                    className="w-full h-32 object-cover rounded-md" 
+                  />
+                  {photo.analysis && (
+                    <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs p-1 truncate">
+                      {photo.analysis.summary}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            
+            <div className="mt-4">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                type="button" 
+                onClick={() => prevStep()}
+              >
+                Edit Photos & Analysis
+              </Button>
+            </div>
+          </Card>
+        </section>
+        
+        {/* Summary Section */}
+        <section className="mb-8">
+          <Card className="p-5">
+            <div className="flex justify-between mb-4">
+              <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Report Summary</h3>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                type="button" 
+                onClick={() => toggleEdit('summary')}
+              >
+                {isEditing.summary ? 'Done' : 'Edit'}
+              </Button>
+            </div>
+            
+            {isEditing.summary ? (
+              <textarea
+                name="summary"
+                value={report.summary}
+                onChange={handleChange}
+                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-background"
+                rows={6}
+              />
+            ) : (
+              <div className="prose dark:prose-invert max-w-none">
+                <p className="whitespace-pre-line text-gray-700 dark:text-gray-300">{report.summary || 'No summary provided.'}</p>
+              </div>
+            )}
+          </Card>
+        </section>
+        
+        {/* Damages Section */}
+        {report.damages && report.damages.length > 0 && (
+          <section className="mb-8">
+            <Card className="p-5">
+              <h3 className="text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">Damage Findings</h3>
+              
+              <div className="space-y-4">
+                {report.damages.map((damage, index) => (
+                  <div key={index} className="border-b border-gray-200 dark:border-gray-700 pb-4 last:border-0 last:pb-0">
+                    <p className="font-medium text-gray-900 dark:text-gray-100">{damage.location}</p>
+                    <p className="text-gray-700 dark:text-gray-300">{damage.description}</p>
+                    {damage.severity && (
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        Severity: <span className="font-medium">{damage.severity}</span>
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </section>
+        )}
+        
+        {/* Materials Section */}
+        <section className="mb-8">
+          <Card className="p-5">
+            <div className="flex justify-between mb-4">
+              <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Materials & Methods</h3>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                type="button" 
+                onClick={() => toggleEdit('materials')}
+              >
+                {isEditing.materials ? 'Done' : 'Edit'}
+              </Button>
+            </div>
+            
+            {isEditing.materials ? (
+              <textarea
+                name="materials"
+                value={report.materials}
+                onChange={handleChange}
+                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-background"
+                rows={4}
+              />
+            ) : (
+              <div className="prose dark:prose-invert max-w-none">
+                <p className="whitespace-pre-line text-gray-700 dark:text-gray-300">{report.materials || 'No materials information provided.'}</p>
+              </div>
+            )}
+          </Card>
+        </section>
+        
+        {/* Recommendations Section */}
+        <section className="mb-8">
+          <Card className="p-5">
+            <div className="flex justify-between mb-4">
+              <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Recommendations</h3>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                type="button" 
+                onClick={() => toggleEdit('recommendations')}
+              >
+                {isEditing.recommendations ? 'Done' : 'Edit'}
+              </Button>
+            </div>
+            
+            {isEditing.recommendations ? (
+              <textarea
+                name="recommendations"
+                value={report.recommendations}
+                onChange={handleChange}
+                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-background"
+                rows={4}
+              />
+            ) : (
+              <div className="prose dark:prose-invert max-w-none">
+                <p className="whitespace-pre-line text-gray-700 dark:text-gray-300">{report.recommendations || 'No recommendations provided.'}</p>
+              </div>
+            )}
+          </Card>
+        </section>
+        
+        {/* Actions */}
+        <div className="flex flex-col sm:flex-row gap-3 justify-between items-center mt-8">
+          <div className="flex gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => prevStep()}
+            >
+              Previous Step
+            </Button>
+            
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleGeneratePdf}
+              disabled={generatingPdf || !report._id}
+            >
+              {generatingPdf ? (
+                <>
+                  <Spinner className="mr-2 h-4 w-4" />
+                  Generating PDF...
+                </>
+              ) : 'Preview PDF'}
+            </Button>
+          </div>
+          
+          <Button
+            type="submit"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <>
+                <Spinner className="mr-2 h-4 w-4" />
+                Submitting...
+              </>
+            ) : 'Submit Report'}
+          </Button>
+        </div>
+        
+        {pdfUrl && (
+          <div className="mt-4">
+            <Card className="p-4">
+              <p className="mb-2 text-gray-700 dark:text-gray-300">Your PDF is ready:</p>
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open(pdfUrl, '_blank')}
+                >
+                  Open PDF
+                </Button>
+              </div>
+            </Card>
+          </div>
+        )}
+      </form>
     </div>
   );
 };

@@ -11,6 +11,11 @@ import PhotoUploadAnalysisStep from '../components/report/PhotoUploadAnalysisSte
 import ReviewStep from '../components/report/ReviewStep';
 import StepIndicator from '../components/report/StepIndicator';
 
+// Import UI components
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Spinner } from '../components/ui/spinner';
+
 const ReportBuilder = ({ isEditing = false }) => {
   const { reportId } = useParams();
   const navigate = useNavigate();
@@ -80,10 +85,15 @@ const ReportBuilder = ({ isEditing = false }) => {
     }
   };
   
+  // Handle back button click
+  const handleBack = () => {
+    navigate('/');
+  };
+  
   // Render loading state
   const renderLoading = () => (
     <div className="flex justify-center items-center h-64">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      <Spinner />
       <span className="ml-3 text-gray-700 dark:text-gray-300">Loading report...</span>
     </div>
   );
@@ -120,7 +130,20 @@ const ReportBuilder = ({ isEditing = false }) => {
   
   return (
     <div className="max-w-5xl mx-auto pb-10">
-      <h1 className="text-3xl font-bold mb-6 text-gray-900 dark:text-white">{pageTitle}</h1>
+      <div className="flex items-center mb-6">
+        <Button 
+          variant="outline" 
+          size="sm"
+          onClick={handleBack}
+          className="mr-4"
+        >
+          <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+          </svg>
+          Back
+        </Button>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{pageTitle}</h1>
+      </div>
       
       {(error || reportError) && (
         <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded">
@@ -136,9 +159,9 @@ const ReportBuilder = ({ isEditing = false }) => {
         />
       </div>
       
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+      <Card className="p-6">
         {renderStep()}
-      </div>
+      </Card>
     </div>
   );
 };
