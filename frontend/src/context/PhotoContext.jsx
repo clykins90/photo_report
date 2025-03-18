@@ -22,7 +22,6 @@ const PhotoContext = createContext();
 
 // Custom hook for using the photo context
 export const usePhotoContext = () => {
-  console.log("usePhotoContext called");
   const context = useContext(PhotoContext);
   if (!context) {
     throw new Error('usePhotoContext must be used within a PhotoProvider');
@@ -31,14 +30,11 @@ export const usePhotoContext = () => {
 };
 
 export const PhotoProvider = ({ children, initialPhotos = [] }) => {
-  console.log("PhotoProvider rendering with initialPhotos:", initialPhotos?.length);
-  
   // Store a reference to the initialPhotos for comparison
   const initialPhotosRef = React.useRef(initialPhotos);
   
   // Main photo state - initialize with preserved data if provided
   const [photos, setPhotos] = useState(() => {
-    console.log("Initializing photos state with:", initialPhotos?.length);
     if (initialPhotos?.length > 0) {
       // Store reference for comparison
       initialPhotosRef.current = initialPhotos;
@@ -57,57 +53,42 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
 
   // Extract photo IDs for dependency arrays using our utility
   const photoIds = useMemo(() => {
-    console.log("Extracting photoIds");
     return extractPhotoIds(photos, { includeClientIds: true });
   }, [photos]);
 
   // Extract uploaded photo IDs for analysis using our utility
   const uploadedPhotoIds = useMemo(() => {
-    console.log("Extracting uploadedPhotoIds");
     return extractPhotoIds(filterPhotosByStatus(photos, 'uploaded'), { serverOnly: true });
   }, [photos]);
 
   // Update with new initialPhotos if they change
   useEffect(() => {
-    console.log("initialPhotos useEffect running:", initialPhotos?.length);
-    
-    // Skip if we have no initialPhotos
     if (!initialPhotos || initialPhotos.length === 0) return;
     
-    // Skip if these are the same initialPhotos we've already processed
     if (initialPhotosRef.current === initialPhotos) {
-      console.log("initialPhotos reference hasn't changed, skipping update");
       return;
     }
     
-    // Save reference for future comparisons
     initialPhotosRef.current = initialPhotos;
     
-    // Don't override existing photos if we've already loaded some
     setPhotos(prevPhotos => {
-      // Don't overwrite photos that are already in progress or uploaded
       if (prevPhotos && prevPhotos.length > 0) {
-        console.log("Keeping existing photos instead of replacing with initialPhotos");
         return prevPhotos;
       }
       
-      console.log("Loading new initialPhotos");
       return preserveBatchPhotoData(initialPhotos);
     });
   }, [initialPhotos]);
   
   // Clean up blob URLs when component unmounts
   useEffect(() => {
-    console.log("Setting up blob URL cleanup on unmount");
     return () => {
-      console.log("Cleaning up blob URLs on unmount");
       cleanupAllBlobUrls();
     };
   }, []);
 
   // Add new photos from files
   const addPhotosFromFiles = useCallback((files, reportId = null) => {
-    console.log("addPhotosFromFiles called with files:", files?.length, "reportId:", reportId);
     if (!files || files.length === 0) return;
 
     // Create standardized photo objects using our utility
@@ -261,55 +242,38 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           status: p.status
         })));
         
-        // SIMPLE APPROACH: Create a complete array of updated photos first,
-        // then update state in one operation to avoid race conditions
-        const updatedPhotoArray = [];
-        
-        // First, process all existing photos that need server data
-        photos.forEach(photo => {
-          // Check if this photo's clientId is in the idMapping
-          const serverPhotoId = idMapping && photo.clientId && idMapping[photo.clientId];
-          
-          // Find matching uploaded photo by id, _id, or through the idMapping
-          const uploadedPhoto = uploadedPhotos.find(
-            up => up.id === photo.id || 
-                 up._id === photo._id ||
-                 up._id === serverPhotoId
-          );
-          
-          if (uploadedPhoto) {
-            // Update with server data but ENSURE status is 'uploaded'
-            const updatedPhoto = {
-              ...photo,
-              ...uploadedPhoto,
-              _id: uploadedPhoto._id,
-              // Critical: Preserve the file and preview from client
-              file: photo.file,
-              preview: photo.preview,
-              // Critical: Force status to 'uploaded'
-              status: 'uploaded',
-              uploadProgress: 100
-            };
+        // SIMPLIFIED APPROACH: Create a complete array of updated photos
+        // that explicitly sets status to 'uploaded'
+        setPhotos(prevPhotos => {
+          return prevPhotos.map(photo => {
+            // Check if this photo's clientId is in the idMapping
+            const serverPhotoId = idMapping && photo.clientId && idMapping[photo.clientId];
             
-            updatedPhotoArray.push(updatedPhoto);
-          } else {
-            // Keep the original photo if no server match
-            updatedPhotoArray.push(photo);
-          }
+            // Find matching uploaded photo by id, _id, or through the idMapping
+            const uploadedPhoto = uploadedPhotos.find(
+              up => up.id === photo.id || 
+                  up._id === photo._id ||
+                  up._id === serverPhotoId
+            );
+            
+            if (uploadedPhoto) {
+              // Create updated photo with server data
+              return {
+                ...photo,
+                ...uploadedPhoto,
+                _id: uploadedPhoto._id,
+                // Preserve client-side data
+                file: photo.file,
+                preview: photo.preview,
+                // ALWAYS force status to be 'uploaded'
+                status: 'uploaded',
+                uploadProgress: 100
+              };
+            }
+            
+            return photo;
+          });
         });
-        
-        // Update state with our carefully constructed array
-        if (updatedPhotoArray.length > 0) {
-          console.log("Setting photos with explicit status:", 
-            updatedPhotoArray.map(p => ({
-              id: p._id || p.id,
-              status: p.status
-            }))
-          );
-          
-          // Use the functional update to ensure we're working with latest state
-          setPhotos(updatedPhotoArray);
-        }
       } else {
         // Handle error
         setError(result.error || 'Failed to upload photos');
@@ -624,12 +588,6 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     setError,
   };
   
-  console.log("PhotoContext providing with:", { 
-    photosCount: photos.length, 
-    isUploading, 
-    isAnalyzing 
-  });
-
   return (
     <PhotoContext.Provider value={value}>
       {children}

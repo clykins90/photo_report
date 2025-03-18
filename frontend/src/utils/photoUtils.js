@@ -80,23 +80,18 @@ export const updatePhotoWithServerData = (photo, serverData) => {
     serverPhotoId: serverData._id
   });
   
-  // Create a new photo object with merged properties
-  const updatedPhoto = {
+  // Create a new object with server data but explicitly set status to uploaded
+  return {
     ...photo,
     _id: serverData._id || serverData.id,
     url: serverData.url || serverData.path,
     uploadProgress: 100,
     // Preserve local data that server doesn't have
     file: photo.file,
-    preview: photo.preview
+    preview: photo.preview,
+    // ALWAYS set status to 'uploaded' - this is critical for UI state
+    status: 'uploaded'
   };
-  
-  // Force status to be 'uploaded' - critical for UI state
-  updatedPhoto.status = 'uploaded';
-  
-  console.log("updatePhotoWithServerData returning photo with status:", updatedPhoto.status);
-  
-  return updatedPhoto;
 };
 
 /**
@@ -182,9 +177,6 @@ export const groupPhotosByDataAvailability = (photos) => {
  * @returns {Object} - Enhanced photo object with preserved data
  */
 export const preservePhotoData = (photo) => {
-  // Add a unique identifier to verify this is the function being called
-  const SOURCE = "photoUtils.js"; // This helps us track the source
-  
   if (!photo) return null;
   
   console.log("photoUtils.preservePhotoData called with photo:", {
@@ -196,15 +188,14 @@ export const preservePhotoData = (photo) => {
   // Create a new object to avoid modifying the original
   const processedPhoto = { ...photo };
   
-  // Skip defaults and ALWAYS keep existing status if present
+  // MOST IMPORTANT: Always preserve existing status
   // This is critical to prevent overwriting 'uploaded' status
   if (photo.status) {
     processedPhoto.status = photo.status;
     console.log(`Preserving existing status: ${photo.status} for photo ${photo._id || photo.id}`);
   } else {
-    // Only use default if truly missing
+    // Only use default if missing
     processedPhoto.status = 'pending';
-    console.log(`No status found, defaulting to 'pending' for photo ${photo._id || photo.id}`);
   }
   
   // Ensure file object is preserved
@@ -220,20 +211,12 @@ export const preservePhotoData = (photo) => {
   // Ensure preview URLs are preserved
   if (photo.preview) {
     processedPhoto.preview = photo.preview;
-    
-    // Store data URLs as localDataUrl for analysis
-    if (photo.preview.startsWith('data:') && !processedPhoto.localDataUrl) {
-      processedPhoto.localDataUrl = photo.preview;
-    }
   }
   
   // Preserve existing localDataUrl
   if (photo.localDataUrl) {
     processedPhoto.localDataUrl = photo.localDataUrl;
   }
-  
-  // Add a debug flag to confirm this function was used
-  processedPhoto._processedBy = SOURCE;
   
   console.log("photoUtils.preservePhotoData returning photo with status:", processedPhoto.status);
   

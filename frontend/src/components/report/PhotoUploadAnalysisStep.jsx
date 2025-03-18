@@ -203,12 +203,6 @@ const PhotoUploadAnalysisStep = () => {
     );
   };
 
-  // Count photos by status
-  const uploadedCount = getPhotosByStatus('uploaded').length;
-  const analyzedCount = getPhotosByStatus('analyzed').length;
-  const analysingCount = getPhotosByStatus('analyzing').length;
-  const errorCount = getPhotosByStatus('error').length;
-
   // Debug function to log photo statuses
   const debugPhotoStatuses = () => {
     console.log("All photos:", photos);
@@ -223,7 +217,29 @@ const PhotoUploadAnalysisStep = () => {
     // Log uploaded photos
     const uploadedPhotos = getPhotosByStatus('uploaded');
     console.log("Uploaded photos:", uploadedPhotos);
+    
+    // Check if photos have uploadProgress and other key properties
+    console.log("Sample photo details:", photos.length > 0 ? {
+      id: photos[0]._id || photos[0].id,
+      status: photos[0].status,
+      uploadProgress: photos[0].uploadProgress,
+      hasFile: !!photos[0].file,
+      hasPreview: !!photos[0].preview
+    } : 'No photos');
   };
+
+  // On first render, debug photo statuses
+  useEffect(() => {
+    if (photos.length > 0) {
+      debugPhotoStatuses();
+    }
+  }, [photos.length]);
+
+  // Count photos by status (recalculate on every render to ensure UI is up-to-date)
+  const uploadedCount = getPhotosByStatus('uploaded').length;
+  const analyzedCount = getPhotosByStatus('analyzed').length;
+  const analysingCount = getPhotosByStatus('analyzing').length;
+  const errorCount = getPhotosByStatus('error').length;
 
   // Render the analysis controls
   const renderAnalysisControls = () => {
