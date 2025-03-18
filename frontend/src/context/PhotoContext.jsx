@@ -14,15 +14,16 @@ import {
   getBestDataSource
 } from '../utils/photoUtils';
 
-// Log which preservePhotoData we're using to debug the issue
-console.log('PhotoContext is using preservePhotoData from:', preservePhotoData.toString().substring(0, 100));
+// Remove excessive debugging that might cause rendering loops
+// console.log('PhotoContext is using preservePhotoData from:', preservePhotoData.toString().substring(0, 100));
 
 // Create context
 const PhotoContext = createContext();
 
 // Custom hook for using the photo context
 export const usePhotoContext = () => {
-  console.log('usePhotoContext called');
+  // Remove console.log that might contribute to the loop
+  // console.log('usePhotoContext called');
   const context = useContext(PhotoContext);
   if (!context) {
     throw new Error('usePhotoContext must be used within a PhotoProvider');
@@ -31,7 +32,8 @@ export const usePhotoContext = () => {
 };
 
 export const PhotoProvider = ({ children, initialPhotos = [] }) => {
-  console.log('PhotoProvider rendering with initialPhotos:', initialPhotos.length);
+  // Reduce excessive debugging logs
+  // console.log('PhotoProvider rendering with initialPhotos:', initialPhotos.length);
   
   // Main photo state
   const [photos, setPhotos] = useState(() => 
@@ -47,12 +49,10 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
 
   // Derived data for dependency tracking
   const photoIds = useMemo(() => {
-    console.log('Extracting photoIds');
     return extractPhotoIds(photos, { includeClientIds: true });
   }, [photos]);
 
   const uploadedPhotoIds = useMemo(() => {
-    console.log('Extracting uploadedPhotoIds');
     return extractPhotoIds(filterPhotosByStatus(photos, 'uploaded'), { serverOnly: true });
   }, [photos]);
 
@@ -63,7 +63,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
 
   // initialPhotos effect (optional if needed for report loading)
   useEffect(() => {
-    console.log('initialPhotos useEffect running:', initialPhotos.length);
+    // console.log('initialPhotos useEffect running:', initialPhotos.length);
     if (!initialPhotos?.length) return;
     
     setPhotos(prevPhotos => {
@@ -100,7 +100,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   // Add photos from files (simplified)
   const addPhotosFromFiles = useCallback((files, reportId = null) => {
     if (!files?.length) return;
-    console.log('addPhotosFromFiles called with files:', files.length, 'reportId:', reportId);
+    // console.log('addPhotosFromFiles called with files:', files.length, 'reportId:', reportId);
 
     // Create photos from files
     const newPhotos = Array.from(files).map(createPhotoFromFile);
@@ -205,7 +205,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         updatePhotoStatus(photoIds, 'error');
       }
     } catch (error) {
-      console.error('Error uploading photos:', error);
+      // console.error('Error uploading photos:', error);
       setError(error.message || 'Upload failed');
       
       // Mark affected photos as error
@@ -285,7 +285,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         updatePhotoStatus(photoIds, 'error');
       }
     } catch (error) {
-      console.error('Analysis error:', error);
+      // console.error('Analysis error:', error);
       setError(error.message || 'Analysis failed');
       
       const photoIds = photosForAnalysis.map(p => 
@@ -340,10 +340,6 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
 
   // Utility methods (kept simple)
   const getPhotosByStatus = useCallback((status) => {
-    console.log('Filtering', photos.length, 'photos for status', status, {
-      photoStatuses: photos.map(p => p.status),
-      lookingFor: Array.isArray(status) ? status : [status]
-    });
     return filterPhotosByStatus(photos, status);
   }, [photos]);
 
@@ -377,11 +373,11 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   };
   
   // Debug log for context value
-  console.log('PhotoContext providing with:', {
-    photosCount: photos.length,
-    isUploading,
-    isAnalyzing
-  });
+  // console.log('PhotoContext providing with:', {
+  //   photosCount: photos.length,
+  //   isUploading,
+  //   isAnalyzing
+  // });
   
   return (
     <PhotoContext.Provider value={value}>

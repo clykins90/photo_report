@@ -179,11 +179,12 @@ export const groupPhotosByDataAvailability = (photos) => {
 export const preservePhotoData = (photo) => {
   if (!photo) return null;
   
-  console.log("photoUtils.preservePhotoData called with photo:", {
-    id: photo._id || photo.id,
-    status: photo.status,
-    hasFile: !!photo.file
-  });
+  // Remove excessive logging that might contribute to infinite loops
+  // console.log("photoUtils.preservePhotoData called with photo:", {
+  //   id: photo._id || photo.id,
+  //   status: photo.status,
+  //   hasFile: !!photo.file
+  // });
   
   // Create a new object to avoid modifying the original
   const processedPhoto = { ...photo };
@@ -192,7 +193,7 @@ export const preservePhotoData = (photo) => {
   // This is critical to prevent overwriting 'uploaded' status
   if (photo.status) {
     processedPhoto.status = photo.status;
-    console.log(`Preserving existing status: ${photo.status} for photo ${photo._id || photo.id}`);
+    // console.log(`Preserving existing status: ${photo.status} for photo ${photo._id || photo.id}`);
   } else {
     // Only use default if missing
     processedPhoto.status = 'pending';
@@ -218,7 +219,7 @@ export const preservePhotoData = (photo) => {
     processedPhoto.localDataUrl = photo.localDataUrl;
   }
   
-  console.log("photoUtils.preservePhotoData returning photo with status:", processedPhoto.status);
+  // console.log("photoUtils.preservePhotoData returning photo with status:", processedPhoto.status);
   
   return processedPhoto;
 };
@@ -249,18 +250,18 @@ export const filterPhotosByStatus = (photos, status) => {
   
   const statusArray = Array.isArray(status) ? status : [status];
   
-  // Add debugging for all environments to help diagnose the issue
-  console.log(`DEBUG filterPhotosByStatus: Looking for "${status}" in ${photos.length} photos`);
-  console.log("Raw photo status values:", photos.map(p => ({ 
-    id: p._id || p.id, 
-    status: p.status,
-    hasOwnStatus: p.hasOwnProperty('status'),
-    statusType: typeof p.status
-  })));
+  // Remove excessive debugging logs that cause rendering loops
+  // console.log(`DEBUG filterPhotosByStatus: Looking for "${status}" in ${photos.length} photos`);
+  // console.log("Raw photo status values:", photos.map(p => ({ 
+  //   id: p._id || p.id, 
+  //   status: p.status,
+  //   hasOwnStatus: p.hasOwnProperty('status'),
+  //   statusType: typeof p.status
+  // })));
   
   const filteredPhotos = photos.filter(photo => statusArray.includes(photo.status));
   
-  console.log(`DEBUG filterPhotosByStatus: Found ${filteredPhotos.length} photos with status '${status}'`);
+  // console.log(`DEBUG filterPhotosByStatus: Found ${filteredPhotos.length} photos with status '${status}'`);
   
   return filteredPhotos;
 };
