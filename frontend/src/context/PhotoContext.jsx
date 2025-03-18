@@ -97,45 +97,6 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     });
   }, []);
 
-  // Add photos from files (simplified)
-  const addPhotosFromFiles = useCallback((files, reportId = null) => {
-    if (!files?.length) return;
-    // console.log('addPhotosFromFiles called with files:', files.length, 'reportId:', reportId);
-
-    // Create photos from files
-    const newPhotos = Array.from(files).map(createPhotoFromFile);
-    
-    // Add to state
-    setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
-
-    // Start upload if report ID provided
-    if (reportId) {
-      uploadPhotosToServer(newPhotos, reportId);
-    }
-
-    return newPhotos;
-  }, []);
-
-  // Add photo objects directly
-  const addPhotos = useCallback((newPhotos) => {
-    if (!newPhotos?.length) return [];
-    const processedPhotos = preserveBatchPhotoData(newPhotos);
-    setPhotos(prevPhotos => [...prevPhotos, ...processedPhotos]);
-    return processedPhotos;
-  }, []);
-
-  // Update existing photos
-  const updatePhotos = useCallback((newPhotos) => {
-    if (!newPhotos?.length) return;
-    setPhotos(preserveBatchPhotoData(newPhotos));
-  }, []);
-
-  // Update a single photo
-  const updatePhoto = useCallback((photoId, updatedData) => {
-    if (!photoId) return;
-    updatePhotoStatus(photoId, updatedData.status || 'pending', updatedData);
-  }, [updatePhotoStatus]);
-
   // Upload photos to server (simplified)
   const uploadPhotosToServer = useCallback(async (photosToUpload, reportId) => {
     if (!reportId || !photosToUpload?.length) return;
@@ -204,9 +165,10 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         setError(result.error || 'Upload failed');
         updatePhotoStatus(photoIds, 'error');
       }
-    } catch (error) {
-      // console.error('Error uploading photos:', error);
-      setError(error.message || 'Upload failed');
+    } catch (err) {
+      // Changed from 'error' to 'err' to avoid shadowing the error state variable
+      // console.error('Error uploading photos:', err);
+      setError(err.message || 'Upload failed');
       
       // Mark affected photos as error
       const photoIds = photosToUpload.map(p => p.id || p._id || p.clientId);
@@ -214,6 +176,45 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     } finally {
       setIsUploading(false);
     }
+  }, [updatePhotoStatus]);
+
+  // Add photos from files (simplified)
+  const addPhotosFromFiles = useCallback((files, reportId = null) => {
+    if (!files?.length) return;
+    // console.log('addPhotosFromFiles called with files:', files.length, 'reportId:', reportId);
+
+    // Create photos from files
+    const newPhotos = Array.from(files).map(createPhotoFromFile);
+    
+    // Add to state
+    setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
+
+    // Start upload if report ID provided
+    if (reportId) {
+      uploadPhotosToServer(newPhotos, reportId);
+    }
+
+    return newPhotos;
+  }, [uploadPhotosToServer]);
+
+  // Add photo objects directly
+  const addPhotos = useCallback((newPhotos) => {
+    if (!newPhotos?.length) return [];
+    const processedPhotos = preserveBatchPhotoData(newPhotos);
+    setPhotos(prevPhotos => [...prevPhotos, ...processedPhotos]);
+    return processedPhotos;
+  }, []);
+
+  // Update existing photos
+  const updatePhotos = useCallback((newPhotos) => {
+    if (!newPhotos?.length) return;
+    setPhotos(preserveBatchPhotoData(newPhotos));
+  }, []);
+
+  // Update a single photo
+  const updatePhoto = useCallback((photoId, updatedData) => {
+    if (!photoId) return;
+    updatePhotoStatus(photoId, updatedData.status || 'pending', updatedData);
   }, [updatePhotoStatus]);
 
   // Analyze photos (simplified)
@@ -284,9 +285,10 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         setError(result.error || 'Analysis failed');
         updatePhotoStatus(photoIds, 'error');
       }
-    } catch (error) {
-      // console.error('Analysis error:', error);
-      setError(error.message || 'Analysis failed');
+    } catch (err) {
+      // Fix the variable name to 'err' instead of 'error' to avoid confusion with the state variable
+      // console.error('Analysis error:', err);
+      setError(err.message || 'Analysis failed');
       
       const photoIds = photosForAnalysis.map(p => 
         typeof p === 'string' ? p : p._id || p.id
