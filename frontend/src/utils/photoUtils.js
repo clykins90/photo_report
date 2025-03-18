@@ -249,20 +249,18 @@ export const filterPhotosByStatus = (photos, status) => {
   
   const statusArray = Array.isArray(status) ? status : [status];
   
-  // Add debugging for development environments
-  if (process.env.NODE_ENV === 'development' && status === 'uploaded') {
-    console.log(`Filtering ${photos.length} photos for status '${status}'`, {
-      photoStatuses: photos.map(p => p.status),
-      lookingFor: statusArray
-    });
-  }
+  // Add debugging for all environments to help diagnose the issue
+  console.log(`DEBUG filterPhotosByStatus: Looking for "${status}" in ${photos.length} photos`);
+  console.log("Raw photo status values:", photos.map(p => ({ 
+    id: p._id || p.id, 
+    status: p.status,
+    hasOwnStatus: p.hasOwnProperty('status'),
+    statusType: typeof p.status
+  })));
   
   const filteredPhotos = photos.filter(photo => statusArray.includes(photo.status));
   
-  // More debugging
-  if (process.env.NODE_ENV === 'development' && status === 'uploaded') {
-    console.log(`Found ${filteredPhotos.length} photos with status '${status}'`);
-  }
+  console.log(`DEBUG filterPhotosByStatus: Found ${filteredPhotos.length} photos with status '${status}'`);
   
   return filteredPhotos;
 };
