@@ -536,7 +536,8 @@ export const ReportProvider = ({ children }) => {
 
   // Reset the report state for a new report
   const resetReport = useCallback(() => {
-    setReport({
+    // Use a local variable to avoid direct state updates that could trigger infinite loops
+    const defaultReport = {
       title: '',
       clientName: '',
       propertyAddress: {
@@ -557,10 +558,15 @@ export const ReportProvider = ({ children }) => {
       recommendations: '',
       materials: '',
       tags: []
-    });
-    setStep(1);
-    setError(null);
-    setPdfUrl(null);
+    };
+    
+    // Use setTimeout to break the render cycle
+    setTimeout(() => {
+      setReport(defaultReport);
+      setStep(1);
+      setError(null);
+      setPdfUrl(null);
+    }, 0);
   }, []);
 
   // Context value
