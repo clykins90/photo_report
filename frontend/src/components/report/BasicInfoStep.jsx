@@ -102,7 +102,7 @@ const BasicInfoStep = () => {
             value={reportValues.title}
             onChange={onChange}
             placeholder="e.g., Roof Inspection Report"
-            className={errors.title ? 'border-red-500' : ''}
+            className={(localErrors.title || contextError?.title) ? 'border-red-500' : ''}
           />
           {(localErrors.title || contextError?.title) && (
             <p className="mt-1 text-sm text-red-500">{localErrors.title || contextError?.title}</p>
@@ -120,7 +120,7 @@ const BasicInfoStep = () => {
             value={reportValues.clientName}
             onChange={onChange}
             placeholder="e.g., John Smith"
-            className={errors.clientName ? 'border-red-500' : ''}
+            className={(localErrors.clientName || contextError?.clientName) ? 'border-red-500' : ''}
           />
           {(localErrors.clientName || contextError?.clientName) && (
             <p className="mt-1 text-sm text-red-500">{localErrors.clientName || contextError?.clientName}</p>
@@ -142,10 +142,10 @@ const BasicInfoStep = () => {
                 value={reportValues.propertyAddress.street}
                 onChange={onChange}
                 placeholder="e.g., 123 Main St"
-                className={errors['propertyAddress.street'] ? 'border-red-500' : ''}
+                className={(localErrors['propertyAddress.street'] || contextError?.propertyAddress?.street) ? 'border-red-500' : ''}
               />
-              {(localErrors['propertyAddress.street'] || contextError?.['propertyAddress.street']) && (
-                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.street'] || contextError?.['propertyAddress.street']}</p>
+              {(localErrors['propertyAddress.street'] || contextError?.propertyAddress?.street) && (
+                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.street'] || contextError?.propertyAddress?.street}</p>
               )}
             </div>
             <div>
@@ -159,10 +159,10 @@ const BasicInfoStep = () => {
                 value={reportValues.propertyAddress.city}
                 onChange={onChange}
                 placeholder="e.g., San Francisco"
-                className={errors['propertyAddress.city'] ? 'border-red-500' : ''}
+                className={(localErrors['propertyAddress.city'] || contextError?.propertyAddress?.city) ? 'border-red-500' : ''}
               />
-              {(localErrors['propertyAddress.city'] || contextError?.['propertyAddress.city']) && (
-                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.city'] || contextError?.['propertyAddress.city']}</p>
+              {(localErrors['propertyAddress.city'] || contextError?.propertyAddress?.city) && (
+                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.city'] || contextError?.propertyAddress?.city}</p>
               )}
             </div>
             <div>
@@ -176,10 +176,10 @@ const BasicInfoStep = () => {
                 value={reportValues.propertyAddress.state}
                 onChange={onChange}
                 placeholder="e.g., CA"
-                className={errors['propertyAddress.state'] ? 'border-red-500' : ''}
+                className={(localErrors['propertyAddress.state'] || contextError?.propertyAddress?.state) ? 'border-red-500' : ''}
               />
-              {(localErrors['propertyAddress.state'] || contextError?.['propertyAddress.state']) && (
-                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.state'] || contextError?.['propertyAddress.state']}</p>
+              {(localErrors['propertyAddress.state'] || contextError?.propertyAddress?.state) && (
+                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.state'] || contextError?.propertyAddress?.state}</p>
               )}
             </div>
             <div>
@@ -193,10 +193,10 @@ const BasicInfoStep = () => {
                 value={reportValues.propertyAddress.zipCode}
                 onChange={onChange}
                 placeholder="e.g., 94105"
-                className={errors['propertyAddress.zipCode'] ? 'border-red-500' : ''}
+                className={(localErrors['propertyAddress.zipCode'] || contextError?.propertyAddress?.zipCode) ? 'border-red-500' : ''}
               />
-              {(localErrors['propertyAddress.zipCode'] || contextError?.['propertyAddress.zipCode']) && (
-                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.zipCode'] || contextError?.['propertyAddress.zipCode']}</p>
+              {(localErrors['propertyAddress.zipCode'] || contextError?.propertyAddress?.zipCode) && (
+                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.zipCode'] || contextError?.propertyAddress?.zipCode}</p>
               )}
             </div>
           </div>

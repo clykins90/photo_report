@@ -305,14 +305,10 @@ export const ReportProvider = ({ children }) => {
       return;
     }
     
-    // First check for address validation explicitly
-    const addressMissing = !report.propertyAddress?.street?.trim() ||
-                          !report.propertyAddress?.city?.trim() ||
-                          !report.propertyAddress?.state?.trim() ||
-                          !report.propertyAddress?.zipCode?.trim();
-    
-    if (addressMissing) {
-      setError('Please complete all property address fields');
+    // Validate all required fields including address
+    const { isValid, errors } = validateReportForm(report, 4);
+    if (!isValid) {
+      setError(errors);
       return;
     }
     
@@ -397,28 +393,15 @@ export const ReportProvider = ({ children }) => {
     
     // Store validation result without triggering state updates
     if (!isValid) {
-      // Only set error if there's actually an error message to show and it's different
-      const errorMessage = getFormErrorMessage(errors);
-      if (errorMessage && errorMessage !== error) {
-        // Use a timeout to break the render cycle
-        setTimeout(() => {
-          setError(errorMessage);
-        }, 0);
-      }
+      // Only set error if there's actually an error message to show
+      setError(errors);
       return false;
     }
     
-    // Only clear error if it was previously set and we're valid
-    if (error) {
-      // Use a timeout to break the render cycle
-      setTimeout(() => {
-        setError(null);
-      }, 0);
-    }
+    // Clear error if validation passed
+    setError(null);
     return true;
-  // Using an empty dependency array to prevent infinite loops
-  // We're capturing the values inside the function
-  }, []);
+  }, [report, setError]);
 
   // Move to the next step - completely refactored to prevent infinite loops
   const nextStep = useCallback(async (user) => {
