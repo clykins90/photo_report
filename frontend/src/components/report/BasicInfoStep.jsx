@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { validateReportForm } from '../../utils/formValidation';
 import { useReportContext } from '../../context/ReportContext';
 import { useAuth } from '../../context/AuthContext';
@@ -45,8 +45,14 @@ const BasicInfoStep = () => {
     }
   }, [handleChange]);
 
+  // Track if we've already started the next step process
+  const [isProcessing, setIsProcessing] = useState(false);
+  
   // Handle next button click
   const handleNextClick = useCallback(() => {
+    // Prevent multiple clicks
+    if (isProcessing) return;
+    
     // Validate form before proceeding
     const validation = validateReportForm(report, 1);
     
@@ -57,9 +63,16 @@ const BasicInfoStep = () => {
     
     // Clear errors and proceed
     setErrors({});
+    setIsProcessing(true);
+    
     // Make sure to pass the user object, not call it as a function
     nextStep(user);
-  }, [report, nextStep, user]);
+  }, [report, nextStep, user, isProcessing]);
+  
+  // Reset processing state when report or step changes
+  useEffect(() => {
+    setIsProcessing(false);
+  }, [report._id]);
 
   return (
     <div className="space-y-6">

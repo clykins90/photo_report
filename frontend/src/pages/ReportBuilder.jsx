@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useReportContext } from '../context/ReportContext';
 import { usePhotoContext } from '../context/PhotoContext';
@@ -103,8 +103,8 @@ const ReportBuilder = ({ isEditing = false }) => {
     </div>
   );
   
-  // Render the current step
-  const renderStep = () => {
+  // Memoize the steps to prevent unnecessary re-renders
+  const currentStep = useMemo(() => {
     if (loading) {
       return renderLoading();
     }
@@ -112,15 +112,15 @@ const ReportBuilder = ({ isEditing = false }) => {
     switch (step) {
       case 1:
         // Pass the user object to BasicInfoStep
-        return <BasicInfoStep />;
+        return <BasicInfoStep key="step-1" />;
       case 2:
-        return <PhotoUploadAnalysisStep />;
+        return <PhotoUploadAnalysisStep key="step-2" />;
       case 3:
-        return <ReviewStep navigate={navigate} />;
+        return <ReviewStep navigate={navigate} key="step-3" />;
       default:
         return <div>Unknown step</div>;
     }
-  };
+  }, [loading, step, navigate, renderLoading]);
   
   // Title based on editing mode
   const pageTitle = isEditing 
@@ -166,7 +166,7 @@ const ReportBuilder = ({ isEditing = false }) => {
       </div>
       
       <Card className="p-6">
-        {renderStep()}
+        {currentStep}
       </Card>
     </div>
   );

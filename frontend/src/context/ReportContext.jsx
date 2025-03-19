@@ -380,44 +380,64 @@ export const ReportProvider = ({ children }) => {
 
   // Validate the current step
   const validateStep = useCallback((currentStep = step) => {
+    // Only perform validation if we have a report object
+    if (!report) return false;
+    
     const { isValid, errors } = validateReportForm(report, currentStep);
     
     if (!isValid) {
-      setError(getFormErrorMessage(errors));
+      // Only set error if there's actually an error message to show
+      const errorMessage = getFormErrorMessage(errors);
+      if (errorMessage) {
+        setError(errorMessage);
+      }
       return false;
     }
     
-    setError(null);
+    // Only clear error if it was previously set
+    if (error) {
+      setError(null);
+    }
     return true;
-  }, [report, step, setError]);
+  }, [report, step, error, setError]);
 
   // Move to the next step
   const nextStep = useCallback(async (user) => {
+    // Prevent multiple calls to nextStep in the same render cycle
+    if (isSubmitting) return;
+    
     // Validate current step
     if (!validateStep()) return;
     
     // If moving from step 1 to step 2 and we don't have a reportId yet, create a draft report
     if (step === 1 && !report._id) {
       try {
+        // Set submitting state to prevent multiple calls
+        setIsSubmitting(true);
+        
         // Make sure user is an object and not treated as a function
         if (user && typeof user === 'object') {
           const reportId = await createDraftReport(user);
           setStep(step + 1);
+          setIsSubmitting(false);
           return reportId;
         } else {
           console.error('Invalid user object provided to nextStep:', user);
           setError('Authentication error: Please try logging in again');
+          setIsSubmitting(false);
           return null;
         }
       } catch (err) {
+        console.error('Draft report creation error:', err);
         setError('Failed to create draft report: ' + err.message);
+        setIsSubmitting(false);
         return null;
       }
     } else {
       setStep(step + 1);
       return report._id;
     }
-  }, [createDraftReport, report._id, step, validateStep, setError]);
+  }, [createDraftReport, report._id, step, validateStep, setError, isSubmitting]);
 
   // Move to the previous step
   const prevStep = useCallback(() => {
