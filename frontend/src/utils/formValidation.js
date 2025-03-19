@@ -48,9 +48,9 @@ export const validateReportForm = (formData, step) => {
     if (!addressFields.zipCode) {
       errors.propertyAddress = errors.propertyAddress || {};
       errors.propertyAddress.zipCode = 'Zip code is required';
-    } else if (!/^\d{5}(-\d{4})?$/.test(addressFields.zipCode)) {
+    } else if (!/^[a-zA-Z0-9]{5,10}(-[a-zA-Z0-9]{4})?$/.test(addressFields.zipCode)) {
       errors.propertyAddress = errors.propertyAddress || {};
-      errors.propertyAddress.zipCode = 'Please enter a valid zip code (e.g., 12345 or 12345-6789)';
+      errors.propertyAddress.zipCode = 'Please enter a valid zip code (e.g., 12345 or A1B2C3)';
     }
     
     // If any property address errors exist, add a general error message
