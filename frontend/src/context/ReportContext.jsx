@@ -388,13 +388,15 @@ export const ReportProvider = ({ children }) => {
     if (!isValid) {
       // Only set error if there's actually an error message to show
       const errorMessage = getFormErrorMessage(errors);
-      if (errorMessage) {
+      if (errorMessage && errorMessage !== error) {
+        // Only update error state if it's different from current error
+        // This prevents infinite loops from state updates
         setError(errorMessage);
       }
       return false;
     }
     
-    // Only clear error if it was previously set
+    // Only clear error if it was previously set and we're valid
     if (error) {
       setError(null);
     }
@@ -410,7 +412,8 @@ export const ReportProvider = ({ children }) => {
     if (!validateStep()) return;
     
     // If moving from step 1 to step 2 and we don't have a reportId yet, create a draft report
-    if (step === 1 && !report._id) {
+    // Use optional chaining to safely check for report._id
+    if (step === 1 && !report?._id) {
       try {
         // Set submitting state to prevent multiple calls
         setIsSubmitting(true);
@@ -437,7 +440,7 @@ export const ReportProvider = ({ children }) => {
       setStep(step + 1);
       return report._id;
     }
-  }, [createDraftReport, report._id, step, validateStep, setError, isSubmitting]);
+  }, [createDraftReport, report, step, validateStep, setError, isSubmitting]);
 
   // Move to the previous step
   const prevStep = useCallback(() => {

@@ -109,18 +109,22 @@ const ReportBuilder = ({ isEditing = false }) => {
       return renderLoading();
     }
     
+    // Use a stable key that doesn't change on every render
+    // For new reports, use 'new-report' + step, for existing reports use report._id + step
+    const stableKey = report?._id ? `${report._id}-step-${step}` : `new-report-step-${step}`;
+    
     switch (step) {
       case 1:
         // Pass the user object to BasicInfoStep
-        return <BasicInfoStep key="step-1" />;
+        return <BasicInfoStep key={stableKey} />;
       case 2:
-        return <PhotoUploadAnalysisStep key="step-2" />;
+        return <PhotoUploadAnalysisStep key={stableKey} />;
       case 3:
-        return <ReviewStep navigate={navigate} key="step-3" />;
+        return <ReviewStep navigate={navigate} key={stableKey} />;
       default:
         return <div>Unknown step</div>;
     }
-  }, [loading, step, navigate, renderLoading]);
+  }, [loading, step, navigate, renderLoading, report]);
   
   // Title based on editing mode
   const pageTitle = isEditing 

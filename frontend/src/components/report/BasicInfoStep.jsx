@@ -69,9 +69,13 @@ const BasicInfoStep = () => {
     nextStep(user);
   }, [report, nextStep, user, isProcessing]);
   
-  // Reset processing state when report or step changes
+  // Reset processing state when report ID changes
   useEffect(() => {
-    setIsProcessing(false);
+    // Only reset processing state if we have a report ID
+    // This prevents the effect from running on every render in new report flow
+    if (report._id) {
+      setIsProcessing(false);
+    }
   }, [report._id]);
 
   return (
