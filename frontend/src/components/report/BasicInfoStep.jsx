@@ -213,10 +213,10 @@ const BasicInfoStep = () => {
             name="inspectionDate"
             value={reportValues.inspectionDate}
             onChange={onChange}
-            className={errors.inspectionDate ? 'border-red-500' : ''}
+            className={(localErrors.inspectionDate || contextError?.inspectionDate) ? 'border-red-500' : ''}
           />
-          {errors.inspectionDate && (
-            <p className="mt-1 text-sm text-red-500">{errors.inspectionDate}</p>
+          {(localErrors.inspectionDate || contextError?.inspectionDate) && (
+            <p className="mt-1 text-sm text-red-500">{localErrors.inspectionDate || contextError?.inspectionDate}</p>
           )}
         </div>
 
