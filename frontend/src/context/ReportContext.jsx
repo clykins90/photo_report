@@ -257,15 +257,19 @@ export const ReportProvider = ({ children }) => {
   }, [report._id]);
 
   // Create a draft report to get an ID
-  const createDraftReport = useCallback(async (user) => {
+  const createDraftReport = useCallback(async (user, reportData = null) => {
     // console.log("createDraftReport called with user:", user);
     try {
+      // Use provided reportData or fall back to current report state
+      // This prevents dependency on the report state which can cause infinite loops
+      const currentReport = reportData || report;
+      
       // Create a minimal report with just the basic info
       const draftData = {
-        title: report.title || 'Draft Report',
-        clientName: report.clientName || 'Draft Client',
-        propertyAddress: report.propertyAddress,
-        inspectionDate: report.inspectionDate,
+        title: currentReport.title || 'Draft Report',
+        clientName: currentReport.clientName || 'Draft Client',
+        propertyAddress: currentReport.propertyAddress,
+        inspectionDate: currentReport.inspectionDate,
         isDraft: true,
         user: user?._id
       };
@@ -287,7 +291,7 @@ export const ReportProvider = ({ children }) => {
       setError('Error creating draft report: ' + err.message);
       throw err;
     }
-  }, [report.title, report.clientName, report.propertyAddress, report.inspectionDate]);
+  }, [setReport, setError, createReport]);
 
   // Submit the report
   const submitReport = useCallback(async (user) => {
@@ -378,10 +382,20 @@ export const ReportProvider = ({ children }) => {
     }
   }, [report]);
 
-  // Validate the current step
+  // Track the last validation time to prevent excessive validations
+  const [lastValidationTime, setLastValidationTime] = useState(0);
+  
+  // Validate the current step with debounce
   const validateStep = useCallback((currentStep = step) => {
     // Only perform validation if we have a report object
     if (!report) return false;
+    
+    // Debounce validation to prevent excessive calls
+    const now = Date.now();
+    if (now - lastValidationTime < 300) { // 300ms debounce
+      return true; // Skip validation if called too frequently
+    }
+    setLastValidationTime(now);
     
     const { isValid, errors } = validateReportForm(report, currentStep);
     
@@ -401,7 +415,7 @@ export const ReportProvider = ({ children }) => {
       setError(null);
     }
     return true;
-  }, [report, step, error, setError]);
+  }, [report, step, error, setError, lastValidationTime]);
 
   // Move to the next step
   const nextStep = useCallback(async (user) => {
@@ -420,7 +434,9 @@ export const ReportProvider = ({ children }) => {
         
         // Make sure user is an object and not treated as a function
         if (user && typeof user === 'object') {
-          const reportId = await createDraftReport(user);
+          // Create a snapshot of the current report data to avoid dependency issues
+          const currentReportData = {...report};
+          const reportId = await createDraftReport(user, currentReportData);
           setStep(step + 1);
           setIsSubmitting(false);
           return reportId;

@@ -49,7 +49,7 @@ const BasicInfoStep = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   
   // Handle next button click
-  const handleNextClick = useCallback(() => {
+  const handleNextClick = useCallback(async () => {
     // Prevent multiple clicks
     if (isProcessing) return;
     
@@ -65,18 +65,22 @@ const BasicInfoStep = () => {
     setErrors({});
     setIsProcessing(true);
     
-    // Make sure to pass the user object, not call it as a function
-    nextStep(user);
+    try {
+      // Make sure to pass the user object, not call it as a function
+      // Use await to handle the promise returned by nextStep
+      await nextStep(user);
+    } catch (error) {
+      console.error('Error proceeding to next step:', error);
+    } finally {
+      // Reset processing state after nextStep completes (success or failure)
+      // This ensures we don't get stuck in processing state
+      setTimeout(() => setIsProcessing(false), 500);
+    }
   }, [report, nextStep, user, isProcessing]);
   
-  // Reset processing state when report ID changes
-  useEffect(() => {
-    // Only reset processing state if we have a report ID
-    // This prevents the effect from running on every render in new report flow
-    if (report._id) {
-      setIsProcessing(false);
-    }
-  }, [report._id]);
+  // We don't need this useEffect as it's causing an infinite loop
+  // The isProcessing state will be reset when the component unmounts naturally
+  // or when the user successfully proceeds to the next step
 
   return (
     <div className="space-y-6">

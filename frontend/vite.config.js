@@ -14,6 +14,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // Enable source maps in production
+    sourcemap: true,
     rollupOptions: {
       output: {
         // Ensure proper MIME types for JavaScript modules
