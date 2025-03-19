@@ -5,6 +5,10 @@
  * @returns {Object} - { isValid: boolean, errors: Object }
  */
 export const validateReportForm = (formData, step) => {
+  // Debug information
+  console.log('Validating form data:', JSON.stringify(formData, null, 2));
+  console.log('Current step:', step);
+  
   const errors = {};
 
   // Step 1: Basic information
@@ -53,10 +57,10 @@ export const validateReportForm = (formData, step) => {
       errors.propertyAddress.zipCode = 'Please enter a valid zip code (e.g., 12345 or A1B2C3)';
     }
     
-    // If any property address errors exist, add a general error message
-    if (errors.propertyAddress) {
-      errors.propertyAddress.general = 'Please complete all address fields correctly';
-    }
+    // Temporarily comment out the general error message to troubleshoot
+    // if (errors.propertyAddress) {
+    //   errors.propertyAddress.general = 'Please complete all address fields correctly';
+    // }
     
     // Validate inspection date
     if (!formData.inspectionDate) {
@@ -140,11 +144,13 @@ export const getFormErrorMessage = (errors) => {
     return '';
   }
   
+  // Temporarily return empty string to debug address validation
   // Check for property address errors
   if (errors.propertyAddress) {
-    if (errors.propertyAddress.general) {
-      return errors.propertyAddress.general;
-    }
+    // Skip the general message for now
+    // if (errors.propertyAddress.general) {
+    //   return errors.propertyAddress.general;
+    // }
     
     // Return the first specific address error
     const addressErrorKeys = ['street', 'city', 'state', 'zipCode'];
@@ -153,6 +159,10 @@ export const getFormErrorMessage = (errors) => {
         return `Property Address: ${errors.propertyAddress[key]}`;
       }
     }
+    
+    // If we get here, there's an address error but no specific field error
+    // This shouldn't happen, but let's return an empty string for now
+    return '';
   }
   
   // Check for other address-related errors (for backward compatibility)

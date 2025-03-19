@@ -261,7 +261,19 @@ const BasicInfoStep = () => {
         </div>
       </div>
 
-      <div className="flex justify-end mt-8">
+      <div className="flex justify-end space-x-4 mt-8">
+        {/* Debug button */}
+        <Button 
+          variant="outline"
+          type="button"
+          onClick={() => {
+            console.log('Current report values:', reportValues);
+            console.log('Context error:', contextError);
+          }}
+        >
+          Debug
+        </Button>
+        
         <Button
           type="button"
           onClick={handleNextClick}
