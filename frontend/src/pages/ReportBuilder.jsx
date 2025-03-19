@@ -40,8 +40,15 @@ const ReportBuilder = ({ isEditing = false }) => {
   const [loading, setLoading] = useState(isEditing);
   const [error, setError] = useState(null);
   
+  // Track initialization state
+  const isInitialized = React.useRef(false);
+
   // Load existing report if editing
   useEffect(() => {
+    // Prevent double initialization
+    if (isInitialized.current) return;
+    isInitialized.current = true;
+
     if (isEditing && reportId) {
       const fetchReport = async () => {
         try {
@@ -49,23 +56,30 @@ const ReportBuilder = ({ isEditing = false }) => {
           const response = await getReport(reportId);
           const reportData = response.data || response;
           
-          // Load report data into context
-          loadReport(reportData);
-          setLoading(false);
+          // Only update if we have new data
+          if (reportData && (!report._id || report._id !== reportData._id)) {
+            loadReport(reportData);
+          }
         } catch (err) {
           console.error('Failed to load report:', err);
           setError('Failed to load report. Please try again.');
+        } finally {
           setLoading(false);
         }
       };
       
       fetchReport();
-    } else {
-      // Reset states for a new report
-      resetReport();
-      clearPhotos();
+    } else if (!isEditing) {
+      // Only reset if we're not already in the default state and not editing
+      const needsReset = report.title !== '' || report.clientName !== '' || photos.length > 0;
+      if (needsReset) {
+        // Use Promise to ensure sequential execution
+        Promise.resolve()
+          .then(() => resetReport())
+          .then(() => clearPhotos());
+      }
     }
-  }, [isEditing, reportId, loadReport, resetReport, clearPhotos]);
+  }, []);  // Empty dependency array since we use ref for initialization
   
   // Handle form submission
   const handleSubmit = async () => {

@@ -325,6 +325,9 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
 
   // Clear all photos
   const clearPhotos = useCallback(() => {
+    // Guard against recursive updates
+    if (photos.length === 0 && !isUploading && !isAnalyzing) return;
+
     // Clean up blob URLs
     photos.forEach(photo => {
       if (photo?.preview?.startsWith('blob:')) {
@@ -332,13 +335,16 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       }
     });
     
-    setPhotos([]);
-    setUploadProgress(0);
-    setAnalysisProgress(0);
-    setIsUploading(false);
-    setIsAnalyzing(false);
-    setError(null);
-  }, [photos]);
+    // Batch state updates to prevent multiple re-renders
+    setTimeout(() => {
+      setPhotos([]);
+      setUploadProgress(0);
+      setAnalysisProgress(0);
+      setIsUploading(false);
+      setIsAnalyzing(false);
+      setError(null);
+    }, 0);
+  }, [photos, isUploading, isAnalyzing]);
 
   // Utility methods (kept simple)
   const getPhotosByStatus = useCallback((status) => {
