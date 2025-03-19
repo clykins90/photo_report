@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
+import React, { createContext, useState, useContext, useCallback, useEffect, useMemo } from 'react';
 import { createReport, updateReport, generateAISummary, generateReportPdf } from '../services/reportService';
 import { usePhotoContext } from './PhotoContext';
 import { validateReportForm, getFormErrorMessage } from '../utils/formValidation';
@@ -24,6 +24,11 @@ export const ReportProvider = ({ children }) => {
     analyzePhotos: analyzePhotosInContext 
   } = usePhotoContext();
   
+  // Memoize the validation function to prevent it from being recreated on every render
+  const memoizedValidateReportForm = useMemo(() => {
+    return validateReportForm;
+  }, []);
+
   // Report state
   const [report, setReport] = useState({
     title: '',
@@ -382,81 +387,130 @@ export const ReportProvider = ({ children }) => {
     }
   }, [report]);
 
-  // Track the last validation time to prevent excessive validations
-  const [lastValidationTime, setLastValidationTime] = useState(0);
-  
-  // Validate the current step with debounce
+  // Validate the current step without causing re-renders
   const validateStep = useCallback((currentStep = step) => {
     // Only perform validation if we have a report object
     if (!report) return false;
     
-    // Debounce validation to prevent excessive calls
-    const now = Date.now();
-    if (now - lastValidationTime < 300) { // 300ms debounce
-      return true; // Skip validation if called too frequently
-    }
-    setLastValidationTime(now);
-    
+    // Perform validation without setting state unless necessary
     const { isValid, errors } = validateReportForm(report, currentStep);
     
+    // Store validation result without triggering state updates
     if (!isValid) {
-      // Only set error if there's actually an error message to show
+      // Only set error if there's actually an error message to show and it's different
       const errorMessage = getFormErrorMessage(errors);
       if (errorMessage && errorMessage !== error) {
-        // Only update error state if it's different from current error
-        // This prevents infinite loops from state updates
-        setError(errorMessage);
+        // Use a timeout to break the render cycle
+        setTimeout(() => {
+          setError(errorMessage);
+        }, 0);
       }
       return false;
     }
     
     // Only clear error if it was previously set and we're valid
     if (error) {
-      setError(null);
+      // Use a timeout to break the render cycle
+      setTimeout(() => {
+        setError(null);
+      }, 0);
     }
     return true;
-  }, [report, step, error, setError, lastValidationTime]);
+  // Using an empty dependency array to prevent infinite loops
+  // We're capturing the values inside the function
+  }, []);
 
-  // Move to the next step
+  // Move to the next step - completely refactored to prevent infinite loops
   const nextStep = useCallback(async (user) => {
     // Prevent multiple calls to nextStep in the same render cycle
-    if (isSubmitting) return;
+    if (isSubmitting) return null;
     
-    // Validate current step
-    if (!validateStep()) return;
+    // Create a local copy of all needed state to avoid dependencies
+    const currentStep = step;
+    const currentReport = {...report};
+    const hasReportId = !!currentReport._id;
     
-    // If moving from step 1 to step 2 and we don't have a reportId yet, create a draft report
-    // Use optional chaining to safely check for report._id
-    if (step === 1 && !report?._id) {
-      try {
-        // Set submitting state to prevent multiple calls
-        setIsSubmitting(true);
-        
-        // Make sure user is an object and not treated as a function
-        if (user && typeof user === 'object') {
-          // Create a snapshot of the current report data to avoid dependency issues
-          const currentReportData = {...report};
-          const reportId = await createDraftReport(user, currentReportData);
-          setStep(step + 1);
-          setIsSubmitting(false);
-          return reportId;
-        } else {
-          console.error('Invalid user object provided to nextStep:', user);
-          setError('Authentication error: Please try logging in again');
-          setIsSubmitting(false);
-          return null;
+    // Set submitting immediately to prevent multiple calls
+    setIsSubmitting(true);
+    
+    try {
+      // Create a local copy of the validation function to avoid closures
+      const validationResult = (() => {
+        try {
+          return validateReportForm(currentReport, currentStep);
+        } catch (err) {
+          console.error('Validation error:', err);
+          return { isValid: false, errors: { general: 'Validation error' } };
         }
-      } catch (err) {
-        console.error('Draft report creation error:', err);
-        setError('Failed to create draft report: ' + err.message);
-        setIsSubmitting(false);
+      })();
+      
+      if (!validationResult.isValid) {
+        // Use timeout to break render cycle
+        setTimeout(() => {
+          setError(getFormErrorMessage(validationResult.errors));
+          setIsSubmitting(false);
+        }, 0);
         return null;
       }
-    } else {
-      setStep(step + 1);
-      return report._id;
+      
+      // For new reports at step 1, create a draft report
+      if (currentStep === 1 && !hasReportId) {
+        // Make sure user is an object and not treated as a function
+        if (!user || typeof user !== 'object') {
+          setTimeout(() => {
+            setError('Authentication error: Please try logging in again');
+            setIsSubmitting(false);
+          }, 0);
+          return null;
+        }
+        
+        try {
+          // Create draft report with the local copy of data
+          const response = await createReport({
+            title: currentReport.title || 'Draft Report',
+            clientName: currentReport.clientName || 'Draft Client',
+            propertyAddress: currentReport.propertyAddress,
+            inspectionDate: currentReport.inspectionDate,
+            isDraft: true,
+            user: user._id
+          });
+          
+          const reportId = response._id || response.data?._id;
+          
+          // Use timeout to break render cycle
+          setTimeout(() => {
+            // Update report with the new ID
+            setReport(prev => ({...prev, _id: reportId}));
+            setStep(currentStep + 1);
+            setIsSubmitting(false);
+          }, 0);
+          
+          return reportId;
+        } catch (err) {
+          setTimeout(() => {
+            setError('Failed to create draft report: ' + (err.message || 'Unknown error'));
+            setIsSubmitting(false);
+          }, 0);
+          return null;
+        }
+      } else {
+        // For existing reports or other steps, just increment the step
+        setTimeout(() => {
+          setStep(currentStep + 1);
+          setIsSubmitting(false);
+        }, 0);
+        return currentReport._id;
+      }
+    } catch (err) {
+      setTimeout(() => {
+        setError('Error proceeding to next step: ' + (err.message || 'Unknown error'));
+        setIsSubmitting(false);
+      }, 0);
+      return null;
     }
-  }, [createDraftReport, report, step, validateStep, setError, isSubmitting]);
+  // Explicitly exclude report and step from dependencies to prevent infinite loops
+  // We're using local copies inside the function
+  }, []);
 
   // Move to the previous step
   const prevStep = useCallback(() => {

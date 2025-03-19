@@ -48,35 +48,47 @@ const BasicInfoStep = () => {
   // Track if we've already started the next step process
   const [isProcessing, setIsProcessing] = useState(false);
   
-  // Handle next button click
-  const handleNextClick = useCallback(async () => {
+  // Handle next button click with stable references
+  const handleNextClick = useCallback(() => {
     // Prevent multiple clicks
     if (isProcessing) return;
     
+    // Create local copies to avoid closure issues
+    const currentReport = {...report};
+    const currentUser = {...user};
+    
     // Validate form before proceeding
-    const validation = validateReportForm(report, 1);
-    
-    if (!validation.isValid) {
-      setErrors(validation.errors);
-      return;
-    }
-    
-    // Clear errors and proceed
-    setErrors({});
-    setIsProcessing(true);
-    
     try {
-      // Make sure to pass the user object, not call it as a function
-      // Use await to handle the promise returned by nextStep
-      await nextStep(user);
+      const validation = validateReportForm(currentReport, 1);
+      
+      if (!validation.isValid) {
+        setErrors(validation.errors);
+        return;
+      }
+      
+      // Clear errors and proceed
+      setErrors({});
+      setIsProcessing(true);
+      
+      // Use a promise to handle the nextStep call
+      Promise.resolve()
+        .then(() => nextStep(currentUser))
+        .catch(error => {
+          console.error('Error proceeding to next step:', error);
+        })
+        .finally(() => {
+          // Use a timeout to ensure we're outside the current render cycle
+          setTimeout(() => {
+            setIsProcessing(false);
+          }, 300);
+        });
     } catch (error) {
-      console.error('Error proceeding to next step:', error);
-    } finally {
-      // Reset processing state after nextStep completes (success or failure)
-      // This ensures we don't get stuck in processing state
-      setTimeout(() => setIsProcessing(false), 500);
+      console.error('Error in form validation:', error);
+      setErrors({ general: 'An error occurred while validating the form' });
     }
-  }, [report, nextStep, user, isProcessing]);
+  // Use an empty dependency array to prevent re-creation on every render
+  // We're capturing the values inside the function
+  }, []);
   
   // We don't need this useEffect as it's causing an infinite loop
   // The isProcessing state will be reset when the component unmounts naturally
