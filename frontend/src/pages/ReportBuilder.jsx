@@ -111,6 +111,7 @@ const ReportBuilder = ({ isEditing = false }) => {
     
     switch (step) {
       case 1:
+        // Pass the user object to BasicInfoStep
         return <BasicInfoStep />;
       case 2:
         return <PhotoUploadAnalysisStep />;

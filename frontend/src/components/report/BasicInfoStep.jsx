@@ -57,6 +57,7 @@ const BasicInfoStep = () => {
     
     // Clear errors and proceed
     setErrors({});
+    // Make sure to pass the user object, not call it as a function
     nextStep(user);
   }, [report, nextStep, user]);
 

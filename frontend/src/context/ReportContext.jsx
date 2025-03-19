@@ -399,9 +399,16 @@ export const ReportProvider = ({ children }) => {
     // If moving from step 1 to step 2 and we don't have a reportId yet, create a draft report
     if (step === 1 && !report._id) {
       try {
-        const reportId = await createDraftReport(user);
-        setStep(step + 1);
-        return reportId;
+        // Make sure user is an object and not treated as a function
+        if (user && typeof user === 'object') {
+          const reportId = await createDraftReport(user);
+          setStep(step + 1);
+          return reportId;
+        } else {
+          console.error('Invalid user object provided to nextStep:', user);
+          setError('Authentication error: Please try logging in again');
+          return null;
+        }
       } catch (err) {
         setError('Failed to create draft report: ' + err.message);
         return null;
