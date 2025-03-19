@@ -9,7 +9,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 
 const BasicInfoStep = () => {
-  const [errors, setErrors] = useState({});
+  const [localErrors, setLocalErrors] = useState({});
   const { user } = useAuth();
   
   // Get report context values
@@ -17,7 +17,8 @@ const BasicInfoStep = () => {
     report,
     handleChange,
     nextStep,
-    error: contextError
+    error: contextError,
+    validateStep
   } = useReportContext();
 
   // Memoize the report values to prevent unnecessary re-renders
@@ -54,20 +55,16 @@ const BasicInfoStep = () => {
     if (isProcessing) return;
     
     // Create local copies to avoid closure issues
-    const currentReport = {...report};
     const currentUser = {...user};
     
     // Validate form before proceeding
     try {
-      const validation = validateReportForm(currentReport, 1);
-      
-      if (!validation.isValid) {
-        setErrors(validation.errors);
+      if (!validateStep(1)) {
         return;
       }
       
-      // Clear errors and proceed
-      setErrors({});
+      // Clear local errors and proceed
+      setLocalErrors({});
       setIsProcessing(true);
       
       // Use a promise to handle the nextStep call
@@ -77,18 +74,13 @@ const BasicInfoStep = () => {
           console.error('Error proceeding to next step:', error);
         })
         .finally(() => {
-          // Use a timeout to ensure we're outside the current render cycle
-          setTimeout(() => {
-            setIsProcessing(false);
-          }, 300);
+          setIsProcessing(false);
         });
     } catch (error) {
       console.error('Error in form validation:', error);
-      setErrors({ general: 'An error occurred while validating the form' });
+      setLocalErrors({ general: 'An error occurred while validating the form' });
     }
-  // Use an empty dependency array to prevent re-creation on every render
-  // We're capturing the values inside the function
-  }, []);
+  }, [validateStep, nextStep, user, isProcessing]);
   
   // We don't need this useEffect as it's causing an infinite loop
   // The isProcessing state will be reset when the component unmounts naturally
@@ -112,8 +104,8 @@ const BasicInfoStep = () => {
             placeholder="e.g., Roof Inspection Report"
             className={errors.title ? 'border-red-500' : ''}
           />
-          {errors.title && (
-            <p className="mt-1 text-sm text-red-500">{errors.title}</p>
+          {(localErrors.title || contextError?.title) && (
+            <p className="mt-1 text-sm text-red-500">{localErrors.title || contextError?.title}</p>
           )}
         </div>
 
@@ -130,8 +122,8 @@ const BasicInfoStep = () => {
             placeholder="e.g., John Smith"
             className={errors.clientName ? 'border-red-500' : ''}
           />
-          {errors.clientName && (
-            <p className="mt-1 text-sm text-red-500">{errors.clientName}</p>
+          {(localErrors.clientName || contextError?.clientName) && (
+            <p className="mt-1 text-sm text-red-500">{localErrors.clientName || contextError?.clientName}</p>
           )}
         </div>
 
@@ -152,8 +144,8 @@ const BasicInfoStep = () => {
                 placeholder="e.g., 123 Main St"
                 className={errors['propertyAddress.street'] ? 'border-red-500' : ''}
               />
-              {errors['propertyAddress.street'] && (
-                <p className="mt-1 text-sm text-red-500">{errors['propertyAddress.street']}</p>
+              {(localErrors['propertyAddress.street'] || contextError?.['propertyAddress.street']) && (
+                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.street'] || contextError?.['propertyAddress.street']}</p>
               )}
             </div>
             <div>
@@ -169,8 +161,8 @@ const BasicInfoStep = () => {
                 placeholder="e.g., San Francisco"
                 className={errors['propertyAddress.city'] ? 'border-red-500' : ''}
               />
-              {errors['propertyAddress.city'] && (
-                <p className="mt-1 text-sm text-red-500">{errors['propertyAddress.city']}</p>
+              {(localErrors['propertyAddress.city'] || contextError?.['propertyAddress.city']) && (
+                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.city'] || contextError?.['propertyAddress.city']}</p>
               )}
             </div>
             <div>
@@ -186,8 +178,8 @@ const BasicInfoStep = () => {
                 placeholder="e.g., CA"
                 className={errors['propertyAddress.state'] ? 'border-red-500' : ''}
               />
-              {errors['propertyAddress.state'] && (
-                <p className="mt-1 text-sm text-red-500">{errors['propertyAddress.state']}</p>
+              {(localErrors['propertyAddress.state'] || contextError?.['propertyAddress.state']) && (
+                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.state'] || contextError?.['propertyAddress.state']}</p>
               )}
             </div>
             <div>
@@ -203,8 +195,8 @@ const BasicInfoStep = () => {
                 placeholder="e.g., 94105"
                 className={errors['propertyAddress.zipCode'] ? 'border-red-500' : ''}
               />
-              {errors['propertyAddress.zipCode'] && (
-                <p className="mt-1 text-sm text-red-500">{errors['propertyAddress.zipCode']}</p>
+              {(localErrors['propertyAddress.zipCode'] || contextError?.['propertyAddress.zipCode']) && (
+                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.zipCode'] || contextError?.['propertyAddress.zipCode']}</p>
               )}
             </div>
           </div>
