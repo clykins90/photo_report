@@ -134,40 +134,31 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       if (result.success) {
         const { photos: uploadedPhotos, idMapping } = result.data;
         
-        // Ensure upload complete state is reflected clearly
-        // We need to make a mapping of client IDs to server IDs
-        const finalPhotoUpdates = photosToUpload.map(photo => {
-          const clientId = photo.clientId || photo.id;
-          const serverId = idMapping && idMapping[clientId];
-          
-          return {
-            clientId,
-            serverId: serverId || photo._id || photo.id,
-            data: {
-              status: 'uploaded',
-              uploadProgress: 100,
-              // If we have a server ID, use it
-              ...(serverId ? { _id: serverId, id: serverId } : {})
-            }
-          };
-        });
-        
-        // Update each photo individually with correct data including IDs
+        // Update photos with server data
         setPhotos(prevPhotos => {
           return prevPhotos.map(photo => {
-            const photoId = photo.clientId || photo.id;
-            const matchingUpdate = finalPhotoUpdates.find(u => u.clientId === photoId);
+            const clientId = photo.clientId || photo.id;
+            const serverId = idMapping && idMapping[clientId];
             
-            if (matchingUpdate) {
-              // Ensure _id is properly set directly on the photo object
-              const updatedPhoto = {
+            // If this photo was uploaded, update it with server data
+            if (serverId) {
+              // Find the matching server photo data
+              const serverPhoto = uploadedPhotos.find(p => p._id === serverId);
+              
+              return {
                 ...photo,
-                ...matchingUpdate.data,
-                // Explicitly set the server ID as both _id and id
-                _id: matchingUpdate.serverId,
-                id: matchingUpdate.serverId
+                _id: serverId,           // Set MongoDB ID
+                clientId: clientId,      // Keep client ID for reference
+                status: 'uploaded',
+                uploadProgress: 100,
+                // Add any additional server data
+                ...(serverPhoto ? {
+                  path: serverPhoto.path,
+                  contentType: serverPhoto.contentType,
+                  size: serverPhoto.size,
+                  uploadDate: serverPhoto.uploadDate
+                } : {})
               };
-              return preservePhotoData(updatedPhoto);
             }
             
             return photo;
