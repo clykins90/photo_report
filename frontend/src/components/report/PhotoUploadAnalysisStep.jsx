@@ -6,11 +6,12 @@ import PhotoDropzone from '../photo/components/PhotoDropzone';
 import PhotoGrid from '../photo/components/PhotoGrid';
 import { Button } from '../ui/button';
 import { Spinner } from '../ui/spinner';
+import { PhotoState } from '../../utils/photoStateMachine';
 
 const PhotoUploadAnalysisStep = () => {
   const { user } = useAuth();
   
-  // Get photo context
+  // Get photo context with state machine helpers
   const { 
     photos, 
     isUploading, 
@@ -21,7 +22,10 @@ const PhotoUploadAnalysisStep = () => {
     uploadPhotosToServer,
     analyzePhotos,
     removePhoto,
-    setError: setPhotoError
+    setError: setPhotoError,
+    canUploadPhoto,
+    canAnalyzePhoto,
+    isPhotoInState
   } = usePhotoContext();
 
   // Get report context
@@ -39,12 +43,10 @@ const PhotoUploadAnalysisStep = () => {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [analyzeComplete, setAnalyzeComplete] = useState(false);
   
-  // Determine if there are photos ready for analysis
-  const uploadedPhotosExist = photos.some(photo => {
-    // Check that it has 'uploaded' status AND a valid MongoDB ObjectId
-    const hasValidId = photo._id && typeof photo._id === 'string' && /^[0-9a-f]{24}$/i.test(photo._id);
-    return photo.status === 'uploaded' && hasValidId;
-  });
+  // Determine if there are photos ready for analysis using state machine
+  const uploadedPhotosExist = photos.some(photo => 
+    canAnalyzePhoto(photo) && photo._id?.match(/^[0-9a-f]{24}$/i)
+  );
 
   // Handle file drop
   const handleDrop = useCallback((files) => {
@@ -64,9 +66,7 @@ const PhotoUploadAnalysisStep = () => {
   const handleUploadPhotos = useCallback(async () => {
     if (!report._id) {
       try {
-        // Try to get the current user
         const currentUser = user || {};
-        // First create a draft report
         const reportId = await submitReport(currentUser);
         if (!reportId) {
           setPhotoError("Could not create a report. Please go back and fill in the basic information.");
@@ -84,10 +84,8 @@ const PhotoUploadAnalysisStep = () => {
       return;
     }
     
-    // Get photos that need to be uploaded
-    const photosToUpload = photos.filter(photo => 
-      !['uploaded', 'analyzed'].includes(photo.status)
-    );
+    // Get photos that can be uploaded according to state machine
+    const photosToUpload = photos.filter(photo => canUploadPhoto(photo));
     
     if (photosToUpload.length === 0) {
       console.log('No new photos to upload');
@@ -95,7 +93,7 @@ const PhotoUploadAnalysisStep = () => {
     }
     
     await uploadPhotosToServer(photosToUpload, report._id);
-  }, [report._id, photos, uploadPhotosToServer, submitReport, user, setPhotoError]);
+  }, [report._id, photos, uploadPhotosToServer, submitReport, user, setPhotoError, canUploadPhoto]);
 
   // Analyze photos
   const handleAnalyzePhotos = useCallback(async () => {
@@ -212,9 +210,11 @@ const PhotoUploadAnalysisStep = () => {
               <Button 
                 variant="outline" 
                 onClick={handleUploadPhotos}
-                disabled={isUploading || photos.length === 0 || photos.every(photo => photo.status === 'uploaded' || photo.status === 'analyzed')}
+                disabled={isUploading || photos.length === 0 || !photos.some(canUploadPhoto)}
               >
-                {photos.every(photo => photo.status === 'uploaded' || photo.status === 'analyzed') ? "Photos Uploaded" : "Upload Photos"}
+                {photos.every(photo => isPhotoInState(photo, PhotoState.UPLOADED) || isPhotoInState(photo, PhotoState.ANALYZED)) 
+                  ? "Photos Uploaded" 
+                  : "Upload Photos"}
               </Button>
               
               <Button 
