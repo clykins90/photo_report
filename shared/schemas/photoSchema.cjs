@@ -107,15 +107,13 @@ const PhotoSchema = {
       path: rawData.path || '',
       section: rawData.section || 'Uncategorized',
       userDescription: rawData.userDescription || '',
+      status: rawData.status || 'uploaded', // Always include the server's status
       aiAnalysis: null // We'll set this below with proper checks
     };
     
     // Properly extract and combine analysis data from either analysis or aiAnalysis field
     const analysisSource = rawData.analysis || rawData.aiAnalysis;
     if (analysisSource) {
-      // Check if we have real analysis data with content
-      const hasRealDescription = !!analysisSource.description && analysisSource.description.trim() !== '';
-      
       cleanPhoto.aiAnalysis = {
         tags: Array.isArray(analysisSource.tags) ? analysisSource.tags : [],
         severity: analysisSource.severity || 'unknown',
@@ -124,12 +122,9 @@ const PhotoSchema = {
         damageDetected: !!analysisSource.damageDetected
       };
       
-      // If it has real content, mark as analyzed
-      if (hasRealDescription || cleanPhoto.aiAnalysis.tags.length > 0 || cleanPhoto.aiAnalysis.damageDetected) {
+      // Make sure we explicitly copy the status from the database
+      if (rawData.status === 'analyzed') {
         cleanPhoto.status = 'analyzed';
-      } else {
-        // Otherwise ensure we indicate it's only uploaded, not analyzed
-        cleanPhoto.status = rawData.status === 'analyzed' ? 'uploaded' : rawData.status;
       }
     } else {
       // No analysis data
@@ -140,13 +135,6 @@ const PhotoSchema = {
         confidence: 0, 
         damageDetected: false 
       };
-      
-      // Ensure status reflects the missing analysis
-      if (rawData.status === 'analyzed') {
-        cleanPhoto.status = 'uploaded';
-      } else {
-        cleanPhoto.status = rawData.status;
-      }
     }
     
     // Add other fields if they exist
@@ -154,7 +142,6 @@ const PhotoSchema = {
     if (rawData.contentType) cleanPhoto.contentType = rawData.contentType;
     if (rawData.size) cleanPhoto.size = rawData.size;
     if (rawData.uploadDate) cleanPhoto.uploadDate = rawData.uploadDate;
-    if (!cleanPhoto.status && rawData.status) cleanPhoto.status = rawData.status;
     if (rawData.clientId) cleanPhoto.clientId = rawData.clientId;
     if (rawData.originalName) cleanPhoto.originalName = rawData.originalName;
     

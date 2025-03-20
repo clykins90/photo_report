@@ -149,25 +149,15 @@ const PhotoSchema = {
       path = `/api${path}`;
     }
     
-    // Prioritize the status directly from the API response
-    // Only fall back to derived status if API status is missing
-    let status = apiPhoto.status || 'pending';
-    
-    // Don't override the API's status value unless it's missing
-    if (!apiPhoto.status) {
-      if (apiPhoto._id && !apiPhoto.aiAnalysis && !apiPhoto.analysis) {
-        status = 'uploaded';  // If we have _id but no analysis, it's just uploaded
-      } else if (apiPhoto._id && (apiPhoto.aiAnalysis || apiPhoto.analysis)) {
-        status = 'analyzed';  // Only mark as analyzed if we have both _id and analysis
-      }
-    }
+    // Always use the server's status value
+    const status = apiPhoto.status || 'uploaded';
     
     // Create the standardized server response
     const standardizedPhoto = {
       _id: apiPhoto._id,
       originalName: apiPhoto.originalName,
       contentType: apiPhoto.contentType || (apiPhoto.file?.type || null),
-      status, // Use the determined status
+      status,
       path,
       uploadDate: apiPhoto.uploadDate ? new Date(apiPhoto.uploadDate) : new Date(),
       size: apiPhoto.size,

@@ -291,13 +291,12 @@ const analyzePhotos = async (req, res) => {
             // Update existing photo with analysis data
             report.photos[existingPhotoIndex].analysis = analysisData;
             
-            // Only mark as analyzed if it has real content
-            const hasRealContent = (
-              (analysisData.description && analysisData.description.trim() !== '') ||
-              (Array.isArray(analysisData.tags) && analysisData.tags.length > 0) ||
-              analysisData.damageDetected === true
-            );
+            // Consider ANY photo with a description field that's not empty as analyzed
+            const hasRealContent = analysisData && 
+              ((analysisData.description && analysisData.description.trim() !== '') || 
+               (Array.isArray(analysisData.tags) && analysisData.tags.length > 0));
             
+            // Default to 'analyzed' if we have any content, even minimal
             report.photos[existingPhotoIndex].status = hasRealContent ? 'analyzed' : 'uploaded';
             logger.info(`Updated existing photo ${photoId} with analysis ${hasRealContent ? '(real content)' : '(empty content)'}`);
           } else {
@@ -360,13 +359,12 @@ const analyzePhotos = async (req, res) => {
           severity: analysisData.severity
         });
         
-        // Only mark as analyzed if it has real content
-        const hasRealContent = (
-          (analysisData.description && analysisData.description.trim() !== '') ||
-          (Array.isArray(analysisData.tags) && analysisData.tags.length > 0) ||
-          analysisData.damageDetected === true
-        );
+        // Consider ANY photo with a description field that's not empty as analyzed
+        const hasRealContent = analysisData && 
+          ((analysisData.description && analysisData.description.trim() !== '') || 
+           (Array.isArray(analysisData.tags) && analysisData.tags.length > 0));
         
+        // Default to 'analyzed' if we have any content, even minimal
         const newStatus = hasRealContent ? 'analyzed' : 'uploaded';
         logger.info(`Setting photo ${result.photoId} status to ${newStatus} based on content check`);
         
