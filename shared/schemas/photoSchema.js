@@ -101,6 +101,10 @@ const PhotoSchema = {
     const clientId = options.clientId || file._tempId || file.clientId || 
                     `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     
+    // Attach clientId to the file object itself so it can be accessed during upload
+    file.clientId = clientId;
+    file.originalClientId = clientId;
+    
     return {
       _id: null, // Will be set by server after upload
       originalName: file.name,
