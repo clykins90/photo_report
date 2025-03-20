@@ -36,13 +36,56 @@ const PhotoSchema = {
   
   // Status enum values
   statusValues: [
-    'pending',     // Initial state before upload
-    'uploading',   // Currently being uploaded
-    'uploaded',    // Successfully uploaded
-    'analyzing',   // Being analyzed
-    'analyzed',    // Successfully analyzed
+    'pending',     // Initial state when added
+    'uploaded',    // Successfully uploaded to server
+    'analyzed',    // Successfully analyzed by AI
     'error'        // Error state
   ],
+
+  // Simple state validation
+  isValidTransition(currentState, nextState) {
+    const validTransitions = {
+      'pending': ['uploaded', 'error'],
+      'uploaded': ['analyzed', 'error'],
+      'analyzed': ['error'],
+      'error': ['pending']
+    };
+    return validTransitions[currentState]?.includes(nextState);
+  },
+
+  // Helper functions for photo operations
+  helpers: {
+    canUpload(photo) {
+      return photo?.status === 'pending' && !!photo.file;
+    },
+
+    canAnalyze(photo) {
+      return photo?.status === 'uploaded' && !!photo._id;
+    },
+
+    validatePhoto(photo) {
+      if (!photo?.status) return { valid: false, error: 'Photo has no status' };
+      
+      const requirements = {
+        'pending': () => !!photo.file,
+        'uploaded': () => !!photo._id,
+        'analyzed': () => !!photo._id && !!photo.aiAnalysis,
+        'error': () => !!photo.error
+      };
+
+      const validator = requirements[photo.status];
+      if (!validator) return { valid: false, error: `Unknown status: ${photo.status}` };
+
+      return {
+        valid: validator(),
+        error: validator() ? null : `Invalid photo data for status ${photo.status}`
+      };
+    },
+
+    generateClientId() {
+      return `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    }
+  },
 
   /**
    * Creates a photo object directly from a File object

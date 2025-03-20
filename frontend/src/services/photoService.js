@@ -7,7 +7,6 @@ import {
   getBestDataSource,
   groupPhotosByDataAvailability
 } from '../utils/photoUtils';
-import { photoStateMachine } from '../utils/photoStateMachine';
 
 /**
  * Simplified photo service for handling photo operations
@@ -130,7 +129,7 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
     // Filter out already analyzed photos
     const photosToAnalyze = photosOrIds.filter(photo => 
       !photo.analysis && // Skip if already analyzed
-      photoStateMachine.canAnalyze(photo) // Skip if not in a state that can be analyzed
+      PhotoSchema.helpers.canAnalyze(photo) // Skip if not in a state that can be analyzed
     );
     
     if (photosToAnalyze.length === 0) {
