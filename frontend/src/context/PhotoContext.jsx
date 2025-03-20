@@ -197,39 +197,58 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
 
       // Get photos that can be analyzed according to state machine
       const photosToAnalyze = photos.filter(photo => 
-        photoStateMachine.canAnalyze(photo) && 
-        photo._id?.match(/^[0-9a-f]{24}$/i)
-      );
+        photoStateMachine.canAnalyze(photo)
+      ).map(photo => {
+        // Prioritize using local file data if available
+        const photoData = {
+          ...photo,
+          _id: photo._id,
+          clientId: photo.clientId
+        };
+
+        // If we have a local file, use that
+        if (photo.file) {
+          photoData.file = photo.file;
+        }
+        // If we have a local data URL, use that
+        else if (photo.localDataUrl) {
+          photoData.localDataUrl = photo.localDataUrl;
+        }
+        // If we have a preview that's a data URL, use that
+        else if (photo.preview?.startsWith('data:')) {
+          photoData.localDataUrl = photo.preview;
+        }
+        // Only include server path if we don't have local data
+        else if (photo.path) {
+          photoData.path = photo.path;
+        }
+
+        return photoData;
+      });
 
       if (!photosToAnalyze.length) {
         setError('No photos ready for analysis');
         return { success: false, error: 'No photos ready for analysis' };
       }
 
-      const photoIds = photosToAnalyze.map(p => p._id);
-      
-      // Set analyzing state for only the photos being analyzed
-      setPhotos(prevPhotos => 
-        prevPhotos.map(photo => 
-          photoIds.includes(photo._id)
-            ? photoStateMachine.transition(photo, PhotoState.ANALYZING)
-            : photo
-        )
-      );
+      // Log which photos are using local vs server data
+      console.log('Analyzing photos:', photosToAnalyze.map(p => ({
+        id: p._id || p.clientId,
+        hasLocalFile: !!p.file,
+        hasLocalDataUrl: !!p.localDataUrl,
+        hasServerPath: !!p.path
+      })));
 
-      const result = await analyzePhotosService(reportId, photoIds);
+      const result = await analyzePhotosService(reportId, photosToAnalyze);
 
       if (result.success && result.data?.photos) {
         // Update photos with analysis data
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => {
-            if (!photoIds.includes(photo._id)) return photo;
-            
-            const analyzedPhoto = result.data.photos.find(ap => ap._id === photo._id);
-            if (!analyzedPhoto) {
-              console.warn(`No analysis data found for photo ${photo._id}`);
-              return photo;
-            }
+            const analyzedPhoto = result.data.photos.find(ap => 
+              (ap._id === photo._id) || (ap.clientId === photo.clientId)
+            );
+            if (!analyzedPhoto) return photo;
 
             try {
               return photoStateMachine.transition({
@@ -246,7 +265,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         // Set error state for failed photos
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => 
-            photoIds.includes(photo._id)
+            photosToAnalyze.some(p => p._id === photo._id || p.clientId === photo.clientId)
               ? photoStateMachine.transition({
                   ...photo,
                   error: result.error || 'Analysis failed'

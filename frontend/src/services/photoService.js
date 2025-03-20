@@ -126,127 +126,38 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
       ? (typeof photosOrIds[0] === 'object' ? 'object' : typeof photosOrIds[0]) 
       : 'none');
     
-    // Function to validate MongoDB ObjectId (24 character hex string)
-    const isValidObjectId = (id) => id && typeof id === 'string' && /^[0-9a-f]{24}$/i.test(id);
+    // Create FormData for the request
+    const payload = new FormData();
+    payload.append('reportId', reportId);
     
-    // Simplify the process - if all items are strings and valid ObjectIds, just use them directly
-    if (photosOrIds.every(item => typeof item === 'string' && isValidObjectId(item))) {
-      photoLogger.info('Using direct ID array for analysis');
-      // Simple case - all items are valid MongoDB ObjectId strings
-      const response = await api.post('/photos/analyze', {
-        reportId,
-        photoIds: photosOrIds
-      });
+    // Process each photo
+    photosOrIds.forEach((photo, index) => {
+      // Get the best source for uploading
+      const source = getBestDataSource(photo);
+      let file = null;
       
-      if (response.data.success) {
-        const responseData = response.data.data || response.data;
-        const serverAnalyzedPhotos = responseData.photos || [];
-        
-        return {
-          success: true,
-          data: {
-            photos: serverAnalyzedPhotos
-          }
-        };
-      } else {
-        return {
-          success: false,
-          error: response.data.error || 'Analysis failed'
-        };
-      }
-    }
-    
-    // Check if we're dealing with photo objects or just IDs
-    const hasPhotoObjects = photosOrIds.some(item => typeof item === 'object');
-    
-    // Group photos by data availability
-    let photoIds = [];
-    let photosWithLocalData = [];
-    
-    if (hasPhotoObjects) {
-      // Process photo objects to determine which ones have local data
-      const photoObjects = photosOrIds.filter(item => typeof item === 'object');
-      
-      // Filter out photo objects that don't have a valid server ID
-      const validPhotoObjects = photoObjects.filter(photo => {
-        const photoId = photo._id || photo.id;
-        return isValidObjectId(photoId);
-      });
-      
-      if (validPhotoObjects.length === 0) {
-        photoLogger.error('No valid photo objects to analyze');
-        return { success: false, error: 'No valid photo IDs found for analysis' };
+      if (source.type === 'file' && photo.file) {
+        // We have a file object
+        file = photo.file;
+      } else if (source.type === 'dataUrl' && source.data) {
+        // Convert data URL to file
+        const dataUrl = source.data;
+        const blob = dataURLtoBlob(dataUrl);
+        file = new File([blob], `photo_${photo._id || photo.id || index}.jpg`, { type: 'image/jpeg' });
       }
       
-      // Use the groupPhotosByDataAvailability utility to separate photos with local data
-      const { withLocalData, needsServerAnalysis } = groupPhotosByDataAvailability(validPhotoObjects);
-      photosWithLocalData = withLocalData;
-      photoIds = needsServerAnalysis
-        .map(photo => photo._id || photo.id)
-        .filter(id => isValidObjectId(id));
-      
-      photoLogger.info(`Analyzing ${photosWithLocalData.length} photos with local data and ${photoIds.length} photos from server for report ${reportId}`);
-    } else {
-      // If we only have IDs, filter for valid MongoDB ObjectIds
-      photoIds = photosOrIds.filter(id => isValidObjectId(id));
-      
-      if (photoIds.length === 0) {
-        photoLogger.error('No valid photo IDs to analyze');
-        return { success: false, error: 'No valid photo IDs found for analysis' };
+      if (file) {
+        payload.append('photos', file);
+        payload.append('photoMetadata', JSON.stringify({
+          index,
+          id: photo._id || photo.id,
+          clientId: photo.clientId || photo.id
+        }));
       }
-      
-      photoLogger.info(`Analyzing ${photoIds.length} photos from server for report ${reportId}`);
-    }
-    
-    // Create FormData if we have local files to send
-    let payload;
-    let config = {};
-    
-    if (photosWithLocalData.length > 0) {
-      // We have local files to send
-      payload = new FormData();
-      payload.append('reportId', reportId);
-      
-      // Add photo IDs that need server analysis
-      if (photoIds.length > 0) {
-        payload.append('photoIds', JSON.stringify(photoIds));
-      }
-      
-      // Add local files to the FormData
-      photosWithLocalData.forEach((photo, index) => {
-        // Get the best source for uploading
-        const source = getBestDataSource(photo);
-        let file = null;
-        
-        if (source.type === 'file' && photo.file) {
-          // We have a file object
-          file = photo.file;
-        } else if (source.type === 'dataUrl' && source.data) {
-          // Convert data URL to file
-          const dataUrl = source.data;
-          const blob = dataURLtoBlob(dataUrl);
-          file = new File([blob], `photo_${photo._id || photo.id || index}.jpg`, { type: 'image/jpeg' });
-        }
-        
-        if (file) {
-          payload.append('photos', file);
-          payload.append('photoMetadata', JSON.stringify({
-            index,
-            id: photo._id || photo.id,
-            clientId: photo.clientId || photo.id
-          }));
-        }
-      });
-    } else {
-      // No local files, just send IDs
-      payload = {
-        reportId,
-        photoIds: photoIds.length > 0 ? photoIds : undefined
-      };
-    }
+    });
     
     // Send analysis request
-    const response = await api.post('/photos/analyze', payload, config);
+    const response = await api.post('/photos/analyze', payload);
     
     // Log the raw response for debugging
     photoLogger.debug('Raw API response from analyzePhotos:', {
@@ -265,38 +176,17 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
       
       photoLogger.info(`Received analysis results for ${serverAnalyzedPhotos.length} photos`);
       
-      if (hasPhotoObjects) {
-        // For photo objects, we need to return results in a format that matches
-        // what the client expects from the previous implementation
-        const results = serverAnalyzedPhotos.map((serverPhoto) => {
-          // Ensure we have a valid photoId
-          const photoId = serverPhoto._id || serverPhoto.id || '';
-          
-          return {
-            success: true,
-            photoId: photoId,
-            analysis: serverPhoto.analysis
-          };
-        });
-        
-        return {
-          success: true,
-          results: results
-        };
-      } else {
-        // For photo IDs, return the photos directly
-        // Transform photos to client format if needed
-        const clientAnalyzedPhotos = serverAnalyzedPhotos.map(photo => 
-          preservePhotoData(PhotoSchema.deserializeFromApi(photo))
-        );
-        
-        return {
-          success: true,
-          data: {
-            photos: clientAnalyzedPhotos
-          }
-        };
-      }
+      // Transform photos to client format if needed
+      const clientAnalyzedPhotos = serverAnalyzedPhotos.map(photo => 
+        preservePhotoData(PhotoSchema.deserializeFromApi(photo))
+      );
+      
+      return {
+        success: true,
+        data: {
+          photos: clientAnalyzedPhotos
+        }
+      };
     } else {
       photoLogger.error('Photo analysis failed:', response.data.error);
       return {
