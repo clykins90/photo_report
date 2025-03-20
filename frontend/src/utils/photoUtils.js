@@ -74,23 +74,15 @@ export const createPhotoFromFile = (file, options = {}) => {
 export const updatePhotoWithServerData = (photo, serverData) => {
   if (!photo || !serverData) return photo;
   
-  console.log("updatePhotoWithServerData called with:", {
-    photoId: photo._id || photo.id,
-    photoStatus: photo.status,
-    serverPhotoId: serverData._id
-  });
-  
-  // Create a new object with server data but explicitly set status to uploaded
+  // Only transform data, don't manage state
   return {
     ...photo,
     _id: serverData._id || serverData.id,
     url: serverData.url || serverData.path,
-    uploadProgress: 100,
-    // Preserve local data that server doesn't have
-    file: photo.file,
-    preview: photo.preview,
-    // ALWAYS set status to 'uploaded' - this is critical for UI state
-    status: 'uploaded'
+    uploadProgress: photo.uploadProgress,  // Preserve existing progress
+    file: photo.file,                     // Preserve local data
+    preview: photo.preview,               // Preserve local data
+    status: photo.status                  // Let context manage status
   };
 };
 
@@ -136,27 +128,10 @@ export const groupPhotosByDataAvailability = (photos) => {
 export const preservePhotoData = (photo) => {
   if (!photo) return null;
   
-  // Remove excessive logging that might contribute to infinite loops
-  // console.log("photoUtils.preservePhotoData called with photo:", {
-  //   id: photo._id || photo.id,
-  //   status: photo.status,
-  //   hasFile: !!photo.file
-  // });
-  
   // Create a new object to avoid modifying the original
   const processedPhoto = { ...photo };
   
-  // MOST IMPORTANT: Always preserve existing status
-  // This is critical to prevent overwriting 'uploaded' status
-  if (photo.status) {
-    processedPhoto.status = photo.status;
-    // console.log(`Preserving existing status: ${photo.status} for photo ${photo._id || photo.id}`);
-  } else {
-    // Only use default if missing
-    processedPhoto.status = 'pending';
-  }
-  
-  // Ensure file object is preserved
+  // Preserve existing data without setting defaults
   if (photo.file) {
     processedPhoto.file = photo.file;
     
@@ -175,8 +150,6 @@ export const preservePhotoData = (photo) => {
   if (photo.localDataUrl) {
     processedPhoto.localDataUrl = photo.localDataUrl;
   }
-  
-  // console.log("photoUtils.preservePhotoData returning photo with status:", processedPhoto.status);
   
   return processedPhoto;
 };

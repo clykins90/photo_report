@@ -39,7 +39,8 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       status: 'pending',
       name: file.name,
       type: file.type,
-      size: file.size
+      size: file.size,
+      uploadProgress: 0
     }));
     
     setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
@@ -69,23 +70,31 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         return { success: false, error: 'No valid files to upload' };
       }
 
-      // Set all target photos to uploading state
+      // Set uploading state
       setPhotos(prevPhotos => 
         prevPhotos.map(photo => 
           clientIds.includes(photo.clientId) 
-            ? { ...photo, status: 'uploading' }
+            ? { ...photo, status: 'uploading', uploadProgress: 0 }
             : photo
         )
       );
-      
+
       const result = await uploadPhotos(files, reportId, (_, progress) => {
         setUploadProgress(progress);
+        // Update progress but don't change status here
+        setPhotos(prevPhotos => 
+          prevPhotos.map(photo => 
+            clientIds.includes(photo.clientId)
+              ? { ...photo, uploadProgress: progress }
+              : photo
+          )
+        );
       });
 
       if (result.success) {
         const { photos: uploadedPhotos, idMapping } = result.data;
         
-        // Update photos with server data
+        // Single state update after successful upload
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => {
             if (!clientIds.includes(photo.clientId)) return photo;
@@ -93,21 +102,24 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             const serverId = idMapping[photo.clientId];
             const serverPhoto = uploadedPhotos.find(p => p._id === serverId);
             
-            return serverPhoto ? {
+            if (!serverPhoto) return photo;
+
+            return {
               ...photo,
               _id: serverId,
               status: 'uploaded',
+              uploadProgress: 100,
               path: serverPhoto.path,
               contentType: serverPhoto.contentType,
               size: serverPhoto.size
-            } : photo;
+            };
           })
         );
       } else {
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => 
             clientIds.includes(photo.clientId)
-              ? { ...photo, status: 'error' }
+              ? { ...photo, status: 'error', uploadProgress: 0 }
               : photo
           )
         );

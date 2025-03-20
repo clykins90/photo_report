@@ -63,18 +63,9 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
       },
       onUploadProgress: (progressEvent) => {
         if (progressCallback) {
-          // Calculate progress percentage
+          // Only report raw progress, let context handle status
           const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          
-          // Update progress for each photo
-          const updatedPhotos = clientPhotos.map(photo => ({
-            ...photo,
-            uploadProgress: progress,
-            status: progress === 100 ? 'uploaded' : 'uploading'
-          }));
-          
-          // Call the progress callback
-          progressCallback(updatedPhotos, progress);
+          progressCallback(progress);
         }
       }
     });
@@ -84,63 +75,25 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
       const responseData = response.data.data || response.data;
       const { idMapping, photos: serverPhotos } = responseData;
       
-      // Create properly formed photo objects
-      const uploadedPhotos = clientPhotos.map(clientPhoto => {
-        const serverId = idMapping && idMapping[clientPhoto.clientId];
-        const serverPhoto = serverPhotos && serverPhotos.find(p => p._id === serverId);
-        
-        if (serverPhoto) {
-          return {
-            ...PhotoSchema.deserializeFromApi(serverPhoto),
-            file: clientPhoto.file,
-            preview: clientPhoto.preview
-          };
-        }
-        
-        // If no server photo found, return error state
-        return {
-          ...clientPhoto,
-          status: 'error',
-          uploadProgress: 0
-        };
-      });
-      
-      // Log the photo data availability
-      photoLogger.info('Upload complete with photos:', 
-        uploadedPhotos.map(p => ({
-          _id: p._id,
-          hasFile: !!p.file,
-          hasPreview: !!p.preview,
-          status: p.status
-        }))
-      );
-      
+      // Return raw server data, let context handle state
       return {
         success: true,
         data: {
-          photos: uploadedPhotos,
+          photos: serverPhotos,
           idMapping
         }
       };
     } else {
       return {
         success: false,
-        error: response.data.error || 'Upload failed',
-        photos: clientPhotos.map(photo => ({
-          ...photo,
-          status: 'error'
-        }))
+        error: response.data.error || 'Upload failed'
       };
     }
   } catch (error) {
     photoLogger.error('Photo upload error:', error);
     return {
       success: false,
-      error: error.message || 'Upload failed',
-      photos: files ? Array.from(files).map(file => ({
-        ...PhotoSchema.createFromFile(file),
-        status: 'error'
-      })) : []
+      error: error.message || 'Upload failed'
     };
   }
 };
