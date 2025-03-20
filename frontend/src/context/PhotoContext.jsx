@@ -56,9 +56,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         );
 
         if (result.success) {
-          console.log('Upload succeeded with response:', result.data);
-          
-          // Process the response by directly preserving the server data
+          // Process the response using the improved deserializeFromApi
           setPhotos(prev => prev.map(photo => {
             // Find this photo in the server response
             const uploaded = result.data.photos.find(
@@ -66,18 +64,8 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             );
             
             if (uploaded) {
-              console.log('Found matching photo:', uploaded);
-              console.log('Server status:', uploaded.status);
-              
-              // Create a merged photo that preserves all server data while keeping client data
-              return {
-                ...photo,                 // Keep client data
-                ...uploaded,              // Apply server data
-                status: uploaded.status,  // Explicitly set the status from server
-                _id: uploaded._id,        // Ensure ID is set
-                path: uploaded.path,      // Ensure path is set
-                uploadProgress: 100       // Mark as fully uploaded
-              };
+              // Use the improved function that preserves client data
+              return PhotoSchema.deserializeFromApi(uploaded, photo);
             }
             return photo;
           }));
@@ -112,7 +100,11 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         if (result.success) {
           setPhotos(prev => prev.map(photo => {
             const analyzed = result.data.photos.find(ap => ap._id === photo._id);
-            return analyzed ? PhotoSchema.deserializeFromApi(analyzed) : photo;
+            if (analyzed) {
+              // Use the improved function that preserves client data
+              return PhotoSchema.deserializeFromApi(analyzed, photo);
+            }
+            return photo;
           }));
           setStatus({ type: null });
           return true;

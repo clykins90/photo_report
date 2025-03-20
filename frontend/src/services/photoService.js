@@ -210,6 +210,7 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
     
     // Transform all results to client format using schema
     const clientAnalyzedPhotos = results.map(photo => 
+      // No client photos to merge with here, just use server data
       PhotoSchema.deserializeFromApi(photo)
     );
     

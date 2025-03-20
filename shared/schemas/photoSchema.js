@@ -125,9 +125,10 @@ const PhotoSchema = {
   /**
    * Deserializes a photo object from API response (backend → frontend)
    * @param {Object} apiPhoto - Photo data from API
+   * @param {Object} [clientPhoto] - Optional client-side photo to merge with
    * @returns {Object} - Deserialized photo for frontend
    */
-  deserializeFromApi(apiPhoto) {
+  deserializeFromApi(apiPhoto, clientPhoto = null) {
     if (!apiPhoto) return null;
     
     // Ensure path format is consistent
@@ -149,18 +150,37 @@ const PhotoSchema = {
       }
     }
     
-    return {
+    // Create the standardized server response
+    const standardizedPhoto = {
       _id: apiPhoto._id,
       originalName: apiPhoto.originalName,
-      contentType: apiPhoto.contentType,
-      status: status,
+      contentType: apiPhoto.contentType || (apiPhoto.file?.type || null),
+      status, // Use the determined status
       path,
       uploadDate: apiPhoto.uploadDate ? new Date(apiPhoto.uploadDate) : new Date(),
       size: apiPhoto.size,
-      aiAnalysis: apiPhoto.aiAnalysis || null,
-      uploadProgress: 100,
-      preview: null
+      // Use apiAnalysis from either property name (aiAnalysis or analysis)
+      aiAnalysis: apiPhoto.aiAnalysis || apiPhoto.analysis || null,
+      uploadProgress: 100
     };
+    
+    // Merge with client photo if provided
+    if (clientPhoto) {
+      return {
+        ...clientPhoto,         // Preserve client data
+        ...standardizedPhoto,   // Apply server data
+        // Explicitly preserve important client-side properties
+        preview: clientPhoto.preview || standardizedPhoto.preview || null,
+        file: clientPhoto.file || standardizedPhoto.file || null,
+        // Ensure critical properties from server always take precedence
+        _id: standardizedPhoto._id,
+        status: standardizedPhoto.status,
+        path: standardizedPhoto.path
+      };
+    }
+    
+    // If no client photo, just return the standardized server data
+    return standardizedPhoto;
   },
 
   /**
