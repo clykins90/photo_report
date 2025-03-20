@@ -305,6 +305,18 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     });
   }, []);
 
+  // Clear all photos (for new report)
+  const clearPhotos = useCallback(() => {
+    // Revoke all blob URLs before clearing
+    photos.forEach(photo => {
+      if (photo.preview?.startsWith('blob:')) {
+        safelyRevokeBlobUrl(photo.preview);
+      }
+    });
+    setPhotos([]);
+    setError(null);
+  }, [photos]);
+
   const value = {
     photos,
     isUploading,
@@ -315,6 +327,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     uploadPhotosToServer,
     analyzePhotos,
     removePhoto,
+    clearPhotos,
     setError,
     getPhotoUrl: (photoOrId, options = {}) => getPhotoUrl(photoOrId, options),
     // Add state machine helper methods
