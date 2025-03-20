@@ -48,9 +48,9 @@ const PhotoUploadAnalysisStep = () => {
     canAnalyzePhoto(photo) && photo._id?.match(/^[0-9a-f]{24}$/i)
   );
 
-  // Handle file drop
+  // Handle file drop - just add photos, no auto upload
   const handleDrop = useCallback((files) => {
-    if (!files || files.length === 0) return;
+    if (!files?.length) return;
     addPhotosFromFiles(files);
   }, [addPhotosFromFiles]);
 
@@ -62,49 +62,23 @@ const PhotoUploadAnalysisStep = () => {
     }
   }, [removePhoto, selectedPhoto]);
 
-  // Analyze photos
+  // Analyze photos - simplified
   const handleAnalyzePhotos = useCallback(async () => {
     if (!report._id) {
-      setPhotoError("Report ID is missing. Please upload photos first.");
-      return;
-    }
-    
-    if (photos.length === 0) {
-      setPhotoError("Please add and upload photos before analyzing");
+      setPhotoError("Please upload photos first.");
       return;
     }
     
     try {
-      // Pass the full photo objects for analysis
-      const photosToAnalyze = photos.map(photo => ({
-        ...photo,
-        file: photo.file,  // Ensure file object is included
-        preview: photo.preview,
-        localDataUrl: photo.localDataUrl,
-        _id: photo._id,
-        path: photo.path
-      }));
-      
-      const analysisResult = await analyzePhotos(report._id, photosToAnalyze);
-      
-      if (analysisResult.success) {
+      const result = await analyzePhotos(report._id);
+      if (result.success) {
         setAnalyzeComplete(true);
-        
-        // Auto-generate summary when analysis is complete
-        try {
-          await generateSummary();
-        } catch (error) {
-          console.error("Error generating summary:", error);
-          // Don't block the flow if summary generation fails
-        }
-      } else {
-        setPhotoError(analysisResult.error || "Failed to analyze photos. Please try again.");
+        await generateSummary();
       }
     } catch (error) {
-      console.error("Error analyzing photos:", error);
-      setPhotoError("Failed to analyze photos. Please try again.");
+      setPhotoError("Analysis failed. Please try again.");
     }
-  }, [report._id, photos, analyzePhotos, generateSummary, setPhotoError]);
+  }, [report._id, analyzePhotos, generateSummary, setPhotoError]);
 
   // Upload photos
   const handleUploadPhotos = useCallback(async () => {
@@ -113,52 +87,27 @@ const PhotoUploadAnalysisStep = () => {
         const currentUser = user || {};
         const reportId = await submitReport(currentUser);
         if (!reportId) {
-          setPhotoError("Could not create a report. Please go back and fill in the basic information.");
+          setPhotoError("Could not create a report. Please try again.");
           return;
         }
       } catch (error) {
-        console.error("Error creating report:", error);
-        setPhotoError("Failed to create report. Please go back to the first step and try again.");
+        setPhotoError("Failed to create report. Please try again.");
         return;
       }
     }
     
-    if (photos.length === 0) {
-      setPhotoError("Please add photos before uploading");
-      return;
-    }
-    
-    // Get photos that can be uploaded according to state machine
-    const photosToUpload = photos.filter(photo => canUploadPhoto(photo));
-    
+    // Get photos that can be uploaded
+    const photosToUpload = photos.filter(canUploadPhoto);
     if (photosToUpload.length === 0) {
-      console.log('No new photos to upload');
+      setPhotoError("No photos ready to upload");
       return;
     }
     
-    const uploadResult = await uploadPhotosToServer(photosToUpload, report._id);
-    
-    // If upload was successful, automatically trigger analysis
-    if (uploadResult.success) {
-      // Wait a short moment to ensure the server has processed the upload
-      setTimeout(async () => {
-        console.log('Checking photos before auto-analysis:', photos.map(p => ({
-          id: p._id || p.clientId,
-          status: p.status,
-          canAnalyze: canAnalyzePhoto(p)
-        })));
-        
-        // Check if there are photos that can be analyzed
-        const analyzablePhotos = photos.filter(photo => canAnalyzePhoto(photo));
-        
-        if (analyzablePhotos.length === 0) {
-          console.log('No photos can be analyzed after upload. This may indicate a state transition issue.');
-        } else {
-          await handleAnalyzePhotos();
-        }
-      }, 1000);
+    const result = await uploadPhotosToServer(photosToUpload, report._id);
+    if (result.success) {
+      setPhotoError(null);
     }
-  }, [report._id, photos, uploadPhotosToServer, submitReport, user, setPhotoError, canUploadPhoto, handleAnalyzePhotos]);
+  }, [report._id, photos, uploadPhotosToServer, submitReport, user, setPhotoError, canUploadPhoto]);
 
   // Handle next step
   const handleNext = useCallback(() => {
@@ -166,8 +115,6 @@ const PhotoUploadAnalysisStep = () => {
       setPhotoError("Please add at least one photo before continuing");
       return;
     }
-    
-    // Allow proceeding even if photos aren't analyzed
     nextStep();
   }, [photos, nextStep, setPhotoError]);
 
@@ -266,13 +213,7 @@ const PhotoUploadAnalysisStep = () => {
       </div>
       
       <div className="flex justify-between pt-6">
-        <Button 
-          variant="outline" 
-          onClick={prevStep}
-        >
-          Back
-        </Button>
-        
+        <Button variant="outline" onClick={prevStep}>Back</Button>
         <Button 
           onClick={handleNext}
           disabled={isUploading || isAnalyzing}

@@ -17,7 +17,6 @@ export const usePhotoContext = () => {
 };
 
 export const PhotoProvider = ({ children, initialPhotos = [] }) => {
-  // Main photo state
   const [photos, setPhotos] = useState(() => initialPhotos || []);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -27,6 +26,17 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   // Clean up blob URLs when component unmounts
   useEffect(() => {
     return () => cleanupAllBlobUrls();
+  }, []);
+
+  // Add photos without uploading
+  const addPhotosFromFiles = useCallback((files) => {
+    if (!files?.length) return;
+
+    // Create new photos
+    const newPhotos = Array.from(files).map(file => createNewPhoto(file));
+    setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
+
+    return newPhotos;
   }, []);
 
   // Upload photos to server
@@ -39,136 +49,68 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       setIsUploading(true);
       setError(null);
 
-      // Filter photos that can be uploaded according to state machine
-      const validPhotos = photosToUpload.filter(photo => {
-        const canUpload = photoStateMachine.canUpload(photo);
-        if (!canUpload) {
-          console.warn(`Photo ${photo.clientId} cannot be uploaded. Current state: ${photo.status}`);
-        }
-        return canUpload;
-      });
-
-      const files = validPhotos.map(p => {
-        // Ensure each file has its original client ID
-        const file = p.file;
-        file._tempId = p.clientId;
-        file.clientId = p.clientId;
-        return file;
-      }).filter(Boolean);
-      
+      // Get valid photos for upload
+      const validPhotos = photosToUpload.filter(photo => photoStateMachine.canUpload(photo));
+      const files = validPhotos.map(p => p.file).filter(Boolean);
       const clientIds = validPhotos.map(p => p.clientId).filter(Boolean);
-      
-      if (!files.length) {
-        const error = 'No valid files to upload';
-        console.warn(error, {
-          totalPhotos: photosToUpload.length,
-          validPhotos: validPhotos.length,
-          files: files.length
-        });
-        setError(error);
-        return { success: false, error };
-      }
 
-      // Update state to uploading while preserving blob URLs
+      if (!files.length) return { success: false, error: 'No valid files to upload' };
+
+      // Update state to uploading
       setPhotos(prevPhotos => 
         prevPhotos.map(photo => 
           clientIds.includes(photo.clientId)
-            ? {
-                ...photoStateMachine.transition(photo, PhotoState.UPLOADING),
-                preview: photo.preview // Preserve the preview URL
-              }
+            ? { ...photoStateMachine.transition(photo, PhotoState.UPLOADING), preview: photo.preview }
             : photo
         )
       );
 
+      // Upload photos
       const result = await uploadPhotos(files, reportId, (progress) => {
         setUploadProgress(progress);
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => 
             clientIds.includes(photo.clientId)
-              ? { 
-                  ...photo, 
-                  uploadProgress: progress,
-                  preview: photo.preview // Preserve the preview URL
-                }
+              ? { ...photo, uploadProgress: progress }
               : photo
           )
         );
       });
 
+      // Update state with server response
       if (result.success) {
-        const { photos: uploadedPhotos, idMapping } = result.data;
-        
-        // Update photos with server data while preserving blob URLs
+        const { photos: serverPhotos, idMapping } = result.data;
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => {
             if (!clientIds.includes(photo.clientId)) return photo;
             
             const serverId = idMapping[photo.clientId];
-            if (!serverId) {
-              console.warn(`No server ID found for photo ${photo.clientId}`);
-              return photoStateMachine.transition({
-                ...photo,
-                error: 'No server ID returned',
-                preview: photo.preview // Preserve the preview URL
-              }, PhotoState.ERROR);
-            }
-
-            const serverPhoto = uploadedPhotos.find(p => p._id === serverId);
+            const serverPhoto = serverPhotos.find(p => p._id === serverId);
+            
             if (!serverPhoto) {
-              console.warn(`No server data found for photo ${photo.clientId}`);
               return photoStateMachine.transition({
                 ...photo,
-                error: 'No server data returned',
-                preview: photo.preview // Preserve the preview URL
+                error: 'Upload failed',
+                preview: photo.preview
               }, PhotoState.ERROR);
             }
 
-            try {
-              return {
-                ...photoStateMachine.transition({
-                  ...photo,
-                  _id: serverId,
-                  path: serverPhoto.path,
-                  contentType: serverPhoto.contentType,
-                  size: serverPhoto.size,
-                  originalClientId: photo.clientId // Store original client ID for reference
-                }, PhotoState.UPLOADED),
-                preview: photo.preview // Preserve the preview URL
-              };
-            } catch (err) {
-              console.warn(`Failed to transition photo ${photo.clientId} to uploaded state:`, err);
-              return photoStateMachine.transition({
+            return {
+              ...photoStateMachine.transition({
                 ...photo,
-                error: err.message,
-                preview: photo.preview // Preserve the preview URL
-              }, PhotoState.ERROR);
-            }
+                _id: serverId,
+                path: serverPhoto.path,
+                contentType: serverPhoto.contentType,
+                size: serverPhoto.size
+              }, PhotoState.UPLOADED),
+              preview: photo.preview
+            };
           })
         );
-        
-        return result;
-      } else {
-        console.error('Upload failed:', result.error);
-        setPhotos(prevPhotos => 
-          prevPhotos.map(photo => 
-            clientIds.includes(photo.clientId)
-              ? {
-                  ...photoStateMachine.transition({
-                    ...photo,
-                    error: result.error || 'Upload failed'
-                  }, PhotoState.ERROR),
-                  preview: photo.preview // Preserve the preview URL
-                }
-              : photo
-          )
-        );
-        setError(result.error || 'Upload failed');
       }
 
       return result;
     } catch (err) {
-      console.error('Upload error:', err);
       setError(err.message || 'Upload failed');
       return { success: false, error: err.message };
     } finally {
@@ -177,133 +119,47 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     }
   }, []);
 
-  // Add photos from files (simplified)
-  const addPhotosFromFiles = useCallback((files, reportId = null) => {
-    if (!files?.length) return;
-
-    const newPhotos = Array.from(files).map(file => createNewPhoto(file));
-    
-    console.log('Adding new photos:', newPhotos.map(p => ({ 
-      clientId: p.clientId, 
-      name: p.name, 
-      status: p.status 
-    })));
-    
-    // Add to state first
-    setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
-
-    // If we have a reportId, upload the same photos we just added
-    if (reportId) {
-      uploadPhotosToServer(newPhotos, reportId);
-    }
-
-    return newPhotos;
-  }, [uploadPhotosToServer]);
-
   // Analyze photos
   const analyzePhotos = useCallback(async (reportId) => {
-    if (!reportId) {
-      setError('Report ID is required');
-      return { success: false, error: 'Report ID is required' };
-    }
+    if (!reportId) return { success: false, error: 'Report ID required' };
 
     try {
       setIsAnalyzing(true);
       setError(null);
 
-      // Get photos that can be analyzed according to state machine
-      const photosToAnalyze = photos.filter(photo => 
-        photoStateMachine.canAnalyze(photo)
-      ).map(photo => {
-        // Prioritize using local file data if available
-        const photoData = {
-          ...photo,
-          _id: photo._id,
-          clientId: photo.clientId
-        };
+      // Get photos ready for analysis
+      const photosToAnalyze = photos.filter(photo => photoStateMachine.canAnalyze(photo));
+      if (!photosToAnalyze.length) return { success: false, error: 'No photos ready for analysis' };
 
-        // If we have a local file, use that
-        if (photo.file) {
-          photoData.file = photo.file;
-        }
-        // If we have a local data URL, use that
-        else if (photo.localDataUrl) {
-          photoData.localDataUrl = photo.localDataUrl;
-        }
-        // If we have a preview that's a data URL, use that
-        else if (photo.preview?.startsWith('data:')) {
-          photoData.localDataUrl = photo.preview;
-        }
-        // Only include server path if we don't have local data
-        else if (photo.path) {
-          photoData.path = photo.path;
-        }
+      // Update state to analyzing
+      setPhotos(prevPhotos => 
+        prevPhotos.map(photo => 
+          photosToAnalyze.includes(photo)
+            ? photoStateMachine.transition(photo, PhotoState.ANALYZING)
+            : photo
+        )
+      );
 
-        return photoData;
-      });
-
-      if (!photosToAnalyze.length) {
-        setError('No photos ready for analysis');
-        return { success: false, error: 'No photos ready for analysis' };
-      }
-
-      // Log which photos are using local vs server data
-      console.log('Analyzing photos:', photosToAnalyze.map(p => ({
-        id: p._id || p.clientId,
-        hasLocalFile: !!p.file,
-        hasLocalDataUrl: !!p.localDataUrl,
-        hasServerPath: !!p.path
-      })));
-
+      // Send for analysis
       const result = await analyzePhotosService(reportId, photosToAnalyze);
 
-      if (result.success && result.data?.photos) {
-        // Update photos with analysis data
+      // Update state with analysis results
+      if (result.success) {
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => {
-            const analyzedPhoto = result.data.photos.find(ap => 
-              (ap._id === photo._id) || (ap.clientId === photo.clientId)
-            );
+            const analyzedPhoto = result.data.photos.find(ap => ap._id === photo._id);
             if (!analyzedPhoto) return photo;
 
-            try {
-              // First transition to ANALYZING state
-              const analyzingPhoto = photoStateMachine.transition(photo, PhotoState.ANALYZING);
-              
-              // Properly merge the analysis data
-              const photoWithAnalysis = {
-                ...analyzingPhoto,
-                _id: analyzedPhoto._id || photo._id,
-                aiAnalysis: analyzedPhoto.aiAnalysis || {},
-                status: PhotoState.ANALYZING // Ensure status is correct for transition
-              };
-
-              // Then transition to ANALYZED state with the analysis data
-              return photoStateMachine.transition(photoWithAnalysis, PhotoState.ANALYZED);
-            } catch (err) {
-              console.warn(`Failed to transition photo ${photo._id} to analyzed state:`, err);
-              return photo;
-            }
+            return photoStateMachine.transition({
+              ...photo,
+              aiAnalysis: analyzedPhoto.aiAnalysis
+            }, PhotoState.ANALYZED);
           })
         );
-      } else {
-        // Set error state for failed photos
-        setPhotos(prevPhotos => 
-          prevPhotos.map(photo => 
-            photosToAnalyze.some(p => p._id === photo._id || p.clientId === photo.clientId)
-              ? photoStateMachine.transition({
-                  ...photo,
-                  error: result.error || 'Analysis failed'
-                }, PhotoState.ERROR)
-              : photo
-          )
-        );
-        setError(result.error || 'Analysis failed');
       }
-      
+
       return result;
     } catch (err) {
-      console.error('Photo analysis error:', err);
       setError(err.message || 'Analysis failed');
       return { success: false, error: err.message };
     } finally {
@@ -349,16 +205,15 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     isAnalyzing,
     error,
     addPhotosFromFiles,
-    uploadPhotosToServer,
     analyzePhotos,
     removePhoto,
     clearPhotos,
     setError,
-    getPhotoUrl: (photoOrId, options = {}) => getPhotoUrl(photoOrId, options),
-    // Add state machine helper methods
     canUploadPhoto: (photo) => photoStateMachine.canUpload(photo),
     canAnalyzePhoto: (photo) => photoStateMachine.canAnalyze(photo),
     isPhotoInState: (photo, state) => photoStateMachine.isInState(photo, state),
+    getPhotoUrl: (photoOrId, options = {}) => getPhotoUrl(photoOrId, options),
+    // Add state machine helper methods
     getPhotoNextStates: (photo) => photoStateMachine.getNextPossibleStates(photo.status),
     validatePhoto: (photo) => photoStateMachine.validatePhoto(photo)
   };

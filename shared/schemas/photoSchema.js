@@ -90,14 +90,13 @@ const PhotoSchema = {
     }
     
     // Determine the correct status based on photo data
-    let status = apiPhoto.status;
-    if (!status) {
-      // If no status provided but has _id, it's at least uploaded
-      status = apiPhoto._id ? 'uploaded' : 'pending';
-      // If it has analysis data, it should be analyzed
-      if (apiPhoto.aiAnalysis) {
-        status = 'analyzed';
-      }
+    let status = apiPhoto.status || 'pending';
+    
+    // Only set to analyzed if we have both _id and aiAnalysis
+    if (apiPhoto._id && !apiPhoto.aiAnalysis) {
+      status = 'uploaded';  // If we have _id but no analysis, it's just uploaded
+    } else if (apiPhoto._id && apiPhoto.aiAnalysis) {
+      status = 'analyzed';  // Only mark as analyzed if we have both _id and analysis
     }
     
     return {
