@@ -3,6 +3,7 @@ import { createReport, updateReport, generateAISummary, generateReportPdf } from
 import { usePhotoContext } from './PhotoContext';
 import { validateReportForm, getFormErrorMessage } from '../utils/formValidation';
 import api from '../services/api';
+import { useAuth } from './AuthContext';
 
 // Create context
 const ReportContext = createContext();
@@ -17,6 +18,9 @@ export const useReportContext = () => {
 };
 
 export const ReportProvider = ({ children }) => {
+  // Get auth context
+  const { user: currentUser } = useAuth();
+  
   // Get photo context
   const { 
     photos, 
@@ -228,7 +232,7 @@ export const ReportProvider = ({ children }) => {
   }, [photos, report.damages]);
 
   // Create a draft report to get an ID
-  const createDraftReport = useCallback(async (user) => {
+  const createDraftReport = useCallback(async (user = null) => {
     try {
       // Create a minimal report with just the basic info
       const draftData = {
@@ -237,7 +241,8 @@ export const ReportProvider = ({ children }) => {
         propertyAddress: report.propertyAddress,
         inspectionDate: report.inspectionDate,
         isDraft: true,
-        user: user?._id
+        // Use user ID if available
+        user: user?._id || null
       };
       
       const response = await createReport(draftData);
@@ -261,7 +266,7 @@ export const ReportProvider = ({ children }) => {
     if (!report._id) {
       // Auto-create a draft report if needed
       try {
-        await createDraftReport();
+        await createDraftReport(currentUser);
       } catch (err) {
         setError('Failed to create draft report before PDF generation');
         return;
@@ -288,7 +293,7 @@ export const ReportProvider = ({ children }) => {
     } finally {
       setGeneratingPdf(false);
     }
-  }, [report._id, createDraftReport]);
+  }, [report._id, createDraftReport, currentUser]);
 
   // Submit the report
   const submitReport = useCallback(async (user) => {
@@ -334,9 +339,18 @@ export const ReportProvider = ({ children }) => {
   }, [report]);
 
   // Simplified step navigation - these no longer need validation
-  const nextStep = useCallback(() => {
+  const nextStep = useCallback(async () => {
+    // If we're on step 1 and don't have a report ID, we need to create a draft
+    if (step === 1 && !report._id) {
+      try {
+        await createDraftReport(currentUser);
+      } catch (err) {
+        console.error("Failed to create draft report:", err);
+        // Continue anyway - we'll handle missing ID in the next step
+      }
+    }
     setStep(prevStep => Math.min(prevStep + 1, 3));
-  }, []);
+  }, [step, report._id, createDraftReport, currentUser]);
 
   const prevStep = useCallback(() => {
     setStep(prevStep => Math.max(prevStep - 1, 1));

@@ -31,7 +31,8 @@ const PhotoUploadAnalysisStep = () => {
     generateSummary,
     generatingSummary,
     prevStep,
-    nextStep
+    nextStep,
+    submitReport
   } = useReportContext();
 
   // Local state
@@ -56,8 +57,20 @@ const PhotoUploadAnalysisStep = () => {
   // Upload photos
   const handleUploadPhotos = useCallback(async () => {
     if (!report._id) {
-      setPhotoError("Report ID is missing. Please go back to the first step and try again.");
-      return;
+      try {
+        // Try to get the current user
+        const currentUser = user || {};
+        // First create a draft report
+        const reportId = await submitReport(currentUser);
+        if (!reportId) {
+          setPhotoError("Could not create a report. Please go back and fill in the basic information.");
+          return;
+        }
+      } catch (error) {
+        console.error("Error creating report:", error);
+        setPhotoError("Failed to create report. Please go back to the first step and try again.");
+        return;
+      }
     }
     
     if (photos.length === 0) {
@@ -72,7 +85,7 @@ const PhotoUploadAnalysisStep = () => {
       console.error("Error uploading photos:", error);
       setPhotoError("Failed to upload photos. Please try again.");
     }
-  }, [report._id, photos, uploadPhotosToServer, setPhotoError]);
+  }, [report._id, photos, uploadPhotosToServer, submitReport, user, setPhotoError]);
 
   // Analyze photos
   const handleAnalyzePhotos = useCallback(async () => {
