@@ -269,11 +269,17 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             try {
               // First transition to ANALYZING state
               const analyzingPhoto = photoStateMachine.transition(photo, PhotoState.ANALYZING);
-              // Then transition to ANALYZED state with the analysis data
-              return photoStateMachine.transition({
+              
+              // Properly merge the analysis data
+              const photoWithAnalysis = {
                 ...analyzingPhoto,
-                analysis: analyzedPhoto.analysis
-              }, PhotoState.ANALYZED);
+                _id: analyzedPhoto._id || photo._id,
+                aiAnalysis: analyzedPhoto.aiAnalysis || {},
+                status: PhotoState.ANALYZING // Ensure status is correct for transition
+              };
+
+              // Then transition to ANALYZED state with the analysis data
+              return photoStateMachine.transition(photoWithAnalysis, PhotoState.ANALYZED);
             } catch (err) {
               console.warn(`Failed to transition photo ${photo._id} to analyzed state:`, err);
               return photo;

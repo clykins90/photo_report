@@ -27,7 +27,7 @@ const stateValidators = {
   [PhotoState.UPLOADING]: (photo) => !!photo.file && !!photo.clientId && typeof photo.uploadProgress === 'number',
   [PhotoState.UPLOADED]: (photo) => !!photo._id,
   [PhotoState.ANALYZING]: (photo) => !!photo._id,
-  [PhotoState.ANALYZED]: (photo) => !!photo._id && !!photo.analysis,
+  [PhotoState.ANALYZED]: (photo) => !!photo._id && !!photo.aiAnalysis,
   [PhotoState.ERROR]: (photo) => !!photo.error
 };
 

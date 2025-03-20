@@ -21,7 +21,7 @@ const PhotoSchema = {
   
   // Extended fields (may be present)
   extendedFields: {
-    analysis: 'object',    // AI analysis results
+    aiAnalysis: 'object',    // AI analysis results
     size: 'number',        // File size in bytes
     width: 'number',       // Image width (if analyzed)
     height: 'number',      // Image height (if analyzed)
@@ -95,7 +95,7 @@ const PhotoSchema = {
       // If no status provided but has _id, it's at least uploaded
       status = apiPhoto._id ? 'uploaded' : 'pending';
       // If it has analysis data, it should be analyzed
-      if (apiPhoto.analysis) {
+      if (apiPhoto.aiAnalysis) {
         status = 'analyzed';
       }
     }
@@ -108,7 +108,7 @@ const PhotoSchema = {
       path,
       uploadDate: apiPhoto.uploadDate ? new Date(apiPhoto.uploadDate) : new Date(),
       size: apiPhoto.size,
-      analysis: apiPhoto.analysis || null,
+      aiAnalysis: apiPhoto.aiAnalysis || null,
       uploadProgress: 100,
       preview: null
     };
