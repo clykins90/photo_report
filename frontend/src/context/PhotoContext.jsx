@@ -310,7 +310,6 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     removePhoto,
     clearPhotos,
     setError,
-    handlePhotoUploadAndAnalysis,
     getPhotoUrl: (photoOrId, options = {}) => getPhotoUrl(photoOrId, options),
   };
   
