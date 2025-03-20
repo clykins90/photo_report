@@ -53,9 +53,16 @@ const PhotoItem = ({
     
     const status = statusMap[photo.status] || { bg: 'bg-gray-100', text: 'text-gray-800', label: photo.status };
     
+    // Check for valid server ID
+    const hasValidId = photo._id && typeof photo._id === 'string' && /^[0-9a-f]{24}$/i.test(photo._id);
+    let label = status.label;
+    if (photo.status === 'uploaded' && !hasValidId) {
+      label += ' (no server ID)';
+    }
+    
     return (
       <span className={`absolute top-2 left-2 text-xs ${status.bg} ${status.text} px-2 py-0.5 rounded-full`}>
-        {status.label}
+        {label}
       </span>
     );
   };

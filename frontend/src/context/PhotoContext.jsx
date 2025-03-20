@@ -134,46 +134,40 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       if (result.success) {
         const { photos: uploadedPhotos, idMapping } = result.data;
         
-        // Update photos with server data
+        // Ensure upload complete state is reflected clearly
+        // We need to make a mapping of client IDs to server IDs
+        const finalPhotoUpdates = photosToUpload.map(photo => {
+          const clientId = photo.clientId || photo.id;
+          const serverId = idMapping && idMapping[clientId];
+          
+          return {
+            clientId,
+            serverId: serverId || photo._id || photo.id,
+            data: {
+              status: 'uploaded',
+              uploadProgress: 100,
+              // If we have a server ID, use it
+              ...(serverId ? { _id: serverId, id: serverId } : {})
+            }
+          };
+        });
+        
+        // Update each photo individually with correct data including IDs
         setPhotos(prevPhotos => {
           return prevPhotos.map(photo => {
-            // Match by clientId through idMapping or direct match
-            const serverPhotoId = idMapping && photo.clientId && idMapping[photo.clientId];
-            const uploadedPhoto = uploadedPhotos.find(up => 
-              up._id === photo._id || 
-              up._id === serverPhotoId
-            );
+            const photoId = photo.clientId || photo.id;
+            const matchingUpdate = finalPhotoUpdates.find(u => u.clientId === photoId);
             
-            if (uploadedPhoto) {
-              // Server returned this photo - merge and set to uploaded
+            if (matchingUpdate) {
               return preservePhotoData({
                 ...photo,
-                ...uploadedPhoto,
-                _id: uploadedPhoto._id,
-                file: photo.file, // preserve local file reference
-                preview: photo.preview, // preserve preview URL
-                status: 'uploaded',
-                uploadProgress: 100
-              });
-            }
-            
-            // For photos without server match but were in the upload batch
-            // Make sure they're also marked as uploaded if they've been uploaded
-            if (photosToUpload.some(p => (p.id === photo.id || p.clientId === photo.clientId))) {
-              return preservePhotoData({
-                ...photo,
-                status: 'uploaded',
-                uploadProgress: 100
+                ...matchingUpdate.data
               });
             }
             
             return photo;
           });
         });
-
-        // Ensure upload complete state is reflected clearly
-        const photoIds = photosToUpload.map(p => p.id || p.clientId);
-        updatePhotoStatus(photoIds, 'uploaded', { uploadProgress: 100 });
       } else {
         // Handle error
         setError(result.error || 'Upload failed');
@@ -259,6 +253,15 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       // Start with initial progress
       setAnalysisProgress(10);
       
+      // Debug info about photos being analyzed
+      console.log("PhotoContext.analyzePhotos - Photos for analysis:", photosForAnalysis.map(p => ({
+        id: p.id,
+        _id: p._id,
+        clientId: p.clientId,
+        status: p.status,
+        isValidId: p._id && typeof p._id === 'string' && /^[0-9a-f]{24}$/i.test(p._id)
+      })));
+      
       // Filter out photos that don't have server IDs
       const photosWithServerIds = photosForAnalysis.filter(photo => {
         // Check for a valid MongoDB ObjectId (24 character hex string)
@@ -266,20 +269,26 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         return serverId && typeof serverId === 'string' && /^[0-9a-f]{24}$/i.test(serverId);
       });
       
+      // Debug filtered photos
+      console.log("PhotoContext.analyzePhotos - Photos with server IDs:", photosWithServerIds.map(p => ({
+        id: p.id,
+        _id: p._id,
+        clientId: p.clientId,
+        status: p.status
+      })));
+      
       if (photosWithServerIds.length === 0) {
         setError('No photos with valid server IDs to analyze');
         setIsAnalyzing(false);
         return;
       }
       
-      // Mark photos as analyzing
-      const photoIds = photosWithServerIds.map(p => 
-        typeof p === 'string' ? p : p._id || p.id
-      );
+      // Mark photos as analyzing - use only the _id field
+      const photoIds = photosWithServerIds.map(p => p._id).filter(id => id);
       updatePhotoStatus(photoIds, 'analyzing');
       
-      // Call service
-      const result = await analyzePhotosService(reportId, photosWithServerIds);
+      // Only send the _id field to the analyzePhotosService
+      const result = await analyzePhotosService(reportId, photoIds);
       
       // Update progress halfway
       setAnalysisProgress(50);

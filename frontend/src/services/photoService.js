@@ -172,11 +172,47 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
       return { success: false, error: 'No photos to analyze' };
     }
     
-    // Check if we're dealing with photo objects or just IDs
-    const hasPhotoObjects = photosOrIds.some(item => typeof item === 'object');
+    // Debug info
+    photoLogger.info('analyzePhotos called with reportId:', reportId);
+    photoLogger.info('analyzePhotos photosOrIds type:', Array.isArray(photosOrIds) 
+      ? 'array' 
+      : typeof photosOrIds);
+    photoLogger.info('analyzePhotos first item type:', photosOrIds.length > 0 
+      ? (typeof photosOrIds[0] === 'object' ? 'object' : typeof photosOrIds[0]) 
+      : 'none');
     
     // Function to validate MongoDB ObjectId (24 character hex string)
     const isValidObjectId = (id) => id && typeof id === 'string' && /^[0-9a-f]{24}$/i.test(id);
+    
+    // Simplify the process - if all items are strings and valid ObjectIds, just use them directly
+    if (photosOrIds.every(item => typeof item === 'string' && isValidObjectId(item))) {
+      photoLogger.info('Using direct ID array for analysis');
+      // Simple case - all items are valid MongoDB ObjectId strings
+      const response = await api.post('/photos/analyze', {
+        reportId,
+        photoIds: photosOrIds
+      });
+      
+      if (response.data.success) {
+        const responseData = response.data.data || response.data;
+        const serverAnalyzedPhotos = responseData.photos || [];
+        
+        return {
+          success: true,
+          data: {
+            photos: serverAnalyzedPhotos
+          }
+        };
+      } else {
+        return {
+          success: false,
+          error: response.data.error || 'Analysis failed'
+        };
+      }
+    }
+    
+    // Check if we're dealing with photo objects or just IDs
+    const hasPhotoObjects = photosOrIds.some(item => typeof item === 'object');
     
     // Group photos by data availability
     let photoIds = [];
