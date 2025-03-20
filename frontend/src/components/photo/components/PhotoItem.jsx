@@ -172,7 +172,7 @@ const PhotoItem = ({
                 <div className="space-y-4">
                   <div>
                     <h4 className="font-medium text-gray-700">Summary</h4>
-                    <p className="text-gray-600">{photo.analysis.summary || 'No summary available'}</p>
+                    <p className="text-gray-600">{photo.analysis.description || 'No summary available'}</p>
                   </div>
                   
                   {photo.analysis.tags && photo.analysis.tags.length > 0 && (
@@ -191,14 +191,23 @@ const PhotoItem = ({
                     </div>
                   )}
                   
-                  {photo.analysis.detectedObjects && photo.analysis.detectedObjects.length > 0 && (
+                  {photo.analysis.damageDetected && (
                     <div>
-                      <h4 className="font-medium text-gray-700">Detected Objects</h4>
-                      <ul className="list-disc list-inside text-gray-600">
-                        {photo.analysis.detectedObjects.map((obj, index) => (
-                          <li key={index}>{obj.label} {obj.confidence && `(${Math.round(obj.confidence * 100)}%)`}</li>
-                        ))}
-                      </ul>
+                      <h4 className="font-medium text-gray-700">Damage Assessment</h4>
+                      <div className="mt-2">
+                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                          photo.analysis.severity === 'severe' ? 'bg-red-100 text-red-800' :
+                          photo.analysis.severity === 'moderate' ? 'bg-orange-100 text-orange-800' :
+                          'bg-green-100 text-green-800'
+                        }`}>
+                          {photo.analysis.severity?.toUpperCase()}
+                        </span>
+                        {photo.analysis.confidence && (
+                          <span className="ml-2 text-xs text-gray-600">
+                            Confidence: {Math.round(photo.analysis.confidence * 100)}%
+                          </span>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

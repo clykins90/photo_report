@@ -126,7 +126,7 @@ const ReviewStep = ({ navigate }) => {
                   />
                   {photo.analysis && (
                     <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-xs p-1 truncate">
-                      {photo.analysis.summary?.substring(0, 50)}
+                      {photo.analysis.description?.substring(0, 50)}
                     </div>
                   )}
                 </div>
