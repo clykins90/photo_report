@@ -154,7 +154,16 @@ const analyzePhoto = async (imagePath) => {
     // Log a summary of the timing
     console.log(`[OPENAI] SUMMARY: Total=${totalTime}s, API Call=${apiCallDuration}s, Image Size=${imageSizeKB}KB`);
     
-    return analysisResult;
+    // Make sure we log the actual analysis content for debugging
+    logger.info(`Analysis result for ${imagePath}:`, {
+      hasDescription: !!analysisResult.description,
+      descriptionLength: analysisResult.description ? analysisResult.description.length : 0,
+      tags: analysisResult.tags || [],
+      damageDetected: !!analysisResult.damageDetected
+    });
+    
+    // Return a structure consistent with analyzePhotos results to avoid inconsistencies
+    return { data: analysisResult };
   } catch (error) {
     const errorTime = (Date.now() - startTime)/1000;
     logger.error(`Error analyzing photo: ${error.message}`);

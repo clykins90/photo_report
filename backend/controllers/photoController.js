@@ -279,16 +279,27 @@ const analyzePhotos = async (req, res) => {
           // Analyze the photo
           const analysis = await photoAnalysisService.analyzePhoto(tempPath);
           
+          // Extract the analysis data from the result
+          const analysisData = analysis.data || analysis;
+          
           // Find if this photo already exists in the report
           const existingPhotoIndex = report.photos.findIndex(p => 
             p._id.toString() === photoId
           );
           
           if (existingPhotoIndex >= 0) {
-            // Update existing photo
-            report.photos[existingPhotoIndex].analysis = analysis;
-            report.photos[existingPhotoIndex].status = 'analyzed';
-            logger.info(`Updated existing photo ${photoId} with analysis`);
+            // Update existing photo with analysis data
+            report.photos[existingPhotoIndex].analysis = analysisData;
+            
+            // Only mark as analyzed if it has real content
+            const hasRealContent = (
+              (analysisData.description && analysisData.description.trim() !== '') ||
+              (Array.isArray(analysisData.tags) && analysisData.tags.length > 0) ||
+              analysisData.damageDetected === true
+            );
+            
+            report.photos[existingPhotoIndex].status = hasRealContent ? 'analyzed' : 'uploaded';
+            logger.info(`Updated existing photo ${photoId} with analysis ${hasRealContent ? '(real content)' : '(empty content)'}`);
           } else {
             logger.info(`Photo ${photoId} not found in report, will be added to results`);
           }
@@ -296,7 +307,7 @@ const analyzePhotos = async (req, res) => {
           return {
             photoId,
             success: true,
-            analysis
+            data: analysisData  // Use consistent field name
           };
         } catch (error) {
           logger.error(`Error processing uploaded file: ${error.message}`);
@@ -332,19 +343,47 @@ const analyzePhotos = async (req, res) => {
     const bulkOps = allResults
       .filter(result => result.success && result.photoId)
       .map(result => {
+        // Check if result has analysis or data field
+        const analysisData = result.data || result.analysis || null;
+        
+        if (!analysisData) {
+          logger.warn(`No analysis data found for photo ${result.photoId}`);
+          return null;
+        }
+        
+        // Log the analysis data for debugging
+        logger.info(`Analysis data for photo ${result.photoId}:`, {
+          hasDescription: !!analysisData.description,
+          descriptionLength: analysisData.description ? analysisData.description.length : 0,
+          tags: analysisData.tags || [],
+          damageDetected: !!analysisData.damageDetected,
+          severity: analysisData.severity
+        });
+        
+        // Only mark as analyzed if it has real content
+        const hasRealContent = (
+          (analysisData.description && analysisData.description.trim() !== '') ||
+          (Array.isArray(analysisData.tags) && analysisData.tags.length > 0) ||
+          analysisData.damageDetected === true
+        );
+        
+        const newStatus = hasRealContent ? 'analyzed' : 'uploaded';
+        logger.info(`Setting photo ${result.photoId} status to ${newStatus} based on content check`);
+        
         return {
           updateOne: {
             filter: { _id: reportId, 'photos._id': result.photoId },
             update: { 
               $set: { 
-                'photos.$.analysis': result.analysis,
-                'photos.$.status': 'analyzed',
+                'photos.$.analysis': analysisData,
+                'photos.$.status': newStatus,
                 lastUpdated: new Date()
               }
             }
           }
         };
-      });
+      })
+      .filter(op => op !== null); // Filter out null operations
     
     // Execute bulk operation if there are results
     if (bulkOps.length > 0) {

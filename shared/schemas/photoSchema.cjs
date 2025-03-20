@@ -91,6 +91,15 @@ const PhotoSchema = {
     // Check if photo is a Mongoose document
     const rawData = photo._doc || photo;
     
+    // For debugging
+    console.log('Raw photo data for serialization:', {
+      id: rawData._id,
+      hasAnalysis: !!rawData.analysis,
+      hasAiAnalysis: !!rawData.aiAnalysis,
+      analysisKeys: rawData.analysis ? Object.keys(rawData.analysis) : [],
+      analysisData: rawData.analysis
+    });
+    
     // Extract only the necessary fields to prevent circular references
     // and avoid sending internal Mongoose properties
     const cleanPhoto = {
@@ -98,21 +107,54 @@ const PhotoSchema = {
       path: rawData.path || '',
       section: rawData.section || 'Uncategorized',
       userDescription: rawData.userDescription || '',
-      aiAnalysis: (rawData.analysis || rawData.aiAnalysis) ? { 
-        tags: (rawData.analysis?.tags || rawData.aiAnalysis?.tags || []), 
-        severity: (rawData.analysis?.severity || rawData.aiAnalysis?.severity || 'unknown'),
-        description: (rawData.analysis?.description || rawData.aiAnalysis?.description || ''),
-        confidence: (rawData.analysis?.confidence || rawData.aiAnalysis?.confidence || 0),
-        damageDetected: (rawData.analysis?.damageDetected || rawData.aiAnalysis?.damageDetected || false)
-      } : { tags: [], severity: 'unknown', description: '', confidence: 0, damageDetected: false }
+      aiAnalysis: null // We'll set this below with proper checks
     };
+    
+    // Properly extract and combine analysis data from either analysis or aiAnalysis field
+    const analysisSource = rawData.analysis || rawData.aiAnalysis;
+    if (analysisSource) {
+      // Check if we have real analysis data with content
+      const hasRealDescription = !!analysisSource.description && analysisSource.description.trim() !== '';
+      
+      cleanPhoto.aiAnalysis = {
+        tags: Array.isArray(analysisSource.tags) ? analysisSource.tags : [],
+        severity: analysisSource.severity || 'unknown',
+        description: analysisSource.description || '',
+        confidence: typeof analysisSource.confidence === 'number' ? analysisSource.confidence : 0,
+        damageDetected: !!analysisSource.damageDetected
+      };
+      
+      // If it has real content, mark as analyzed
+      if (hasRealDescription || cleanPhoto.aiAnalysis.tags.length > 0 || cleanPhoto.aiAnalysis.damageDetected) {
+        cleanPhoto.status = 'analyzed';
+      } else {
+        // Otherwise ensure we indicate it's only uploaded, not analyzed
+        cleanPhoto.status = rawData.status === 'analyzed' ? 'uploaded' : rawData.status;
+      }
+    } else {
+      // No analysis data
+      cleanPhoto.aiAnalysis = { 
+        tags: [], 
+        severity: 'unknown', 
+        description: '', 
+        confidence: 0, 
+        damageDetected: false 
+      };
+      
+      // Ensure status reflects the missing analysis
+      if (rawData.status === 'analyzed') {
+        cleanPhoto.status = 'uploaded';
+      } else {
+        cleanPhoto.status = rawData.status;
+      }
+    }
     
     // Add other fields if they exist
     if (rawData.filename) cleanPhoto.filename = rawData.filename;
     if (rawData.contentType) cleanPhoto.contentType = rawData.contentType;
     if (rawData.size) cleanPhoto.size = rawData.size;
     if (rawData.uploadDate) cleanPhoto.uploadDate = rawData.uploadDate;
-    if (rawData.status) cleanPhoto.status = rawData.status;
+    if (!cleanPhoto.status && rawData.status) cleanPhoto.status = rawData.status;
     if (rawData.clientId) cleanPhoto.clientId = rawData.clientId;
     if (rawData.originalName) cleanPhoto.originalName = rawData.originalName;
     
