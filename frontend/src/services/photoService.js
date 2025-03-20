@@ -7,6 +7,7 @@ import {
   getBestDataSource,
   groupPhotosByDataAvailability
 } from '../utils/photoUtils';
+import { photoStateMachine } from '../utils/photoStateMachine';
 
 /**
  * Simplified photo service for handling photo operations
@@ -126,12 +127,23 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
       ? (typeof photosOrIds[0] === 'object' ? 'object' : typeof photosOrIds[0]) 
       : 'none');
     
+    // Filter out already analyzed photos
+    const photosToAnalyze = photosOrIds.filter(photo => 
+      !photo.analysis && // Skip if already analyzed
+      photoStateMachine.canAnalyze(photo) // Skip if not in a state that can be analyzed
+    );
+    
+    if (photosToAnalyze.length === 0) {
+      photoLogger.info('No photos need analysis');
+      return { success: true, data: { photos: [] } };
+    }
+    
     // Create FormData for the request
     const payload = new FormData();
     payload.append('reportId', reportId);
     
     // Process each photo
-    photosOrIds.forEach((photo, index) => {
+    photosToAnalyze.forEach((photo, index) => {
       // Get the best source for uploading
       const source = getBestDataSource(photo);
       let file = null;
@@ -147,13 +159,27 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
       }
       
       if (file) {
-        payload.append('photos', file);
-        payload.append('photoMetadata', JSON.stringify({
+        // Use unique field name for each file
+        payload.append(`photos[${index}]`, file);
+        payload.append(`photoMetadata[${index}]`, JSON.stringify({
           index,
           id: photo._id || photo.id,
           clientId: photo.clientId || photo.id
         }));
+      } else if (photo._id) {
+        // If we don't have a local file but have a server ID, add it to photoIds
+        const photoIds = JSON.parse(payload.get('photoIds') || '[]');
+        photoIds.push(photo._id);
+        payload.set('photoIds', JSON.stringify(photoIds));
       }
+    });
+    
+    // Log what we're sending
+    photoLogger.info('Sending analysis request with:', {
+      reportId,
+      photoCount: photosToAnalyze.length,
+      hasFiles: payload.has('photos'),
+      hasPhotoIds: payload.has('photoIds')
     });
     
     // Send analysis request
@@ -176,9 +202,9 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
       
       photoLogger.info(`Received analysis results for ${serverAnalyzedPhotos.length} photos`);
       
-      // Transform photos to client format if needed
+      // Transform photos to client format using schema
       const clientAnalyzedPhotos = serverAnalyzedPhotos.map(photo => 
-        preservePhotoData(PhotoSchema.deserializeFromApi(photo))
+        PhotoSchema.deserializeFromApi(photo)
       );
       
       return {
