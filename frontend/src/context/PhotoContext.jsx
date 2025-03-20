@@ -2,28 +2,18 @@ import React, { createContext, useState, useContext, useCallback, useEffect, use
 import { uploadPhotos, analyzePhotos as analyzePhotosService, deletePhoto } from '../services/photoService';
 import { safelyRevokeBlobUrl, cleanupAllBlobUrls } from '../utils/blobUrlManager';
 import {
-  createPhotoFromFile,
-  updatePhotoWithServerData,
-  updatePhotoWithAnalysis,
   extractPhotoIds,
   filterPhotosByStatus,
   getPhotoUrl,
-  preservePhotoData,
-  preserveBatchPhotoData,
   groupPhotosByDataAvailability,
   getBestDataSource
 } from '../utils/photoUtils';
-
-// Remove excessive debugging that might cause rendering loops
-// console.log('PhotoContext is using preservePhotoData from:', preservePhotoData.toString().substring(0, 100));
 
 // Create context
 const PhotoContext = createContext();
 
 // Custom hook for using the photo context
 export const usePhotoContext = () => {
-  // Remove console.log that might contribute to the loop
-  // console.log('usePhotoContext called');
   const context = useContext(PhotoContext);
   if (!context) {
     throw new Error('usePhotoContext must be used within a PhotoProvider');
@@ -32,13 +22,8 @@ export const usePhotoContext = () => {
 };
 
 export const PhotoProvider = ({ children, initialPhotos = [] }) => {
-  // Reduce excessive debugging logs
-  // console.log('PhotoProvider rendering with initialPhotos:', initialPhotos.length);
-  
   // Main photo state
-  const [photos, setPhotos] = useState(() => 
-    initialPhotos?.length > 0 ? preserveBatchPhotoData(initialPhotos) : []
-  );
+  const [photos, setPhotos] = useState(() => initialPhotos || []);
   
   // UI state
   const [isUploading, setIsUploading] = useState(false);
@@ -61,14 +46,12 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     return () => cleanupAllBlobUrls();
   }, []);
 
-  // initialPhotos effect (optional if needed for report loading)
+  // initialPhotos effect
   useEffect(() => {
-    // console.log('initialPhotos useEffect running:', initialPhotos.length);
     if (!initialPhotos?.length) return;
     
     setPhotos(prevPhotos => {
-      // Only replace if we don't already have photos
-      return prevPhotos.length > 0 ? prevPhotos : preserveBatchPhotoData(initialPhotos);
+      return prevPhotos.length > 0 ? prevPhotos : initialPhotos;
     });
   }, [initialPhotos]);
 
@@ -81,15 +64,15 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     
     setPhotos(prevPhotos => {
       return prevPhotos.map(photo => {
-        const photoId = photo.id || photo._id || photo.clientId;
+        const photoId = photo.clientId || photo._id;
         
         // If this photo needs updating
         if (ids.includes(photoId)) {
-          return preservePhotoData({
+          return {
             ...photo,
             ...additionalData,
             status: newStatus
-          });
+          };
         }
         
         return photo;
@@ -115,17 +98,17 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       }
       
       // Mark these photos as uploading
-      const photoIds = photosToUpload.map(p => p.id || p.clientId);
+      const photoIds = photosToUpload.map(p => p.clientId);
       updatePhotoStatus(photoIds, 'uploading');
       
-      // Upload photos
-      const result = await uploadPhotos(files, reportId, (updatedPhotos, progress) => {
-        // Update the overall progress state
+      // Upload photos with progress tracking
+      const result = await uploadPhotos(files, reportId, (progressPhotos, progress) => {
+        // Update overall progress
         setUploadProgress(progress);
         
         // Update individual photo progress
-        if (Array.isArray(updatedPhotos)) {
-          const progressIds = updatedPhotos.map(p => p.id || p.clientId);
+        if (Array.isArray(progressPhotos)) {
+          const progressIds = progressPhotos.map(p => p.clientId);
           const status = progress >= 100 ? 'uploaded' : 'uploading';
           updatePhotoStatus(progressIds, status, { uploadProgress: progress });
         }
@@ -137,31 +120,32 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         // Update photos with server data
         setPhotos(prevPhotos => {
           return prevPhotos.map(photo => {
-            const clientId = photo.clientId || photo.id;
-            const serverId = idMapping && idMapping[clientId];
+            // Skip if this photo wasn't part of the upload
+            if (!photo.clientId) return photo;
             
-            // If this photo was uploaded, update it with server data
-            if (serverId) {
-              // Find the matching server photo data
-              const serverPhoto = uploadedPhotos.find(p => p._id === serverId);
-              
-              return {
-                ...photo,
-                _id: serverId,           // Set MongoDB ID
-                clientId: clientId,      // Keep client ID for reference
-                status: 'uploaded',
-                uploadProgress: 100,
-                // Add any additional server data
-                ...(serverPhoto ? {
-                  path: serverPhoto.path,
-                  contentType: serverPhoto.contentType,
-                  size: serverPhoto.size,
-                  uploadDate: serverPhoto.uploadDate
-                } : {})
-              };
-            }
+            // Get the server ID for this photo
+            const serverId = idMapping[photo.clientId];
+            if (!serverId) return photo;
             
-            return photo;
+            // Find the matching server photo data
+            const serverPhoto = uploadedPhotos.find(p => p._id === serverId);
+            if (!serverPhoto) return photo;
+            
+            // Create updated photo object
+            return {
+              ...photo,                    // Keep existing properties
+              _id: serverId,              // Set server ID
+              status: 'uploaded',         // Update status
+              uploadProgress: 100,        // Complete progress
+              path: serverPhoto.path,     // Server path
+              contentType: serverPhoto.contentType,
+              size: serverPhoto.size,
+              uploadDate: serverPhoto.uploadDate,
+              // Keep local data for UI
+              file: photo.file,
+              preview: photo.preview,
+              clientId: photo.clientId    // Keep for reference
+            };
           });
         });
       } else {
@@ -170,12 +154,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         updatePhotoStatus(photoIds, 'error');
       }
     } catch (err) {
-      // Changed from 'error' to 'err' to avoid shadowing the error state variable
-      // console.error('Error uploading photos:', err);
       setError(err.message || 'Upload failed');
-      
-      // Mark affected photos as error
-      const photoIds = photosToUpload.map(p => p.id || p._id || p.clientId);
       updatePhotoStatus(photoIds, 'error');
     } finally {
       setIsUploading(false);
@@ -185,10 +164,18 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   // Add photos from files (simplified)
   const addPhotosFromFiles = useCallback((files, reportId = null) => {
     if (!files?.length) return;
-    // console.log('addPhotosFromFiles called with files:', files.length, 'reportId:', reportId);
 
-    // Create photos from files
-    const newPhotos = Array.from(files).map(createPhotoFromFile);
+    // Create photos with temporary IDs
+    const newPhotos = Array.from(files).map(file => ({
+      clientId: `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      file,
+      preview: URL.createObjectURL(file),
+      status: 'pending',
+      uploadProgress: 0,
+      name: file.name,
+      type: file.type,
+      size: file.size
+    }));
     
     // Add to state
     setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
@@ -204,15 +191,14 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   // Add photo objects directly
   const addPhotos = useCallback((newPhotos) => {
     if (!newPhotos?.length) return [];
-    const processedPhotos = preserveBatchPhotoData(newPhotos);
-    setPhotos(prevPhotos => [...prevPhotos, ...processedPhotos]);
-    return processedPhotos;
+    setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
+    return newPhotos;
   }, []);
 
   // Update existing photos
   const updatePhotos = useCallback((newPhotos) => {
     if (!newPhotos?.length) return;
-    setPhotos(preserveBatchPhotoData(newPhotos));
+    setPhotos(newPhotos);
   }, []);
 
   // Update a single photo
@@ -299,11 +285,11 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
               );
               
               if (analyzedPhoto) {
-                return preservePhotoData({
+                return {
                   ...photo,
                   ...analyzedPhoto,
                   status: 'analyzed'
-                });
+                };
               }
               
               return photo;

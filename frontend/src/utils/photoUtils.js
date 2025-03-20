@@ -111,41 +111,6 @@ export const updatePhotoWithAnalysis = (photo, analysisData) => {
 };
 
 /**
- * Get the best available data source for a photo
- * @param {Object} photo - The photo object
- * @returns {Object} - Source info { type: 'file|dataUrl|serverUrl', data: Object }
- */
-export const getBestDataSource = (photo) => {
-  if (!photo) return { type: 'none', data: null };
-  
-  // Prioritize local file for best performance and quality
-  if (photo.file) {
-    return { type: 'file', data: photo.file };
-  }
-  
-  // Next best is a data URL or blob URL stored locally
-  if (photo.localDataUrl) {
-    return { type: 'dataUrl', data: photo.localDataUrl };
-  }
-  
-  if (photo.preview && photo.preview.startsWith('data:')) {
-    return { type: 'dataUrl', data: photo.preview };
-  }
-  
-  // Fall back to server URL if we have an ID
-  if (photo._id || photo.id) {
-    return { 
-      type: 'serverUrl', 
-      data: photo.path || `/api/photos/${photo._id || photo.id}`,
-      id: photo._id || photo.id
-    };
-  }
-  
-  // No good data source
-  return { type: 'none', data: null };
-};
-
-/**
  * Group photos by whether they have local data available for analysis
  * @param {Array} photos - Array of photo objects
  * @returns {Object} - Groups of photos { withLocalData: [], needsServerAnalysis: [] }
@@ -249,21 +214,7 @@ export const filterPhotosByStatus = (photos, status) => {
   if (!status) return photos;
   
   const statusArray = Array.isArray(status) ? status : [status];
-  
-  // Remove excessive debugging logs that cause rendering loops
-  // console.log(`DEBUG filterPhotosByStatus: Looking for "${status}" in ${photos.length} photos`);
-  // console.log("Raw photo status values:", photos.map(p => ({ 
-  //   id: p._id || p.id, 
-  //   status: p.status,
-  //   hasOwnStatus: p.hasOwnProperty('status'),
-  //   statusType: typeof p.status
-  // })));
-  
-  const filteredPhotos = photos.filter(photo => statusArray.includes(photo.status));
-  
-  // console.log(`DEBUG filterPhotosByStatus: Found ${filteredPhotos.length} photos with status '${status}'`);
-  
-  return filteredPhotos;
+  return photos.filter(photo => statusArray.includes(photo.status));
 };
 
 /**
@@ -284,7 +235,7 @@ export const extractPhotoIds = (photos, options = {}) => {
       if (serverOnly) {
         return photo._id;
       } else if (includeClientIds) {
-        return photo._id || photo.id;
+        return photo._id || photo.clientId;
       } else {
         return photo._id;
       }
@@ -377,10 +328,9 @@ export const getPhotoUrl = (photoOrId, options = {}) => {
   }
   
   // Generate a URL from ID
-  const photoId = photo._id || photo.id;
-  if (photoId) {
+  if (photo._id) {
     const size = options.size || 'original';
-    const baseUrl = `/api/photos/${photoId}`;
+    const baseUrl = `/api/photos/${photo._id}`;
     
     switch(size) {
       case 'thumbnail':
@@ -472,6 +422,41 @@ export const createDataUrlFromFile = (file) => {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+};
+
+/**
+ * Get the best available data source for a photo
+ * @param {Object} photo - The photo object
+ * @returns {Object} - Source info { type: 'file|dataUrl|serverUrl', data: Object }
+ */
+export const getBestDataSource = (photo) => {
+  if (!photo) return { type: 'none', data: null };
+  
+  // Prioritize local file for best performance and quality
+  if (photo.file) {
+    return { type: 'file', data: photo.file };
+  }
+  
+  // Next best is a data URL or blob URL stored locally
+  if (photo.localDataUrl) {
+    return { type: 'dataUrl', data: photo.localDataUrl };
+  }
+  
+  if (photo.preview && photo.preview.startsWith('data:')) {
+    return { type: 'dataUrl', data: photo.preview };
+  }
+  
+  // Fall back to server URL if we have an ID
+  if (photo._id) {
+    return { 
+      type: 'serverUrl', 
+      data: photo.path || `/api/photos/${photo._id}`,
+      id: photo._id
+    };
+  }
+  
+  // No good data source
+  return { type: 'none', data: null };
 };
 
 // Default export that combines function and object access
