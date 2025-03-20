@@ -157,9 +157,23 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
               });
             }
             
+            // For photos without server match but were in the upload batch
+            // Make sure they're also marked as uploaded if they've been uploaded
+            if (photosToUpload.some(p => (p.id === photo.id || p.clientId === photo.clientId))) {
+              return preservePhotoData({
+                ...photo,
+                status: 'uploaded',
+                uploadProgress: 100
+              });
+            }
+            
             return photo;
           });
         });
+
+        // Ensure upload complete state is reflected clearly
+        const photoIds = photosToUpload.map(p => p.id || p.clientId);
+        updatePhotoStatus(photoIds, 'uploaded', { uploadProgress: 100 });
       } else {
         // Handle error
         setError(result.error || 'Upload failed');

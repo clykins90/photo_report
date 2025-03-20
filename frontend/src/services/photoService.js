@@ -78,7 +78,8 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
           // Update progress for each photo
           const updatedPhotos = clientPhotos.map(photo => ({
             ...photo,
-            uploadProgress: progress
+            uploadProgress: progress,
+            status: progress === 100 ? 'uploaded' : 'uploading'
           }));
           
           // Call the progress callback with both the updated photos and the progress percentage

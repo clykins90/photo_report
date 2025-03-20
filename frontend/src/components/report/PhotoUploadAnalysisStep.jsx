@@ -37,8 +37,10 @@ const PhotoUploadAnalysisStep = () => {
 
   // Local state
   const [selectedPhoto, setSelectedPhoto] = useState(null);
-  const [uploadComplete, setUploadComplete] = useState(false);
   const [analyzeComplete, setAnalyzeComplete] = useState(false);
+  
+  // Determine if there are photos ready for analysis
+  const uploadedPhotosExist = photos.some(photo => photo.status === 'uploaded');
 
   // Handle file drop
   const handleDrop = useCallback((files) => {
@@ -80,7 +82,6 @@ const PhotoUploadAnalysisStep = () => {
     
     try {
       await uploadPhotosToServer(photos, report._id);
-      setUploadComplete(true);
     } catch (error) {
       console.error("Error uploading photos:", error);
       setPhotoError("Failed to upload photos. Please try again.");
@@ -202,15 +203,15 @@ const PhotoUploadAnalysisStep = () => {
               <Button 
                 variant="outline" 
                 onClick={handleUploadPhotos}
-                disabled={isUploading || photos.length === 0 || uploadComplete}
+                disabled={isUploading || photos.length === 0 || photos.every(photo => photo.status === 'uploaded')}
               >
-                {uploadComplete ? "Photos Uploaded" : "Upload Photos"}
+                {photos.every(photo => photo.status === 'uploaded') ? "Photos Uploaded" : "Upload Photos"}
               </Button>
               
               <Button 
                 variant="outline"
                 onClick={handleAnalyzePhotos}
-                disabled={isAnalyzing || !uploadComplete || analyzeComplete}
+                disabled={isAnalyzing || !uploadedPhotosExist || analyzeComplete}
               >
                 {analyzeComplete ? "Analysis Complete" : "Analyze Photos with AI"}
               </Button>
