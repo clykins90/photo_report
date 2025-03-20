@@ -9,7 +9,8 @@ const PhotoItem = ({
   photo, 
   onRemove, 
   onSelect,
-  isSelected = false
+  isSelected = false,
+  selectedPhoto = null
 }) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -41,10 +42,10 @@ const PhotoItem = ({
 
   const handleRemovePhoto = useCallback((photo) => {
     onRemove(photo);
-    if (isSelected && selectedPhoto?._id === photo._id) {
-      setSelectedPhoto(null);
+    if (isSelected && selectedPhoto && selectedPhoto._id === photo._id) {
+      onSelect(null);
     }
-  }, [onRemove, isSelected, selectedPhoto]);
+  }, [onRemove, isSelected, selectedPhoto, onSelect]);
 
   // Render the status badge
   const renderStatus = () => {
@@ -223,7 +224,8 @@ PhotoItem.propTypes = {
   photo: PropTypes.object.isRequired,
   onRemove: PropTypes.func,
   onSelect: PropTypes.func,
-  isSelected: PropTypes.bool
+  isSelected: PropTypes.bool,
+  selectedPhoto: PropTypes.object
 };
 
 export default PhotoItem; 
