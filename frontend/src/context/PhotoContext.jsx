@@ -36,7 +36,18 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   const photoOperations = {
     add: useCallback((files) => {
       if (!files?.length) return [];
-      const newPhotos = Array.from(files).map(file => PhotoSchema.createFromFile(file));
+      // Ensure each file has a stable client ID that will be used for matching
+      const filesWithClientIds = Array.from(files).map(file => {
+        // If the file already has a clientId, use it, otherwise create one
+        if (!file.clientId) {
+          const clientId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          file.clientId = clientId;
+          file.originalClientId = clientId;
+        }
+        return file;
+      });
+      
+      const newPhotos = filesWithClientIds.map(file => PhotoSchema.createFromFile(file));
       setPhotos(prev => [...prev, ...newPhotos]);
       return newPhotos;
     }, []),
@@ -66,6 +77,14 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           setStatus({ type: null });
           return true;
         }
+        
+        // Log the files we're sending to ensure they have clientIds
+        console.log('Files to upload:', pendingPhotos.map(p => ({
+          name: p.originalName,
+          clientId: p.clientId,
+          hasFile: !!p.file,
+          fileClientId: p.file?.clientId
+        })));
 
         const result = await uploadPhotos(
           pendingPhotos.map(p => p.file),
@@ -77,50 +96,78 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           // Debug the server response
           console.log('Server response photos:', result.data.photos);
           
-          // Process the response using direct object mapping
-          const updatedPhotos = await new Promise(resolve => {
-            setPhotos(prev => {
-              const updated = prev.map(photo => {
-                // First try matching by clientId (most reliable)
-                const uploaded = result.data.photos.find(up => 
-                  // Try all possible ways to match the photos
-                  up.clientId === photo.clientId || 
-                  up.originalClientId === photo.clientId ||
-                  photo.originalClientId === up.clientId ||
-                  (up.originalName === photo.originalName && photo.status === 'pending')
+          // Process the response using direct object mapping in a single transaction
+          setPhotos(prev => {
+            // Log current client photo IDs for debugging
+            console.log('Client photos before update:', prev.map(p => ({ 
+              clientId: p.clientId,
+              originalName: p.originalName,
+              status: p.status 
+            })));
+            
+            // Create a mapping of client IDs to server photos for efficient lookup
+            const serverPhotoMap = {};
+            result.data.photos.forEach(serverPhoto => {
+              if (serverPhoto.clientId) {
+                serverPhotoMap[serverPhoto.clientId] = serverPhoto;
+              }
+            });
+            
+            // Update client photos with server data
+            const updated = prev.map(photo => {
+              // Try to find the matching server photo
+              const serverPhoto = serverPhotoMap[photo.clientId];
+              
+              if (serverPhoto) {
+                console.log(`Found match: Client ID ${photo.clientId} -> Server ID ${serverPhoto._id}`);
+                // Create a merged photo with explicit status enforcement
+                return {
+                  ...photo,                             // Base is client photo
+                  _id: serverPhoto._id,                 // Server ID
+                  path: serverPhoto.path,               // Server path
+                  status: 'uploaded',                   // FORCE status to uploaded
+                  uploadProgress: 100,                  // Complete progress
+                  uploadDate: serverPhoto.uploadDate,   // Server timestamp
+                  aiAnalysis: serverPhoto.aiAnalysis,   // Analysis if present
+                  preview: photo.preview,               // Preserve preview
+                  file: photo.file                      // Preserve file
+                };
+              } else if (photo.status === 'pending') {
+                // If no server match found but we were trying to upload this photo,
+                // Try a fallback match by original filename
+                const fallbackMatch = result.data.photos.find(sp => 
+                  sp.originalName === photo.originalName
                 );
                 
-                if (uploaded) {
-                  // Create a merged photo with explicit status enforcement
+                if (fallbackMatch) {
+                  console.log(`Fallback match by filename: ${photo.originalName} -> ${fallbackMatch._id}`);
                   return {
-                    ...photo,                         // Base is client photo
-                    _id: uploaded._id,                // Server ID
-                    path: uploaded.path,              // Server path
-                    status: 'uploaded',               // FORCE status to uploaded
-                    uploadProgress: 100,              // Complete progress
-                    uploadDate: uploaded.uploadDate,  // Server timestamp
-                    aiAnalysis: uploaded.aiAnalysis,  // Analysis if present
-                    preview: photo.preview,           // Preserve preview
-                    file: photo.file                  // Preserve file
+                    ...photo,
+                    _id: fallbackMatch._id,
+                    path: fallbackMatch.path,
+                    status: 'uploaded',
+                    uploadProgress: 100,
+                    uploadDate: fallbackMatch.uploadDate,
+                    aiAnalysis: fallbackMatch.aiAnalysis,
+                    preview: photo.preview,
+                    file: photo.file
                   };
                 }
-                return photo;
-              });
+              }
               
-              // Resolve with the new state for logging
-              setTimeout(() => resolve(updated), 0);
-              return updated;
+              // No match found, keep the client photo unchanged
+              return photo;
             });
-          });
-          
-          // Log the actually updated photos
-          console.log('Photos after update:', 
-            updatedPhotos.map(p => ({ 
+            
+            // Log the updated photos for debugging
+            console.log('Photos after update:', updated.map(p => ({ 
               id: p._id, 
               clientId: p.clientId, 
               status: p.status 
-            }))
-          );
+            })));
+            
+            return updated;
+          });
           
           setStatus({ type: null });
           return true;
