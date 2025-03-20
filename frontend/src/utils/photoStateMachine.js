@@ -11,7 +11,7 @@ export const PhotoState = {
 
 // Define valid transitions between states
 const stateTransitions = {
-  [PhotoState.INITIAL]: [PhotoState.PENDING, PhotoState.ERROR],
+  [PhotoState.INITIAL]: [PhotoState.UPLOADING, PhotoState.PENDING, PhotoState.ERROR],
   [PhotoState.PENDING]: [PhotoState.UPLOADING, PhotoState.ERROR],
   [PhotoState.UPLOADING]: [PhotoState.UPLOADED, PhotoState.ERROR],
   [PhotoState.UPLOADED]: [PhotoState.ANALYZING, PhotoState.ERROR],
@@ -74,7 +74,16 @@ class PhotoStateMachine {
 
   // Helper method to check if a photo can be uploaded
   canUpload(photo) {
-    return this.canTransition(photo.status, PhotoState.UPLOADING);
+    // A photo can be uploaded if it's in INITIAL or PENDING state and has required data
+    if (!photo || !photo.status) return false;
+    
+    // Check if we can transition to UPLOADING
+    const canTransitionToUploading = this.canTransition(photo.status, PhotoState.UPLOADING);
+    
+    // Validate that we have the required data
+    const hasRequiredData = !!photo.file && !!photo.clientId;
+    
+    return canTransitionToUploading && hasRequiredData;
   }
 
   // Helper method to check if a photo can be analyzed

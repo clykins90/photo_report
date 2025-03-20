@@ -61,13 +61,32 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       setError(null);
 
       // Filter photos that can be uploaded according to state machine
-      const validPhotos = photosToUpload.filter(photo => photoStateMachine.canUpload(photo));
+      const validPhotos = photosToUpload.filter(photo => {
+        const canUpload = photoStateMachine.canUpload(photo);
+        if (!canUpload) {
+          console.warn(`Photo ${photo.clientId} cannot be uploaded. Current state: ${photo.status}`);
+        }
+        return canUpload;
+      });
+
+      console.log('Valid photos for upload:', validPhotos.map(p => ({
+        clientId: p.clientId,
+        status: p.status,
+        hasFile: !!p.file
+      })));
+
       const files = validPhotos.map(p => p.file).filter(Boolean);
       const clientIds = validPhotos.map(p => p.clientId).filter(Boolean);
       
       if (!files.length) {
-        setError('No valid files to upload');
-        return { success: false, error: 'No valid files to upload' };
+        const error = 'No valid files to upload';
+        console.warn(error, {
+          totalPhotos: photosToUpload.length,
+          validPhotos: validPhotos.length,
+          files: files.length
+        });
+        setError(error);
+        return { success: false, error };
       }
 
       // Set uploading state using state machine
@@ -78,7 +97,16 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             return photoStateMachine.transition(photo, PhotoState.UPLOADING);
           } catch (err) {
             console.warn(`Failed to transition photo ${photo.clientId} to uploading state:`, err);
-            return photo;
+            // If we can't transition to uploading, try to transition to error
+            try {
+              return photoStateMachine.transition({
+                ...photo,
+                error: 'Failed to prepare for upload'
+              }, PhotoState.ERROR);
+            } catch (e) {
+              console.error('Failed to set error state:', e);
+              return photo;
+            }
           }
         })
       );
@@ -98,9 +126,10 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       if (result.success) {
         const { photos: uploadedPhotos, idMapping } = result.data;
         
-        console.log('Server returned uploaded photos:', 
-          uploadedPhotos.map(p => ({id: p._id, status: 'uploaded'}))
-        );
+        console.log('Upload successful:', {
+          uploadedPhotos: uploadedPhotos.map(p => ({id: p._id, status: 'uploaded'})),
+          idMapping
+        });
         
         // Update photos with server data using state machine
         setPhotos(prevPhotos => 
@@ -110,7 +139,10 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             const serverId = idMapping?.[photo.clientId];
             const serverPhoto = uploadedPhotos?.find(p => p._id === serverId);
             
-            if (!serverPhoto) return photo;
+            if (!serverPhoto) {
+              console.warn(`No server data found for photo ${photo.clientId}`);
+              return photo;
+            }
 
             try {
               return photoStateMachine.transition({
@@ -122,11 +154,15 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
               }, PhotoState.UPLOADED);
             } catch (err) {
               console.warn(`Failed to transition photo ${photo.clientId} to uploaded state:`, err);
-              return photoStateMachine.transition(photo, PhotoState.ERROR);
+              return photoStateMachine.transition({
+                ...photo,
+                error: 'Failed to process server response'
+              }, PhotoState.ERROR);
             }
           })
         );
       } else {
+        console.error('Upload failed:', result.error);
         // Set error state using state machine
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => {
@@ -147,6 +183,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
 
       return result;
     } catch (err) {
+      console.error('Upload error:', err);
       setError(err.message || 'Upload failed');
       return { success: false, error: err.message };
     } finally {
