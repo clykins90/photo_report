@@ -62,6 +62,45 @@ const PhotoUploadAnalysisStep = () => {
     }
   }, [removePhoto, selectedPhoto]);
 
+  // Analyze photos
+  const handleAnalyzePhotos = useCallback(async () => {
+    if (!report._id) {
+      setPhotoError("Report ID is missing. Please upload photos first.");
+      return;
+    }
+    
+    if (photos.length === 0) {
+      setPhotoError("Please add and upload photos before analyzing");
+      return;
+    }
+    
+    try {
+      // Pass the full photo objects for analysis
+      const photosToAnalyze = photos.map(photo => ({
+        ...photo,
+        file: photo.file,  // Ensure file object is included
+        preview: photo.preview,
+        localDataUrl: photo.localDataUrl,
+        _id: photo._id,
+        path: photo.path
+      }));
+      
+      await analyzePhotos(report._id, photosToAnalyze);
+      setAnalyzeComplete(true);
+      
+      // Auto-generate summary when analysis is complete
+      try {
+        await generateSummary();
+      } catch (error) {
+        console.error("Error generating summary:", error);
+        // Don't block the flow if summary generation fails
+      }
+    } catch (error) {
+      console.error("Error analyzing photos:", error);
+      setPhotoError("Failed to analyze photos. Please try again.");
+    }
+  }, [report._id, photos, analyzePhotos, generateSummary, setPhotoError]);
+
   // Upload photos
   const handleUploadPhotos = useCallback(async () => {
     if (!report._id) {
@@ -102,45 +141,6 @@ const PhotoUploadAnalysisStep = () => {
       }, 1000);
     }
   }, [report._id, photos, uploadPhotosToServer, submitReport, user, setPhotoError, canUploadPhoto, handleAnalyzePhotos]);
-
-  // Analyze photos
-  const handleAnalyzePhotos = useCallback(async () => {
-    if (!report._id) {
-      setPhotoError("Report ID is missing. Please upload photos first.");
-      return;
-    }
-    
-    if (photos.length === 0) {
-      setPhotoError("Please add and upload photos before analyzing");
-      return;
-    }
-    
-    try {
-      // Pass the full photo objects for analysis
-      const photosToAnalyze = photos.map(photo => ({
-        ...photo,
-        file: photo.file,  // Ensure file object is included
-        preview: photo.preview,
-        localDataUrl: photo.localDataUrl,
-        _id: photo._id,
-        path: photo.path
-      }));
-      
-      await analyzePhotos(report._id, photosToAnalyze);
-      setAnalyzeComplete(true);
-      
-      // Auto-generate summary when analysis is complete
-      try {
-        await generateSummary();
-      } catch (error) {
-        console.error("Error generating summary:", error);
-        // Don't block the flow if summary generation fails
-      }
-    } catch (error) {
-      console.error("Error analyzing photos:", error);
-      setPhotoError("Failed to analyze photos. Please try again.");
-    }
-  }, [report._id, photos, analyzePhotos, generateSummary, setPhotoError]);
 
   // Handle next step
   const handleNext = useCallback(() => {
