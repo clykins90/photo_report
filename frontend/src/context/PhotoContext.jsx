@@ -251,8 +251,11 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             if (!analyzedPhoto) return photo;
 
             try {
+              // First transition to ANALYZING state
+              const analyzingPhoto = photoStateMachine.transition(photo, PhotoState.ANALYZING);
+              // Then transition to ANALYZED state with the analysis data
               return photoStateMachine.transition({
-                ...photo,
+                ...analyzingPhoto,
                 analysis: analyzedPhoto.analysis
               }, PhotoState.ANALYZED);
             } catch (err) {
