@@ -81,7 +81,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
 
   // Upload photos to server (simplified)
   const uploadPhotosToServer = useCallback(async (photosToUpload, reportId) => {
-    if (!reportId || !photosToUpload?.length) return;
+    if (!reportId || !photosToUpload?.length) return { success: false, error: 'No photos or report ID provided' };
 
     try {
       setIsUploading(true);
@@ -93,7 +93,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       if (!files.length) {
         setError('No valid files to upload');
         setIsUploading(false);
-        return;
+        return { success: false, error: 'No valid files to upload' };
       }
       
       // Mark these photos as uploading
@@ -147,14 +147,18 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             };
           });
         });
+
+        return result; // Return the successful result
       } else {
         // Handle error
         setError(result.error || 'Upload failed');
         updatePhotoStatus(photoIds, 'error');
+        return result; // Return the error result
       }
     } catch (err) {
       setError(err.message || 'Upload failed');
       updatePhotoStatus(photoIds, 'error');
+      return { success: false, error: err.message || 'Upload failed' };
     } finally {
       setIsUploading(false);
     }

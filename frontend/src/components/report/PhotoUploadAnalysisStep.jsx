@@ -98,7 +98,18 @@ const PhotoUploadAnalysisStep = () => {
       // Extract files from photos
       const files = photosToUpload.map(photo => photo.file).filter(Boolean);
       
+      if (files.length === 0) {
+        setPhotoError("No valid files found to upload");
+        return;
+      }
+      
       const uploadResult = await uploadPhotosToServer(files, report._id);
+      
+      // Safely check if we have a proper result
+      if (!uploadResult) {
+        setPhotoError("Upload failed - no response received");
+        return;
+      }
       
       if (uploadResult.success) {
         const uploadedPhotos = uploadResult.data?.photos || [];
