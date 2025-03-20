@@ -128,26 +128,41 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         
         console.log('Upload successful:', {
           uploadedPhotos: uploadedPhotos.map(p => ({id: p._id, status: 'uploaded'})),
-          idMapping
+          idMapping,
+          clientIds
+        });
+        
+        // Create a map of client IDs to server photos for easier lookup
+        const serverPhotoMap = {};
+        Object.entries(idMapping).forEach(([clientId, serverId]) => {
+          const serverPhoto = uploadedPhotos.find(p => p._id === serverId);
+          if (serverPhoto) {
+            serverPhotoMap[clientId] = serverPhoto;
+          }
         });
         
         // Update photos with server data using state machine
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => {
+            // Skip photos that weren't part of this upload
             if (!clientIds.includes(photo.clientId)) return photo;
             
-            const serverId = idMapping?.[photo.clientId];
-            const serverPhoto = uploadedPhotos?.find(p => p._id === serverId);
+            // Find the corresponding server photo
+            const serverPhoto = serverPhotoMap[photo.clientId];
             
             if (!serverPhoto) {
-              console.warn(`No server data found for photo ${photo.clientId}`);
+              console.warn(`No server data found for photo ${photo.clientId}`, {
+                availableIds: Object.keys(serverPhotoMap),
+                idMapping,
+                uploadedPhotoIds: uploadedPhotos.map(p => p._id)
+              });
               return photo;
             }
 
             try {
               return photoStateMachine.transition({
                 ...photo,
-                _id: serverId,
+                _id: serverPhoto._id,
                 path: serverPhoto.path,
                 contentType: serverPhoto.contentType,
                 size: serverPhoto.size
