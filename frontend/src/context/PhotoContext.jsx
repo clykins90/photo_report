@@ -159,10 +159,15 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             const matchingUpdate = finalPhotoUpdates.find(u => u.clientId === photoId);
             
             if (matchingUpdate) {
-              return preservePhotoData({
+              // Ensure _id is properly set directly on the photo object
+              const updatedPhoto = {
                 ...photo,
-                ...matchingUpdate.data
-              });
+                ...matchingUpdate.data,
+                // Explicitly set the server ID as both _id and id
+                _id: matchingUpdate.serverId,
+                id: matchingUpdate.serverId
+              };
+              return preservePhotoData(updatedPhoto);
             }
             
             return photo;
