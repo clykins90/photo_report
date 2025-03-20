@@ -48,12 +48,15 @@ const PhotoSchema = {
    * Creates a photo object directly from a File object
    * This is the primary way to create new photo objects
    * @param {File} file - The file object from input or drop
+   * @param {Object} options - Additional options (clientId, metadata)
    * @returns {Object} - Properly structured photo object
    */
-  createFromFile(file) {
+  createFromFile(file, options = {}) {
     if (!file) return null;
     
-    const clientId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    // Use existing client ID if provided (from file._tempId, file.clientId, or options)
+    const clientId = options.clientId || file._tempId || file.clientId || 
+                    `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     
     return {
       _id: null, // Will be set by server after upload
@@ -63,10 +66,12 @@ const PhotoSchema = {
       path: '',
       uploadDate: new Date(),
       clientId,
+      originalClientId: clientId, // Store original client ID for reference
       size: file.size,
       preview: URL.createObjectURL(file),
       uploadProgress: 0,
-      file // Store the file object for upload
+      file, // Store the file object for upload
+      metadata: options.metadata || {}
     };
   },
 

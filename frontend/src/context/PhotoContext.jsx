@@ -48,7 +48,14 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         return canUpload;
       });
 
-      const files = validPhotos.map(p => p.file).filter(Boolean);
+      const files = validPhotos.map(p => {
+        // Ensure each file has its original client ID
+        const file = p.file;
+        file._tempId = p.clientId;
+        file.clientId = p.clientId;
+        return file;
+      }).filter(Boolean);
+      
       const clientIds = validPhotos.map(p => p.clientId).filter(Boolean);
       
       if (!files.length) {
@@ -93,13 +100,19 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
             const serverId = idMapping[photo.clientId];
             if (!serverId) {
               console.warn(`No server ID found for photo ${photo.clientId}`);
-              return photo;
+              return photoStateMachine.transition({
+                ...photo,
+                error: 'No server ID returned'
+              }, PhotoState.ERROR);
             }
 
             const serverPhoto = uploadedPhotos.find(p => p._id === serverId);
             if (!serverPhoto) {
               console.warn(`No server data found for photo ${photo.clientId}`);
-              return photo;
+              return photoStateMachine.transition({
+                ...photo,
+                error: 'No server data returned'
+              }, PhotoState.ERROR);
             }
 
             try {
@@ -108,14 +121,20 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
                 _id: serverId,
                 path: serverPhoto.path,
                 contentType: serverPhoto.contentType,
-                size: serverPhoto.size
+                size: serverPhoto.size,
+                originalClientId: photo.clientId // Store original client ID for reference
               }, PhotoState.UPLOADED);
             } catch (err) {
               console.warn(`Failed to transition photo ${photo.clientId} to uploaded state:`, err);
-              return photo;
+              return photoStateMachine.transition({
+                ...photo,
+                error: err.message
+              }, PhotoState.ERROR);
             }
           })
         );
+        
+        return result;
       } else {
         console.error('Upload failed:', result.error);
         setPhotos(prevPhotos => 

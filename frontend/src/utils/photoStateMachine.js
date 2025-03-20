@@ -119,8 +119,9 @@ class PhotoStateMachine {
 export const photoStateMachine = new PhotoStateMachine();
 
 // Export a function to create new photo objects
-export const createNewPhoto = (file) => {
-  const clientId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+export const createNewPhoto = (file, existingClientId = null) => {
+  // Use existing client ID if provided, otherwise create new one
+  const clientId = existingClientId || `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   
   return {
     clientId,
@@ -131,6 +132,12 @@ export const createNewPhoto = (file) => {
     type: file.type,
     size: file.size,
     uploadProgress: 0,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    _tempId: clientId // Store original temp ID to ensure consistency
   };
+};
+
+// Add helper to validate temp IDs
+export const validateTempId = (tempId) => {
+  return typeof tempId === 'string' && tempId.startsWith('temp_');
 }; 

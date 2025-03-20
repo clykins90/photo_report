@@ -40,21 +40,21 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
       return { success: false, error: 'Report ID is required' };
     }
     
-    // Create photo objects using PhotoSchema
-    const clientPhotos = Array.from(files).map(file => PhotoSchema.createFromFile(file));
-    
     // Create form data for upload
     const formData = new FormData();
     formData.append('reportId', reportId);
     
-    // Add client IDs for tracking
-    const clientIds = clientPhotos.map(photo => photo.clientId);
-    formData.append('clientIds', JSON.stringify(clientIds));
-    
-    // Add files to form data
+    // Add files to form data and track their client IDs
+    const clientIds = [];
     Array.from(files).forEach((file, index) => {
+      // Get the original temp ID if it exists
+      const originalTempId = file._tempId || file.clientId;
+      clientIds.push(originalTempId || `temp_${Date.now()}_${index}`);
       formData.append('photos', file);
     });
+    
+    // Add client IDs for tracking
+    formData.append('clientIds', JSON.stringify(clientIds));
     
     // Upload files
     const response = await api.post('/photos/upload', formData, {
