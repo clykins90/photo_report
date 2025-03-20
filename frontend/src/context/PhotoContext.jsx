@@ -156,6 +156,23 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
                 idMapping,
                 uploadedPhotoIds: uploadedPhotos.map(p => p._id)
               });
+              
+              // Use idMapping to get the server ID even if we don't have the full server photo
+              const serverId = idMapping[photo.clientId];
+              if (serverId) {
+                // Create a minimal server photo object with the ID and path
+                try {
+                  return photoStateMachine.transition({
+                    ...photo,
+                    _id: serverId,
+                    path: `/api/photos/${serverId}`,
+                    status: PhotoState.UPLOADED
+                  }, PhotoState.UPLOADED);
+                } catch (err) {
+                  console.warn(`Failed to transition photo ${photo.clientId} to uploaded state:`, err);
+                  return photo;
+                }
+              }
               return photo;
             }
 
