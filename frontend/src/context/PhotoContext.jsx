@@ -41,14 +41,15 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       status: p.status 
     })));
     
-    setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
-
+    // If we have a reportId, upload immediately without updating state
     if (reportId) {
-      uploadPhotosToServer(newPhotos, reportId);
+      return uploadPhotosToServer(newPhotos, reportId);
     }
-
+    
+    // Otherwise, just add to state
+    setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
     return newPhotos;
-  }, []);
+  }, [uploadPhotosToServer]);
 
   // Upload photos to server
   const uploadPhotosToServer = useCallback(async (photosToUpload, reportId) => {
