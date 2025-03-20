@@ -101,8 +101,7 @@ const PhotoUploadAnalysisStep = () => {
         handleAnalyzePhotos();
       }, 1000);
     }
-    await uploadPhotosToServer(photosToUpload, report._id);
-  }, [report._id, photos, uploadPhotosToServer, submitReport, user, setPhotoError, canUploadPhoto]);
+  }, [report._id, photos, uploadPhotosToServer, submitReport, user, setPhotoError, canUploadPhoto, handleAnalyzePhotos]);
 
   // Analyze photos
   const handleAnalyzePhotos = useCallback(async () => {
