@@ -1,12 +1,7 @@
-import React, { createContext, useState, useContext, useCallback, useEffect, useMemo } from 'react';
-import { uploadPhotos, analyzePhotos as analyzePhotosService, deletePhoto } from '../services/photoService';
+import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
+import { uploadPhotos, analyzePhotos as analyzePhotosService } from '../services/photoService';
 import { safelyRevokeBlobUrl, cleanupAllBlobUrls } from '../utils/blobUrlManager';
-import {
-  extractPhotoIds,
-  filterPhotosByStatus,
-  getPhotoUrl,
-  groupPhotosByDataAvailability
-} from '../utils/photoUtils';
+import { getPhotoUrl } from '../utils/photoUtils';
 
 // Create context
 const PhotoContext = createContext();
@@ -23,374 +18,221 @@ export const usePhotoContext = () => {
 export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   // Main photo state
   const [photos, setPhotos] = useState(() => initialPhotos || []);
-  
-  // UI state
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisProgress, setAnalysisProgress] = useState(0);
   const [error, setError] = useState(null);
-
-  // Derived data for dependency tracking
-  const photoIds = useMemo(() => {
-    return extractPhotoIds(photos, { includeClientIds: true });
-  }, [photos]);
-
-  const uploadedPhotoIds = useMemo(() => {
-    return extractPhotoIds(filterPhotosByStatus(photos, 'uploaded'), { serverOnly: true });
-  }, [photos]);
 
   // Clean up blob URLs when component unmounts
   useEffect(() => {
     return () => cleanupAllBlobUrls();
   }, []);
 
-  // initialPhotos effect
-  useEffect(() => {
-    if (!initialPhotos?.length) return;
-    
-    setPhotos(prevPhotos => {
-      return prevPhotos.length > 0 ? prevPhotos : initialPhotos;
-    });
-  }, [initialPhotos]);
+  // Add photos from files (simplified)
+  const addPhotosFromFiles = useCallback((files, reportId = null) => {
+    if (!files?.length) return;
 
-  // SIMPLIFIED: Single function to update photo statuses consistently
-  const updatePhotoStatus = useCallback((photoIds, newStatus, additionalData = {}) => {
-    if (!photoIds) return;
+    const newPhotos = Array.from(files).map(file => ({
+      clientId: `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      file,
+      preview: URL.createObjectURL(file),
+      status: 'pending',
+      name: file.name,
+      type: file.type,
+      size: file.size
+    }));
     
-    // Convert single ID to array
-    const ids = Array.isArray(photoIds) ? photoIds : [photoIds];
-    
-    setPhotos(prevPhotos => {
-      return prevPhotos.map(photo => {
-        const photoId = photo.clientId || photo._id;
-        
-        // If this photo needs updating
-        if (ids.includes(photoId)) {
-          return {
-            ...photo,
-            ...additionalData,
-            status: newStatus
-          };
-        }
-        
-        return photo;
-      });
-    });
+    setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
+
+    if (reportId) {
+      uploadPhotosToServer(newPhotos, reportId);
+    }
+
+    return newPhotos;
   }, []);
 
   // Upload photos to server (simplified)
   const uploadPhotosToServer = useCallback(async (photosToUpload, reportId) => {
-    if (!reportId || !photosToUpload?.length) return { success: false, error: 'No photos or report ID provided' };
+    if (!reportId || !photosToUpload?.length) {
+      return { success: false, error: 'No photos or report ID provided' };
+    }
 
     try {
       setIsUploading(true);
-      setUploadProgress(0);
       setError(null);
 
-      // Handle both cases: when we receive File objects directly or photo objects with files
-      let files = [];
-      let photoIds = [];
-      
-      // Check what we're working with
-      if (photosToUpload[0] instanceof File) {
-        // Case 1: Direct file objects
-        files = photosToUpload.filter(Boolean);
-        // No explicit clientIds in this case
-      } else {
-        // Case 2: Photo objects
-        files = photosToUpload.map(p => p.file).filter(Boolean);
-        photoIds = photosToUpload.map(p => p.clientId).filter(Boolean);
-      }
+      const files = photosToUpload.map(p => p.file).filter(Boolean);
+      const clientIds = photosToUpload.map(p => p.clientId).filter(Boolean);
       
       if (!files.length) {
         setError('No valid files to upload');
-        setIsUploading(false);
         return { success: false, error: 'No valid files to upload' };
       }
+
+      // Set all target photos to uploading state
+      setPhotos(prevPhotos => 
+        prevPhotos.map(photo => 
+          clientIds.includes(photo.clientId) 
+            ? { ...photo, status: 'uploading' }
+            : photo
+        )
+      );
       
-      // Mark these photos as uploading if we have photoIds
-      if (photoIds.length > 0) {
-        updatePhotoStatus(photoIds, 'uploading');
-      }
-      
-      // Upload photos with progress tracking
-      const result = await uploadPhotos(files, reportId, (progressPhotos, progress) => {
-        // Update overall progress
+      const result = await uploadPhotos(files, reportId, (_, progress) => {
         setUploadProgress(progress);
-        
-        // Update individual photo progress
-        if (Array.isArray(progressPhotos) && photoIds.length > 0) {
-          const progressIds = progressPhotos.map(p => p.clientId);
-          const status = progress >= 100 ? 'uploaded' : 'uploading';
-          updatePhotoStatus(progressIds, status, { uploadProgress: progress });
-        }
       });
 
       if (result.success) {
         const { photos: uploadedPhotos, idMapping } = result.data;
         
         // Update photos with server data
-        setPhotos(prevPhotos => {
-          return prevPhotos.map(photo => {
-            // Skip if this photo wasn't part of the upload
-            if (!photo.clientId) return photo;
+        setPhotos(prevPhotos => 
+          prevPhotos.map(photo => {
+            if (!clientIds.includes(photo.clientId)) return photo;
             
-            // Get the server ID for this photo
             const serverId = idMapping[photo.clientId];
-            if (!serverId) return photo;
-            
-            // Find the matching server photo data
             const serverPhoto = uploadedPhotos.find(p => p._id === serverId);
-            if (!serverPhoto) return photo;
             
-            // Create updated photo object
-            return {
-              ...photo,                    // Keep existing properties
-              _id: serverId,              // Set server ID
-              status: 'uploaded',         // Update status
-              uploadProgress: 100,        // Complete progress
-              path: serverPhoto.path,     // Server path
+            return serverPhoto ? {
+              ...photo,
+              _id: serverId,
+              status: 'uploaded',
+              path: serverPhoto.path,
               contentType: serverPhoto.contentType,
-              size: serverPhoto.size,
-              uploadDate: serverPhoto.uploadDate,
-              // Keep local data for UI
-              file: photo.file,
-              preview: photo.preview,
-              clientId: photo.clientId    // Keep for reference
-            };
-          });
-        });
-
-        return result; // Return the successful result
+              size: serverPhoto.size
+            } : photo;
+          })
+        );
       } else {
-        // Handle error
+        setPhotos(prevPhotos => 
+          prevPhotos.map(photo => 
+            clientIds.includes(photo.clientId)
+              ? { ...photo, status: 'error' }
+              : photo
+          )
+        );
         setError(result.error || 'Upload failed');
-        updatePhotoStatus(photoIds, 'error');
-        return result; // Return the error result
       }
+
+      return result;
     } catch (err) {
       setError(err.message || 'Upload failed');
-      updatePhotoStatus(photoIds, 'error');
-      return { success: false, error: err.message || 'Upload failed' };
+      return { success: false, error: err.message };
     } finally {
       setIsUploading(false);
+      setUploadProgress(0);
     }
-  }, [updatePhotoStatus]);
-
-  // Add photos from files (simplified)
-  const addPhotosFromFiles = useCallback((files, reportId = null) => {
-    if (!files?.length) return;
-
-    // Create photos with temporary IDs
-    const newPhotos = Array.from(files).map(file => ({
-      clientId: `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-      file,
-      preview: URL.createObjectURL(file),
-      status: 'pending',
-      uploadProgress: 0,
-      name: file.name,
-      type: file.type,
-      size: file.size
-    }));
-    
-    // Add to state
-    setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
-
-    // Start upload if report ID provided
-    if (reportId) {
-      uploadPhotosToServer(newPhotos, reportId);
-    }
-
-    return newPhotos;
-  }, [uploadPhotosToServer]);
-
-  // Add photo objects directly
-  const addPhotos = useCallback((newPhotos) => {
-    if (!newPhotos?.length) return [];
-    setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
-    return newPhotos;
   }, []);
-
-  // Update existing photos
-  const updatePhotos = useCallback((newPhotos) => {
-    if (!newPhotos?.length) return;
-    setPhotos(newPhotos);
-  }, []);
-
-  // Update a single photo
-  const updatePhoto = useCallback((photoId, updatedData) => {
-    if (!photoId) return;
-    updatePhotoStatus(photoId, updatedData.status || 'pending', updatedData);
-  }, [updatePhotoStatus]);
 
   // Analyze photos (simplified)
-  const analyzePhotos = useCallback(async (reportId, photosToAnalyze = null) => {
+  const analyzePhotos = useCallback(async (reportId) => {
     if (!reportId) {
       setError('Report ID is required');
       return;
     }
-    
-    // Use provided photos or all uploaded ones
-    let photosForAnalysis = photosToAnalyze;
-    if (!photosForAnalysis) {
-      photosForAnalysis = filterPhotosByStatus(photos, 'uploaded');
-    } else if (!Array.isArray(photosForAnalysis)) {
-      photosForAnalysis = [photosForAnalysis];
-    }
-    
-    if (!photosForAnalysis.length) {
-      setError('No photos to analyze');
-      return;
-    }
-    
+
     try {
       setIsAnalyzing(true);
-      setAnalysisProgress(0);
       setError(null);
-      
-      // Start with initial progress
-      setAnalysisProgress(10);
-      
-      // Filter out photos that don't have server IDs
-      const photosWithServerIds = photosForAnalysis.filter(photo => {
-        // Check for a valid MongoDB ObjectId (24 character hex string)
-        const serverId = photo._id;
-        return serverId && typeof serverId === 'string' && /^[0-9a-f]{24}$/i.test(serverId);
-      });
-      
-      if (photosWithServerIds.length === 0) {
-        setError('No photos with valid server IDs to analyze');
-        setIsAnalyzing(false);
+
+      // Get uploaded photos with valid server IDs
+      const photosToAnalyze = photos.filter(photo => 
+        photo.status === 'uploaded' && 
+        photo._id?.match(/^[0-9a-f]{24}$/i)
+      );
+
+      if (!photosToAnalyze.length) {
+        setError('No uploaded photos to analyze');
         return;
       }
-      
-      // Mark photos as analyzing - use only the _id field
-      const photoIds = photosWithServerIds.map(p => p._id).filter(id => id);
-      updatePhotoStatus(photoIds, 'analyzing');
-      
-      // Only send the _id field to the analyzePhotosService
+
+      const photoIds = photosToAnalyze.map(p => p._id);
+
+      // Set analyzing state
+      setPhotos(prevPhotos => 
+        prevPhotos.map(photo => 
+          photoIds.includes(photo._id)
+            ? { ...photo, status: 'analyzing' }
+            : photo
+        )
+      );
+
       const result = await analyzePhotosService(reportId, photoIds);
-      
-      // Update progress halfway
-      setAnalysisProgress(50);
-      
-      if (result.success) {
-        // Process analysis results
-        if (result.data?.photos) {
-          setPhotos(prevPhotos => {
-            return prevPhotos.map(photo => {
-              const analyzedPhoto = result.data.photos.find(
-                ap => ap._id === photo._id
-              );
-              
-              if (analyzedPhoto) {
-                return {
-                  ...photo,
-                  ...analyzedPhoto,
-                  status: 'analyzed'
-                };
-              }
-              
-              return photo;
-            });
-          });
-        }
-        
-        // Complete progress
-        setAnalysisProgress(100);
+
+      if (result.success && result.data?.photos) {
+        setPhotos(prevPhotos => 
+          prevPhotos.map(photo => {
+            const analyzedPhoto = result.data.photos.find(ap => ap._id === photo._id);
+            return analyzedPhoto ? {
+              ...photo,
+              ...analyzedPhoto,
+              status: 'analyzed'
+            } : photo;
+          })
+        );
       } else {
         setError(result.error || 'Analysis failed');
-        updatePhotoStatus(photoIds, 'error');
+        setPhotos(prevPhotos => 
+          prevPhotos.map(photo => 
+            photoIds.includes(photo._id)
+              ? { ...photo, status: 'error' }
+              : photo
+          )
+        );
       }
     } catch (err) {
       setError(err.message || 'Analysis failed');
-      
-      const photoIds = photosForAnalysis.map(p => p._id);
-      updatePhotoStatus(photoIds, 'error');
     } finally {
       setIsAnalyzing(false);
     }
-  }, [photos, updatePhotoStatus]);
+  }, [photos]);
 
-  // Remove a photo
+  // Remove photo (simplified)
   const removePhoto = useCallback((photoToRemove) => {
     if (!photoToRemove) return;
     
     setPhotos(prevPhotos => {
-      // Handle string ID or object
-      const photoId = typeof photoToRemove === 'string' 
-        ? photoToRemove
+      const idToRemove = typeof photoToRemove === 'string' 
+        ? photoToRemove 
         : photoToRemove._id || photoToRemove.clientId;
       
       return prevPhotos.filter(photo => {
-        const currentId = photo._id || photo.clientId;
-        const shouldKeep = currentId !== photoId;
-        
-        // Clean up blob URL if removing
+        const shouldKeep = (photo._id || photo.clientId) !== idToRemove;
         if (!shouldKeep && photo.preview?.startsWith('blob:')) {
           safelyRevokeBlobUrl(photo.preview);
         }
-        
         return shouldKeep;
       });
     });
   }, []);
 
-  // Clear all photos
+  // Clear all photos (simplified)
   const clearPhotos = useCallback(() => {
-    // Guard against recursive updates
-    if (photos.length === 0 && !isUploading && !isAnalyzing) return;
-
-    // Clean up blob URLs
     photos.forEach(photo => {
       if (photo?.preview?.startsWith('blob:')) {
         safelyRevokeBlobUrl(photo.preview);
       }
     });
-    
-    // Batch state updates to prevent multiple re-renders
-    setTimeout(() => {
-      setPhotos([]);
-      setUploadProgress(0);
-      setAnalysisProgress(0);
-      setIsUploading(false);
-      setIsAnalyzing(false);
-      setError(null);
-    }, 0);
-  }, [photos, isUploading, isAnalyzing]);
-
-  // Utility methods (kept simple)
-  const getPhotosByStatus = useCallback((status) => {
-    return filterPhotosByStatus(photos, status);
+    setPhotos([]);
+    setError(null);
+    setUploadProgress(0);
+    setIsUploading(false);
+    setIsAnalyzing(false);
   }, [photos]);
 
-  // Context value
   const value = {
-    // Photo data
     photos,
-    photosCount: photos.length,
     isUploading,
     uploadProgress,
     isAnalyzing,
-    analysisProgress,
     error,
-    
-    // Photo management
     addPhotosFromFiles,
-    addPhotos,
-    updatePhotos,
-    updatePhoto,
-    removePhoto,
-    clearPhotos,
     uploadPhotosToServer,
     analyzePhotos,
-    
-    // Helpers
-    getPhotosByStatus,
-    groupPhotosByAvailability: (photosToGroup = photos) => groupPhotosByDataAvailability(photosToGroup),
-    getPhotoUrl: (photoOrId, options = {}) => getPhotoUrl(photoOrId, options),
+    removePhoto,
+    clearPhotos,
     setError,
+    getPhotoUrl: (photoOrId, options = {}) => getPhotoUrl(photoOrId, options),
   };
   
   return (
