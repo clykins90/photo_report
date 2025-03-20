@@ -189,27 +189,28 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
 
       const photoIds = photosToAnalyze.map(p => p._id);
       
-      // Set analyzing state using state machine
+      // Set analyzing state for only the photos being analyzed
       setPhotos(prevPhotos => 
-        prevPhotos.map(photo => {
-          if (!photoIds.includes(photo._id)) return photo;
-          try {
-            return photoStateMachine.transition(photo, PhotoState.ANALYZING);
-          } catch (err) {
-            console.warn(`Failed to transition photo ${photo._id} to analyzing state:`, err);
-            return photo;
-          }
-        })
+        prevPhotos.map(photo => 
+          photoIds.includes(photo._id)
+            ? photoStateMachine.transition(photo, PhotoState.ANALYZING)
+            : photo
+        )
       );
 
       const result = await analyzePhotosService(reportId, photoIds);
 
       if (result.success && result.data?.photos) {
-        // Update photos with analysis data using state machine
+        // Update photos with analysis data
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => {
+            if (!photoIds.includes(photo._id)) return photo;
+            
             const analyzedPhoto = result.data.photos.find(ap => ap._id === photo._id);
-            if (!analyzedPhoto) return photo;
+            if (!analyzedPhoto) {
+              console.warn(`No analysis data found for photo ${photo._id}`);
+              return photo;
+            }
 
             try {
               return photoStateMachine.transition({
@@ -223,20 +224,16 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           })
         );
       } else {
-        // Set error state using state machine
+        // Set error state for failed photos
         setPhotos(prevPhotos => 
-          prevPhotos.map(photo => {
-            if (!photoIds.includes(photo._id)) return photo;
-            try {
-              return photoStateMachine.transition({
-                ...photo,
-                error: result.error || 'Analysis failed'
-              }, PhotoState.ERROR);
-            } catch (err) {
-              console.warn(`Failed to transition photo ${photo._id} to error state:`, err);
-              return photo;
-            }
-          })
+          prevPhotos.map(photo => 
+            photoIds.includes(photo._id)
+              ? photoStateMachine.transition({
+                  ...photo,
+                  error: result.error || 'Analysis failed'
+                }, PhotoState.ERROR)
+              : photo
+          )
         );
         setError(result.error || 'Analysis failed');
       }
