@@ -212,9 +212,9 @@ const PhotoUploadAnalysisStep = () => {
               <Button 
                 variant="outline" 
                 onClick={handleUploadPhotos}
-                disabled={isUploading || photos.length === 0 || photos.every(photo => photo.status === 'uploaded')}
+                disabled={isUploading || photos.length === 0 || photos.every(photo => photo.status === 'uploaded' || photo.status === 'analyzed')}
               >
-                {photos.every(photo => photo.status === 'uploaded') ? "Photos Uploaded" : "Upload Photos"}
+                {photos.every(photo => photo.status === 'uploaded' || photo.status === 'analyzed') ? "Photos Uploaded" : "Upload Photos"}
               </Button>
               
               <Button 

@@ -1,7 +1,7 @@
 import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
 import { uploadPhotos, analyzePhotos as analyzePhotosService } from '../services/photoService';
 import { safelyRevokeBlobUrl, cleanupAllBlobUrls } from '../utils/blobUrlManager';
-import { getPhotoUrl } from '../utils/photoUtils';
+import { getPhotoUrl, createPhotoFromFile } from '../utils/photoUtils';
 
 // Create context
 const PhotoContext = createContext();
@@ -33,23 +33,16 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     if (!files?.length) return;
 
     const newPhotos = Array.from(files).map(file => {
-      // Generate a unique client ID for tracking
-      const clientId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      
-      return {
-        clientId,
-        file,
-        preview: URL.createObjectURL(file),
+      // Use the utility function to create a consistent photo object
+      return createPhotoFromFile(file, {
         status: 'pending',
-        name: file.name,
-        type: file.type,
-        size: file.size,
         uploadProgress: 0
-      };
+      });
     });
     
     console.log('Adding new photos:', newPhotos.map(p => ({ 
       clientId: p.clientId, 
+      id: p.id,
       name: p.name, 
       status: p.status 
     })));
@@ -74,7 +67,8 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       setError(null);
 
       const files = photosToUpload.map(p => p.file).filter(Boolean);
-      const clientIds = photosToUpload.map(p => p.clientId).filter(Boolean);
+      // Make sure we collect both clientId and id for proper tracking
+      const clientIds = photosToUpload.map(p => p.clientId || p.id).filter(Boolean);
       
       if (!files.length) {
         setError('No valid files to upload');
@@ -83,22 +77,25 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
 
       // Set uploading state
       setPhotos(prevPhotos => 
-        prevPhotos.map(photo => 
-          clientIds.includes(photo.clientId) 
+        prevPhotos.map(photo => {
+          // Match either clientId or id
+          const photoClientId = photo.clientId || photo.id;
+          return clientIds.includes(photoClientId) 
             ? { ...photo, status: 'uploading', uploadProgress: 0 }
-            : photo
-        )
+            : photo;
+        })
       );
 
-      const result = await uploadPhotos(files, reportId, (_, progress) => {
+      const result = await uploadPhotos(files, reportId, (progress) => {
         setUploadProgress(progress);
         // Update progress but don't change status here
         setPhotos(prevPhotos => 
-          prevPhotos.map(photo => 
-            clientIds.includes(photo.clientId)
+          prevPhotos.map(photo => {
+            const photoClientId = photo.clientId || photo.id;
+            return clientIds.includes(photoClientId)
               ? { ...photo, uploadProgress: progress }
-              : photo
-          )
+              : photo;
+          })
         );
       });
 
@@ -109,15 +106,42 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         console.log('Server returned uploaded photos:', 
           uploadedPhotos.map(p => ({id: p._id, status: 'uploaded'}))
         );
+        console.log('ID mapping from server:', idMapping);
         
         // Single state update after successful upload
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => {
-            if (!clientIds.includes(photo.clientId)) return photo;
+            const photoClientId = photo.clientId || photo.id;
+            if (!clientIds.includes(photoClientId)) return photo;
             
-            const serverId = idMapping[photo.clientId];
-            const serverPhoto = uploadedPhotos.find(p => p._id === serverId);
+            const serverId = idMapping && photoClientId ? idMapping[photoClientId] : null;
+            const serverPhoto = serverId && uploadedPhotos ? 
+              uploadedPhotos.find(p => p._id === serverId) : null;
             
+            if (!serverPhoto && uploadedPhotos && uploadedPhotos.length === 1 && clientIds.length === 1) {
+              // Special case: if we have exactly one photo uploaded and one in our list
+              // we can safely assume they match even without proper mapping
+              return {
+                ...photo,
+                _id: uploadedPhotos[0]._id,
+                status: 'uploaded',
+                uploadProgress: 100,
+                path: uploadedPhotos[0].path,
+                contentType: uploadedPhotos[0].contentType,
+                size: uploadedPhotos[0].size
+              };
+            }
+            
+            if (!serverPhoto && !serverId) {
+              // If we don't have mapping or server photo, just mark as uploaded
+              // This is a fallback in case server response format changes
+              return {
+                ...photo,
+                status: 'uploaded',
+                uploadProgress: 100
+              };
+            }
+
             if (!serverPhoto) return photo;
 
             return {
@@ -133,11 +157,12 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         );
       } else {
         setPhotos(prevPhotos => 
-          prevPhotos.map(photo => 
-            clientIds.includes(photo.clientId)
+          prevPhotos.map(photo => {
+            const photoClientId = photo.clientId || photo.id;
+            return clientIds.includes(photoClientId)
               ? { ...photo, status: 'error', uploadProgress: 0 }
-              : photo
-          )
+              : photo;
+          })
         );
         setError(result.error || 'Upload failed');
       }
@@ -165,14 +190,14 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
 
       // Get uploaded photos with valid server IDs
       const photosToAnalyze = photos.filter(photo => 
-        photo.status === 'uploaded' && 
+        (photo.status === 'uploaded' || photo.status === 'pending') && 
         photo._id?.match(/^[0-9a-f]{24}$/i)
       );
 
       console.log('Photos available for analysis:', 
         photos.map(p => ({
           id: p._id, 
-          clientId: p.clientId,
+          clientId: p.clientId || p.id,
           status: p.status, 
           isValid: p._id?.match(/^[0-9a-f]{24}$/i) ? true : false
         }))
@@ -214,7 +239,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           }
         }
         
-        setError('No uploaded photos to analyze');
+        setError('No uploaded photos to analyze. Make sure to upload photos first.');
         return { success: false, error: 'No uploaded photos to analyze' };
       }
 
