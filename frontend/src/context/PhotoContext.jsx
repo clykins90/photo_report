@@ -5,8 +5,7 @@ import {
   extractPhotoIds,
   filterPhotosByStatus,
   getPhotoUrl,
-  groupPhotosByDataAvailability,
-  getBestDataSource
+  groupPhotosByDataAvailability
 } from '../utils/photoUtils';
 
 // Create context
@@ -235,29 +234,12 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       // Start with initial progress
       setAnalysisProgress(10);
       
-      // Debug info about photos being analyzed
-      console.log("PhotoContext.analyzePhotos - Photos for analysis:", photosForAnalysis.map(p => ({
-        id: p.id,
-        _id: p._id,
-        clientId: p.clientId,
-        status: p.status,
-        isValidId: p._id && typeof p._id === 'string' && /^[0-9a-f]{24}$/i.test(p._id)
-      })));
-      
       // Filter out photos that don't have server IDs
       const photosWithServerIds = photosForAnalysis.filter(photo => {
         // Check for a valid MongoDB ObjectId (24 character hex string)
-        const serverId = photo._id || photo.id;
+        const serverId = photo._id;
         return serverId && typeof serverId === 'string' && /^[0-9a-f]{24}$/i.test(serverId);
       });
-      
-      // Debug filtered photos
-      console.log("PhotoContext.analyzePhotos - Photos with server IDs:", photosWithServerIds.map(p => ({
-        id: p.id,
-        _id: p._id,
-        clientId: p.clientId,
-        status: p.status
-      })));
       
       if (photosWithServerIds.length === 0) {
         setError('No photos with valid server IDs to analyze');
@@ -281,7 +263,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           setPhotos(prevPhotos => {
             return prevPhotos.map(photo => {
               const analyzedPhoto = result.data.photos.find(
-                ap => ap._id === photo._id || ap.id === photo.id
+                ap => ap._id === photo._id
               );
               
               if (analyzedPhoto) {
@@ -304,13 +286,9 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         updatePhotoStatus(photoIds, 'error');
       }
     } catch (err) {
-      // Fix the variable name to 'err' instead of 'error' to avoid confusion with the state variable
-      // console.error('Analysis error:', err);
       setError(err.message || 'Analysis failed');
       
-      const photoIds = photosForAnalysis.map(p => 
-        typeof p === 'string' ? p : p._id || p.id
-      );
+      const photoIds = photosForAnalysis.map(p => p._id);
       updatePhotoStatus(photoIds, 'error');
     } finally {
       setIsAnalyzing(false);
@@ -325,10 +303,10 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       // Handle string ID or object
       const photoId = typeof photoToRemove === 'string' 
         ? photoToRemove
-        : photoToRemove._id || photoToRemove.id || photoToRemove.clientId;
+        : photoToRemove._id || photoToRemove.clientId;
       
       return prevPhotos.filter(photo => {
-        const currentId = photo._id || photo.id || photo.clientId;
+        const currentId = photo._id || photo.clientId;
         const shouldKeep = currentId !== photoId;
         
         // Clean up blob URL if removing
@@ -393,17 +371,9 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     // Helpers
     getPhotosByStatus,
     groupPhotosByAvailability: (photosToGroup = photos) => groupPhotosByDataAvailability(photosToGroup),
-    getBestPhotoDataSource: (photo) => getBestDataSource(photo),
     getPhotoUrl: (photoOrId, options = {}) => getPhotoUrl(photoOrId, options),
     setError,
   };
-  
-  // Debug log for context value
-  // console.log('PhotoContext providing with:', {
-  //   photosCount: photos.length,
-  //   isUploading,
-  //   isAnalyzing
-  // });
   
   return (
     <PhotoContext.Provider value={value}>

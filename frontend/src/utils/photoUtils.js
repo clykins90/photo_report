@@ -116,24 +116,16 @@ export const updatePhotoWithAnalysis = (photo, analysisData) => {
  * @returns {Object} - Groups of photos { withLocalData: [], needsServerAnalysis: [] }
  */
 export const groupPhotosByDataAvailability = (photos) => {
-  if (!photos || !Array.isArray(photos)) {
-    return { withLocalData: [], needsServerAnalysis: [] };
-  }
+  if (!Array.isArray(photos)) return { uploaded: [], local: [] };
   
-  const withLocalData = [];
-  const needsServerAnalysis = [];
-  
-  photos.forEach(photo => {
-    const dataSource = getBestDataSource(photo);
-    
-    if (dataSource.type === 'file' || dataSource.type === 'dataUrl') {
-      withLocalData.push(photo);
-    } else if (dataSource.type === 'serverUrl') {
-      needsServerAnalysis.push(photo);
+  return photos.reduce((acc, photo) => {
+    if (photo._id) {
+      acc.uploaded.push(photo);
+    } else if (photo.file) {
+      acc.local.push(photo);
     }
-  });
-  
-  return { withLocalData, needsServerAnalysis };
+    return acc;
+  }, { uploaded: [], local: [] });
 };
 
 /**
@@ -210,11 +202,8 @@ export const preserveBatchPhotoData = (photos) => {
  * @returns {Array<PhotoObject>} Filtered photos
  */
 export const filterPhotosByStatus = (photos, status) => {
-  if (!photos || !Array.isArray(photos)) return [];
-  if (!status) return photos;
-  
-  const statusArray = Array.isArray(status) ? status : [status];
-  return photos.filter(photo => statusArray.includes(photo.status));
+  if (!Array.isArray(photos)) return [];
+  return photos.filter(photo => photo.status === status);
 };
 
 /**
@@ -226,21 +215,21 @@ export const filterPhotosByStatus = (photos, status) => {
  * @returns {Array<string>} Array of photo IDs
  */
 export const extractPhotoIds = (photos, options = {}) => {
-  if (!photos || !Array.isArray(photos)) return [];
+  if (!Array.isArray(photos)) return [];
   
-  const { serverOnly = false, includeClientIds = false } = options;
-  
-  return photos
-    .map(photo => {
-      if (serverOnly) {
-        return photo._id;
-      } else if (includeClientIds) {
-        return photo._id || photo.clientId;
-      } else {
-        return photo._id;
-      }
-    })
-    .filter(Boolean); // Remove null/undefined values
+  return photos.map(photo => {
+    if (typeof photo === 'string') return photo;
+    
+    // For uploaded photos, use _id
+    if (photo._id) return photo._id;
+    
+    // For photos being uploaded, use clientId
+    if (options.includeClientIds && photo.clientId) {
+      return photo.clientId;
+    }
+    
+    return null;
+  }).filter(Boolean);
 };
 
 /**
@@ -289,60 +278,24 @@ export const groupPhotosByStatus = (photos) => {
  * @returns {string} Best URL for the photo
  */
 export const getPhotoUrl = (photoOrId, options = {}) => {
-  // Handle string IDs (server-side only)
+  if (!photoOrId) return null;
+  
+  // If it's a string, assume it's an ID
   if (typeof photoOrId === 'string') {
-    const baseUrl = `/api/photos/${photoOrId}`;
-    const size = options.size || 'original';
-    
-    switch(size) {
-      case 'thumbnail':
-        return `${baseUrl}?size=thumbnail`;
-      case 'medium':
-        return `${baseUrl}?size=medium`;
-      default:
-        return baseUrl;
-    }
-  }
-
-  // Handle photo objects
-  if (!photoOrId) return '';
-  const photo = photoOrId;
-  
-  // Prioritize in this order:
-  // 1. preview (client-side blob URL or data URL)
-  // 2. url (server URL)
-  // 3. path (API path)
-  // 4. Construct from ID
-  // 5. Empty string if nothing available
-  
-  if (photo.preview) {
-    return photo.preview;
+    return `/api/photos/${photoOrId}`;
   }
   
-  if (photo.url) {
-    return photo.url;
+  // If it's an object, use the _id
+  if (photoOrId._id) {
+    return `/api/photos/${photoOrId._id}`;
   }
   
-  if (photo.path) {
-    return photo.path;
+  // If it's a local file, use the preview
+  if (photoOrId.preview) {
+    return photoOrId.preview;
   }
   
-  // Generate a URL from ID
-  if (photo._id) {
-    const size = options.size || 'original';
-    const baseUrl = `/api/photos/${photo._id}`;
-    
-    switch(size) {
-      case 'thumbnail':
-        return `${baseUrl}?size=thumbnail`;
-      case 'medium':
-        return `${baseUrl}?size=medium`;
-      default:
-        return baseUrl;
-    }
-  }
-  
-  return '';
+  return null;
 };
 
 // ====================================================
