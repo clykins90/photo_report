@@ -62,22 +62,17 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         return { success: false, error };
       }
 
-      // Set uploading state for only the photos being uploaded
-      setPhotos(prevPhotos => {
-        // Keep existing photos that aren't being uploaded
-        const existingPhotos = prevPhotos.filter(photo => !clientIds.includes(photo.clientId));
-        
-        // Add the uploading photos
-        const uploadingPhotos = validPhotos.map(photo => 
-          photoStateMachine.transition(photo, PhotoState.UPLOADING)
-        );
-        
-        return [...existingPhotos, ...uploadingPhotos];
-      });
+      // Update state to uploading
+      setPhotos(prevPhotos => 
+        prevPhotos.map(photo => 
+          clientIds.includes(photo.clientId)
+            ? photoStateMachine.transition(photo, PhotoState.UPLOADING)
+            : photo
+        )
+      );
 
       const result = await uploadPhotos(files, reportId, (progress) => {
         setUploadProgress(progress);
-        // Update progress for only the uploading photos
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => 
             clientIds.includes(photo.clientId)
@@ -90,86 +85,49 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       if (result.success) {
         const { photos: uploadedPhotos, idMapping } = result.data;
         
-        // Create a map of client IDs to server photos for easier lookup
-        const serverPhotoMap = {};
-        Object.entries(idMapping).forEach(([clientId, serverId]) => {
-          const serverPhoto = uploadedPhotos.find(p => p._id === serverId);
-          if (serverPhoto) {
-            serverPhotoMap[clientId] = serverPhoto;
-          }
-        });
-        
-        // Update only the photos that were uploaded
-        setPhotos(prevPhotos => {
-          // Keep existing photos that weren't part of this upload
-          const existingPhotos = prevPhotos.filter(photo => !clientIds.includes(photo.clientId));
-          
-          // Update the uploaded photos
-          const updatedPhotos = validPhotos.map(photo => {
-            const serverPhoto = serverPhotoMap[photo.clientId];
+        // Update photos with server data
+        setPhotos(prevPhotos => 
+          prevPhotos.map(photo => {
+            if (!clientIds.includes(photo.clientId)) return photo;
             
+            const serverId = idMapping[photo.clientId];
+            if (!serverId) {
+              console.warn(`No server ID found for photo ${photo.clientId}`);
+              return photo;
+            }
+
+            const serverPhoto = uploadedPhotos.find(p => p._id === serverId);
             if (!serverPhoto) {
-              console.warn(`No server data found for photo ${photo.clientId}`, {
-                availableIds: Object.keys(serverPhotoMap),
-                idMapping,
-                uploadedPhotoIds: uploadedPhotos.map(p => p._id)
-              });
-              
-              // Use idMapping to get the server ID
-              const serverId = idMapping[photo.clientId];
-              if (serverId) {
-                try {
-                  return photoStateMachine.transition({
-                    ...photo,
-                    _id: serverId,
-                    path: `/api/photos/${serverId}`,
-                    status: PhotoState.UPLOADED
-                  }, PhotoState.UPLOADED);
-                } catch (err) {
-                  console.warn(`Failed to transition photo ${photo.clientId} to uploaded state:`, err);
-                  return photo;
-                }
-              }
-              
+              console.warn(`No server data found for photo ${photo.clientId}`);
               return photo;
             }
 
             try {
               return photoStateMachine.transition({
                 ...photo,
-                _id: serverPhoto._id,
+                _id: serverId,
                 path: serverPhoto.path,
                 contentType: serverPhoto.contentType,
                 size: serverPhoto.size
               }, PhotoState.UPLOADED);
             } catch (err) {
               console.warn(`Failed to transition photo ${photo.clientId} to uploaded state:`, err);
-              return photoStateMachine.transition({
-                ...photo,
-                error: 'Failed to process server response'
-              }, PhotoState.ERROR);
+              return photo;
             }
-          });
-          
-          return [...existingPhotos, ...updatedPhotos];
-        });
+          })
+        );
       } else {
         console.error('Upload failed:', result.error);
-        // Update only the failed photos
-        setPhotos(prevPhotos => {
-          // Keep existing photos that weren't part of this upload
-          const existingPhotos = prevPhotos.filter(photo => !clientIds.includes(photo.clientId));
-          
-          // Update the failed photos
-          const failedPhotos = validPhotos.map(photo => 
-            photoStateMachine.transition({
-              ...photo,
-              error: result.error || 'Upload failed'
-            }, PhotoState.ERROR)
-          );
-          
-          return [...existingPhotos, ...failedPhotos];
-        });
+        setPhotos(prevPhotos => 
+          prevPhotos.map(photo => 
+            clientIds.includes(photo.clientId)
+              ? photoStateMachine.transition({
+                  ...photo,
+                  error: result.error || 'Upload failed'
+                }, PhotoState.ERROR)
+              : photo
+          )
+        );
         setError(result.error || 'Upload failed');
       }
 
@@ -196,13 +154,14 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       status: p.status 
     })));
     
-    // If we have a reportId, upload immediately without updating state
-    if (reportId) {
-      return uploadPhotosToServer(newPhotos, reportId);
-    }
-    
-    // Otherwise, just add to state
+    // Add to state first
     setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
+
+    // If we have a reportId, upload the same photos we just added
+    if (reportId) {
+      uploadPhotosToServer(newPhotos, reportId);
+    }
+
     return newPhotos;
   }, [uploadPhotosToServer]);
 
