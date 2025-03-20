@@ -88,17 +88,31 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       setUploadProgress(0);
       setError(null);
 
-      // Extract files from photos
-      const files = photosToUpload.map(p => p.file).filter(Boolean);
+      // Handle both cases: when we receive File objects directly or photo objects with files
+      let files = [];
+      let photoIds = [];
+      
+      // Check what we're working with
+      if (photosToUpload[0] instanceof File) {
+        // Case 1: Direct file objects
+        files = photosToUpload.filter(Boolean);
+        // No explicit clientIds in this case
+      } else {
+        // Case 2: Photo objects
+        files = photosToUpload.map(p => p.file).filter(Boolean);
+        photoIds = photosToUpload.map(p => p.clientId).filter(Boolean);
+      }
+      
       if (!files.length) {
         setError('No valid files to upload');
         setIsUploading(false);
         return { success: false, error: 'No valid files to upload' };
       }
       
-      // Mark these photos as uploading
-      const photoIds = photosToUpload.map(p => p.clientId);
-      updatePhotoStatus(photoIds, 'uploading');
+      // Mark these photos as uploading if we have photoIds
+      if (photoIds.length > 0) {
+        updatePhotoStatus(photoIds, 'uploading');
+      }
       
       // Upload photos with progress tracking
       const result = await uploadPhotos(files, reportId, (progressPhotos, progress) => {
@@ -106,7 +120,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         setUploadProgress(progress);
         
         // Update individual photo progress
-        if (Array.isArray(progressPhotos)) {
+        if (Array.isArray(progressPhotos) && photoIds.length > 0) {
           const progressIds = progressPhotos.map(p => p.clientId);
           const status = progress >= 100 ? 'uploaded' : 'uploading';
           updatePhotoStatus(progressIds, status, { uploadProgress: progress });

@@ -95,15 +95,9 @@ const PhotoUploadAnalysisStep = () => {
         return;
       }
       
-      // Extract files from photos
-      const files = photosToUpload.map(photo => photo.file).filter(Boolean);
-      
-      if (files.length === 0) {
-        setPhotoError("No valid files found to upload");
-        return;
-      }
-      
-      const uploadResult = await uploadPhotosToServer(files, report._id);
+      // Pass the entire photo objects to uploadPhotosToServer
+      // This ensures the service has access to both file and preview properties
+      const uploadResult = await uploadPhotosToServer(photosToUpload, report._id);
       
       // Safely check if we have a proper result
       if (!uploadResult) {
