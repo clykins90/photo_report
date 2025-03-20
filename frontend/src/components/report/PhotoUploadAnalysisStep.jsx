@@ -18,7 +18,8 @@ const PhotoUploadAnalysisStep = () => {
     isAnalyzing, 
     error: photoError, 
     addPhotosFromFiles, 
-    handlePhotoUploadAndAnalysis,
+    uploadPhotosToServer,
+    analyzePhotos,
     removePhoto,
     setError: setPhotoError
   } = usePhotoContext();
@@ -83,8 +84,18 @@ const PhotoUploadAnalysisStep = () => {
       return;
     }
     
-    await handlePhotoUploadAndAnalysis(report._id);
-  }, [report._id, photos, handlePhotoUploadAndAnalysis, submitReport, user, setPhotoError]);
+    // Get photos that need to be uploaded
+    const photosToUpload = photos.filter(photo => 
+      !['uploaded', 'analyzed'].includes(photo.status)
+    );
+    
+    if (photosToUpload.length === 0) {
+      console.log('No new photos to upload');
+      return;
+    }
+    
+    await uploadPhotosToServer(photosToUpload, report._id);
+  }, [report._id, photos, uploadPhotosToServer, submitReport, user, setPhotoError]);
 
   // Analyze photos
   const handleAnalyzePhotos = useCallback(async () => {
@@ -99,7 +110,7 @@ const PhotoUploadAnalysisStep = () => {
     }
     
     try {
-      await handlePhotoUploadAndAnalysis(report._id);
+      await analyzePhotos(report._id);
       setAnalyzeComplete(true);
       
       // Auto-generate summary when analysis is complete
@@ -113,7 +124,7 @@ const PhotoUploadAnalysisStep = () => {
       console.error("Error analyzing photos:", error);
       setPhotoError("Failed to analyze photos. Please try again.");
     }
-  }, [report._id, photos, handlePhotoUploadAndAnalysis, generateSummary, setPhotoError]);
+  }, [report._id, photos, analyzePhotos, generateSummary, setPhotoError]);
 
   // Handle next step
   const handleNext = useCallback(() => {
