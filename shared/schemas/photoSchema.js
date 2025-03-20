@@ -67,7 +67,8 @@ const PhotoSchema = {
       }
       
       // 2. It has an _id but no analysis yet (fallback)
-      if (!!photo?._id && !photo.aiAnalysis && photo.status !== 'analyzed' && photo.status !== 'pending') {
+      if (!!photo?._id && !photo.aiAnalysis && !photo.analysis && 
+          photo.status !== 'analyzed' && photo.status !== 'pending') {
         return true;
       }
       
@@ -80,7 +81,7 @@ const PhotoSchema = {
       const requirements = {
         'pending': () => !!photo.file,
         'uploaded': () => !!photo._id,
-        'analyzed': () => !!photo._id && !!photo.aiAnalysis,
+        'analyzed': () => !!photo._id && (!!photo.aiAnalysis || !!photo.analysis),
         'error': () => !!photo.error
       };
 
@@ -154,9 +155,9 @@ const PhotoSchema = {
     
     // Don't override the API's status value unless it's missing
     if (!apiPhoto.status) {
-      if (apiPhoto._id && !apiPhoto.aiAnalysis) {
+      if (apiPhoto._id && !apiPhoto.aiAnalysis && !apiPhoto.analysis) {
         status = 'uploaded';  // If we have _id but no analysis, it's just uploaded
-      } else if (apiPhoto._id && apiPhoto.aiAnalysis) {
+      } else if (apiPhoto._id && (apiPhoto.aiAnalysis || apiPhoto.analysis)) {
         status = 'analyzed';  // Only mark as analyzed if we have both _id and analysis
       }
     }
@@ -170,7 +171,7 @@ const PhotoSchema = {
       path,
       uploadDate: apiPhoto.uploadDate ? new Date(apiPhoto.uploadDate) : new Date(),
       size: apiPhoto.size,
-      // Use apiAnalysis from either property name (aiAnalysis or analysis)
+      // Use aiAnalysis from either property name (aiAnalysis or analysis)
       aiAnalysis: apiPhoto.aiAnalysis || apiPhoto.analysis || null,
       uploadProgress: 100
     };
@@ -186,7 +187,9 @@ const PhotoSchema = {
         // Ensure critical properties from server always take precedence
         _id: standardizedPhoto._id,
         status: standardizedPhoto.status,
-        path: standardizedPhoto.path
+        path: standardizedPhoto.path,
+        // Ensure the analysis field is correctly set
+        aiAnalysis: standardizedPhoto.aiAnalysis
       };
     }
     

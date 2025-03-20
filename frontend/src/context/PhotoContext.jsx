@@ -215,8 +215,19 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           setPhotos(prev => prev.map(photo => {
             const analyzed = result.data.photos.find(ap => ap._id === photo._id);
             if (analyzed) {
-              // Use the improved function that preserves client data
-              return PhotoSchema.deserializeFromApi(analyzed, photo);
+              // Deep copy the photo to be updated
+              const updatedPhoto = PhotoSchema.deserializeFromApi(analyzed, photo);
+              
+              // Ensure analysis data is properly assigned
+              if (analyzed.analysis || analyzed.aiAnalysis) {
+                updatedPhoto.aiAnalysis = analyzed.aiAnalysis || analyzed.analysis;
+                updatedPhoto.status = 'analyzed';
+              }
+              
+              // Log for debugging
+              console.log('Updated photo with analysis:', updatedPhoto);
+              
+              return updatedPhoto;
             }
             return photo;
           }));
