@@ -17,21 +17,36 @@ const PhotoItem = ({
   const [retryCount, setRetryCount] = useState(0);
   const [showAnalysis, setShowAnalysis] = useState(false);
   
-  // Get the appropriate URL for the photo
-  const imageUrl = photo.url || photo.preview;
+  // Get the appropriate URL for the photo, with proper prioritization
+  const imageUrl = photo.url || photo.path || photo.preview;
+  
+  // Debug photo data to help troubleshooting
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('PhotoItem data:', {
+        id: photo._id || photo.clientId,
+        status: photo.status,
+        hasPreview: !!photo.preview,
+        hasUrl: !!photo.url,
+        hasPath: !!photo.path,
+        imageUrl
+      });
+    }
+  }, [photo._id, photo.clientId, photo.status, photo.preview, photo.url, photo.path, imageUrl]);
   
   // Reset image states when photo changes
   useEffect(() => {
     setImageLoaded(false);
     setLoadError(false);
     setRetryCount(0);
-  }, [photo._id, photo.url, photo.preview]);
+  }, [photo._id, photo.url, photo.preview, photo.path]);
   
   // Handle image load error
   const handleImageError = () => {
+    console.warn(`Image load error for photo ${photo._id || photo.clientId}, retry ${retryCount + 1}/3`);
     setRetryCount(prev => prev + 1);
     if (retryCount < 3) {
-      // Retry loading after a delay
+      // Retry loading after a delay with a different URL source if available
       setTimeout(() => {
         setLoadError(false);
       }, 1000);

@@ -93,18 +93,11 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         );
 
         if (result.success) {
-          // Debug the server response
+          // Debug the server response once
           console.log('Server response photos:', result.data.photos);
           
-          // Process the response using direct object mapping in a single transaction
+          // Process the response in a single transaction to avoid multiple updates
           setPhotos(prev => {
-            // Log current client photo IDs for debugging
-            console.log('Client photos before update:', prev.map(p => ({ 
-              clientId: p.clientId,
-              originalName: p.originalName,
-              status: p.status 
-            })));
-            
             // Create a mapping of client IDs to server photos for efficient lookup
             const serverPhotoMap = {};
             result.data.photos.forEach(serverPhoto => {
@@ -113,18 +106,17 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
               }
             });
             
-            // Add additional debug information
+            // Add additional debug information - only once
             console.log('Server photo map keys:', Object.keys(serverPhotoMap));
-            console.log('Server photos details:', result.data.photos.map(sp => ({
-              id: sp._id,
-              clientId: sp.clientId,
-              originalName: sp.originalName,
-              status: sp.status || 'unknown'
-            })));
             
-            // Update client photos with server data
+            // Update client photos with server data in a single pass
             const updated = prev.map(photo => {
-              // Try to find the matching server photo
+              // Skip photos that aren't pending uploads
+              if (photo.status !== 'pending') {
+                return photo;
+              }
+              
+              // Try to find the matching server photo by clientId
               const serverPhoto = serverPhotoMap[photo.clientId];
               
               if (serverPhoto) {
@@ -138,31 +130,31 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
                   uploadProgress: 100,                  // Complete progress
                   uploadDate: serverPhoto.uploadDate,   // Server timestamp
                   aiAnalysis: serverPhoto.aiAnalysis,   // Analysis if present
-                  preview: photo.preview,               // Preserve preview
+                  preview: photo.preview,               // Preserve preview URL
+                  url: `/api/photos/${serverPhoto._id}`, // Add direct URL for display
                   file: photo.file                      // Preserve file
                 };
-              } else if (photo.status === 'pending') {
+              } else if (result.data.idMapping && result.data.idMapping[photo.clientId]) {
                 // Try matching by ID map from server response
-                if (result.data.idMapping && result.data.idMapping[photo.clientId]) {
-                  const mappedId = result.data.idMapping[photo.clientId];
-                  const mappedPhoto = result.data.photos.find(sp => sp._id === mappedId);
-                  
-                  if (mappedPhoto) {
-                    console.log(`Found match through ID mapping: Client ID ${photo.clientId} -> Server ID ${mappedPhoto._id}`);
-                    return {
-                      ...photo,
-                      _id: mappedPhoto._id,
-                      path: mappedPhoto.path,
-                      status: 'uploaded',
-                      uploadProgress: 100,
-                      uploadDate: mappedPhoto.uploadDate,
-                      aiAnalysis: mappedPhoto.aiAnalysis,
-                      preview: photo.preview,
-                      file: photo.file
-                    };
-                  }
-                }
+                const mappedId = result.data.idMapping[photo.clientId];
+                const mappedPhoto = result.data.photos.find(sp => sp._id === mappedId);
                 
+                if (mappedPhoto) {
+                  console.log(`Found match through ID mapping: Client ID ${photo.clientId} -> Server ID ${mappedPhoto._id}`);
+                  return {
+                    ...photo,
+                    _id: mappedPhoto._id,
+                    path: mappedPhoto.path,
+                    status: 'uploaded',
+                    uploadProgress: 100,
+                    uploadDate: mappedPhoto.uploadDate,
+                    aiAnalysis: mappedPhoto.aiAnalysis,
+                    preview: photo.preview,             // Preserve preview URL
+                    url: `/api/photos/${mappedPhoto._id}`, // Add direct URL for display
+                    file: photo.file
+                  };
+                }
+              } else {
                 // If still no match, try a fallback match by original filename
                 const fallbackMatch = result.data.photos.find(sp => 
                   sp.originalName === photo.originalName
@@ -178,7 +170,8 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
                     uploadProgress: 100,
                     uploadDate: fallbackMatch.uploadDate,
                     aiAnalysis: fallbackMatch.aiAnalysis,
-                    preview: photo.preview,
+                    preview: photo.preview,             // Preserve preview URL
+                    url: `/api/photos/${fallbackMatch._id}`, // Add direct URL for display
                     file: photo.file
                   };
                 }
@@ -187,13 +180,6 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
               // No match found, keep the client photo unchanged
               return photo;
             });
-            
-            // Log the updated photos for debugging
-            console.log('Photos after update:', updated.map(p => ({ 
-              id: p._id, 
-              clientId: p.clientId, 
-              status: p.status 
-            })));
             
             return updated;
           });

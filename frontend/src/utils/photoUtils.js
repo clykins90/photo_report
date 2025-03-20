@@ -238,23 +238,47 @@ export const groupPhotosByStatus = (photos) => {
 /**
  * Get the URL for displaying a photo
  * @param {PhotoObject|String} photoOrId - Photo object or ID string
+ * @param {Object} options - URL options
+ * @param {String} [options.size] - Size variant ('original', 'thumbnail', 'medium')
  * @returns {string} Best URL for the photo
  */
-export const getPhotoUrl = (photoOrId) => {
+export const getPhotoUrl = (photoOrId, options = {}) => {
   if (!photoOrId) return null;
   
+  // If a string was passed, assume it's an ID and return an API path
   if (typeof photoOrId === 'string') {
-    return `/api/photos/${photoOrId}`;
+    return `/api/photos/${photoOrId}${options.size && options.size !== 'original' ? `?size=${options.size}` : ''}`;
   }
   
+  // For objects, use the best available source with priority
+  // 1. If we have a direct URL property, use it
+  if (photoOrId.url) {
+    return photoOrId.url;
+  }
+  
+  // 2. If we have an _id, construct a server path
   if (photoOrId._id) {
-    return `/api/photos/${photoOrId._id}`;
+    const apiPath = `/api/photos/${photoOrId._id}${options.size && options.size !== 'original' ? `?size=${options.size}` : ''}`;
+    return apiPath;
   }
   
+  // 3. If we have a path property that points to the API, use it
+  if (photoOrId.path && (photoOrId.path.startsWith('/api/') || photoOrId.path.startsWith('/photos/'))) {
+    // Ensure the path has the correct format
+    const apiPath = photoOrId.path.startsWith('/api/') 
+      ? photoOrId.path 
+      : `/api${photoOrId.path}`;
+    
+    // Add size parameter if needed
+    return `${apiPath}${options.size && options.size !== 'original' ? `?size=${options.size}` : ''}`;
+  }
+  
+  // 4. If we have a local preview URL, use it as a fallback
   if (photoOrId.preview) {
     return photoOrId.preview;
   }
   
+  // 5. Nothing usable found
   return null;
 };
 
