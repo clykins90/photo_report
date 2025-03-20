@@ -259,14 +259,27 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       // Start with initial progress
       setAnalysisProgress(10);
       
+      // Filter out photos that don't have server IDs
+      const photosWithServerIds = photosForAnalysis.filter(photo => {
+        // Check for a valid MongoDB ObjectId (24 character hex string)
+        const serverId = photo._id || photo.id;
+        return serverId && typeof serverId === 'string' && /^[0-9a-f]{24}$/i.test(serverId);
+      });
+      
+      if (photosWithServerIds.length === 0) {
+        setError('No photos with valid server IDs to analyze');
+        setIsAnalyzing(false);
+        return;
+      }
+      
       // Mark photos as analyzing
-      const photoIds = photosForAnalysis.map(p => 
+      const photoIds = photosWithServerIds.map(p => 
         typeof p === 'string' ? p : p._id || p.id
       );
       updatePhotoStatus(photoIds, 'analyzing');
       
       // Call service
-      const result = await analyzePhotosService(reportId, photosForAnalysis);
+      const result = await analyzePhotosService(reportId, photosWithServerIds);
       
       // Update progress halfway
       setAnalysisProgress(50);

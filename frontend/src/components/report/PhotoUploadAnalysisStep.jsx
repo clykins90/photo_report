@@ -40,7 +40,11 @@ const PhotoUploadAnalysisStep = () => {
   const [analyzeComplete, setAnalyzeComplete] = useState(false);
   
   // Determine if there are photos ready for analysis
-  const uploadedPhotosExist = photos.some(photo => photo.status === 'uploaded');
+  const uploadedPhotosExist = photos.some(photo => {
+    // Check that it has 'uploaded' status AND a valid MongoDB ObjectId
+    const hasValidId = photo._id && typeof photo._id === 'string' && /^[0-9a-f]{24}$/i.test(photo._id);
+    return photo.status === 'uploaded' && hasValidId;
+  });
 
   // Handle file drop
   const handleDrop = useCallback((files) => {
@@ -97,6 +101,17 @@ const PhotoUploadAnalysisStep = () => {
     
     if (photos.length === 0) {
       setPhotoError("Please add and upload photos before analyzing");
+      return;
+    }
+    
+    // Check for photos with valid server IDs
+    const photosWithValidIds = photos.filter(photo => {
+      const hasValidId = photo._id && typeof photo._id === 'string' && /^[0-9a-f]{24}$/i.test(photo._id);
+      return photo.status === 'uploaded' && hasValidId;
+    });
+    
+    if (photosWithValidIds.length === 0) {
+      setPhotoError("No photos with valid server IDs found. Please make sure photos are fully uploaded before analyzing.");
       return;
     }
     

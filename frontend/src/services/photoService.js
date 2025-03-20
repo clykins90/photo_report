@@ -175,6 +175,9 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
     // Check if we're dealing with photo objects or just IDs
     const hasPhotoObjects = photosOrIds.some(item => typeof item === 'object');
     
+    // Function to validate MongoDB ObjectId (24 character hex string)
+    const isValidObjectId = (id) => id && typeof id === 'string' && /^[0-9a-f]{24}$/i.test(id);
+    
     // Group photos by data availability
     let photoIds = [];
     let photosWithLocalData = [];
@@ -183,15 +186,34 @@ export const analyzePhotos = async (reportId, photosOrIds = []) => {
       // Process photo objects to determine which ones have local data
       const photoObjects = photosOrIds.filter(item => typeof item === 'object');
       
+      // Filter out photo objects that don't have a valid server ID
+      const validPhotoObjects = photoObjects.filter(photo => {
+        const photoId = photo._id || photo.id;
+        return isValidObjectId(photoId);
+      });
+      
+      if (validPhotoObjects.length === 0) {
+        photoLogger.error('No valid photo objects to analyze');
+        return { success: false, error: 'No valid photo IDs found for analysis' };
+      }
+      
       // Use the groupPhotosByDataAvailability utility to separate photos with local data
-      const { withLocalData, needsServerAnalysis } = groupPhotosByDataAvailability(photoObjects);
+      const { withLocalData, needsServerAnalysis } = groupPhotosByDataAvailability(validPhotoObjects);
       photosWithLocalData = withLocalData;
-      photoIds = needsServerAnalysis.map(photo => photo._id || photo.id).filter(id => id);
+      photoIds = needsServerAnalysis
+        .map(photo => photo._id || photo.id)
+        .filter(id => isValidObjectId(id));
       
       photoLogger.info(`Analyzing ${photosWithLocalData.length} photos with local data and ${photoIds.length} photos from server for report ${reportId}`);
     } else {
-      // If we only have IDs, we need to get them from the server
-      photoIds = photosOrIds.filter(id => id);
+      // If we only have IDs, filter for valid MongoDB ObjectIds
+      photoIds = photosOrIds.filter(id => isValidObjectId(id));
+      
+      if (photoIds.length === 0) {
+        photoLogger.error('No valid photo IDs to analyze');
+        return { success: false, error: 'No valid photo IDs found for analysis' };
+      }
+      
       photoLogger.info(`Analyzing ${photoIds.length} photos from server for report ${reportId}`);
     }
     
