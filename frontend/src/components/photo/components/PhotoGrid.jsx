@@ -4,7 +4,7 @@ import PhotoItem from './PhotoItem';
 /**
  * Component for displaying photos in a grid layout
  */
-const PhotoGrid = ({ photos, onRemovePhoto, onAnalyzePhoto }) => {
+const PhotoGrid = ({ photos, onRemove, onSelect, selectedPhoto }) => {
   if (!photos || photos.length === 0) {
     return (
       <div className="text-center p-8 bg-gray-50 rounded-lg border border-gray-200">
@@ -17,10 +17,11 @@ const PhotoGrid = ({ photos, onRemovePhoto, onAnalyzePhoto }) => {
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {photos.map((photo) => (
         <PhotoItem 
-          key={photo._id || photo.clientId || photo.preview}
+          key={photo._id || photo.clientId || photo.id || photo.preview}
           photo={photo}
-          onRemove={onRemovePhoto}
-          onAnalyze={onAnalyzePhoto}
+          onRemove={onRemove}
+          onSelect={onSelect}
+          isSelected={selectedPhoto && (selectedPhoto._id === photo._id || selectedPhoto.id === photo.id)}
         />
       ))}
     </div>
@@ -29,8 +30,9 @@ const PhotoGrid = ({ photos, onRemovePhoto, onAnalyzePhoto }) => {
 
 PhotoGrid.propTypes = {
   photos: PropTypes.array.isRequired,
-  onRemovePhoto: PropTypes.func.isRequired,
-  onAnalyzePhoto: PropTypes.func.isRequired
+  onRemove: PropTypes.func,
+  onSelect: PropTypes.func,
+  selectedPhoto: PropTypes.object
 };
 
 export default PhotoGrid; 

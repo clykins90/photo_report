@@ -169,12 +169,11 @@ const ReportBuilder = ({ isEditing = false }) => {
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{pageTitle}</h1>
       </div>
       
-      {/* Temporarily disabled error banner for debugging */}
-      {/* {(error || reportError) && (
+      {(error || reportError) && (
         <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded">
           <p className="font-medium">{error || reportError}</p>
         </div>
-      )} */}
+      )}
       
       <div className="mb-8">
         <StepIndicator 

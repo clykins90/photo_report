@@ -1,5 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { validateReportForm } from '../../utils/formValidation';
+import React, { useState, useCallback } from 'react';
 import { useReportContext } from '../../context/ReportContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -9,278 +8,189 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 
 const BasicInfoStep = () => {
-  const [localErrors, setLocalErrors] = useState({});
+  const [errors, setErrors] = useState({});
   const { user } = useAuth();
   
   // Get report context values
   const {
     report,
     handleChange,
-    nextStep,
-    error: contextError,
-    validateStep
+    nextStep
   } = useReportContext();
 
-  // Memoize the report values to prevent unnecessary re-renders
-  const reportValues = useMemo(() => ({
-    title: report.title || '',
-    clientName: report.clientName || '',
-    propertyAddress: {
-      street: report.propertyAddress?.street || '',
-      city: report.propertyAddress?.city || '',
-      state: report.propertyAddress?.state || '',
-      zipCode: report.propertyAddress?.zipCode || '',
-    },
-    inspectionDate: report.inspectionDate || '',
-    weather: {
-      temperature: report.weather?.temperature || '',
-      conditions: report.weather?.conditions || '',
-      windSpeed: report.weather?.windSpeed || '',
-    }
-  }), [report]);
-
-  // Create a stable onChange handler to avoid recreating it on every render
-  const onChange = useCallback((e) => {
-    if (handleChange) {
-      handleChange(e);
-    }
-  }, [handleChange]);
-
-  // Track if we've already started the next step process
-  const [isProcessing, setIsProcessing] = useState(false);
-  
-  // Handle next button click with stable references
-  const handleNextClick = useCallback(() => {
-    // Prevent multiple clicks
-    if (isProcessing) return;
+  // Handle form submission
+  const handleSubmit = (e) => {
+    e.preventDefault();
     
-    // Create local copies to avoid closure issues
-    const currentUser = {...user};
+    // Simple validation
+    const newErrors = {};
+    if (!report.title) newErrors.title = 'Title is required';
+    if (!report.clientName) newErrors.clientName = 'Client name is required';
+    if (!report.propertyAddress.street) newErrors.street = 'Street address is required';
+    if (!report.propertyAddress.city) newErrors.city = 'City is required';
+    if (!report.propertyAddress.state) newErrors.state = 'State is required';
+    if (!report.propertyAddress.zipCode) newErrors.zipCode = 'Zip code is required';
     
-    // Validate form before proceeding
-    try {
-      if (!validateStep(1)) {
-        return;
-      }
-      
-      // Clear local errors and proceed
-      setLocalErrors({});
-      setIsProcessing(true);
-      
-      // Use a promise to handle the nextStep call
-      Promise.resolve()
-        .then(() => nextStep(currentUser))
-        .catch(error => {
-          console.error('Error proceeding to next step:', error);
-        })
-        .finally(() => {
-          setIsProcessing(false);
-        });
-    } catch (error) {
-      console.error('Error in form validation:', error);
-      setLocalErrors({ general: 'An error occurred while validating the form' });
+    // If there are errors, show them and stop
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
     }
-  }, [validateStep, nextStep, user, isProcessing]);
-  
-  // We don't need this useEffect as it's causing an infinite loop
-  // The isProcessing state will be reset when the component unmounts naturally
-  // or when the user successfully proceeds to the next step
+    
+    // Clear errors and proceed to next step
+    setErrors({});
+    nextStep();
+  };
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-200">Basic Information</h2>
+      <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Basic Information</h2>
       
-      <div className="grid grid-cols-1 gap-6">
-        <div>
-          <Label htmlFor="title">
-            Report Title <span className="text-red-500">*</span>
-          </Label>
-          <Input
-            id="title"
-            type="text"
-            name="title"
-            value={reportValues.title}
-            onChange={onChange}
-            placeholder="e.g., Roof Inspection Report"
-            className={(localErrors.title || contextError?.title) ? 'border-red-500' : ''}
-          />
-          {(localErrors.title || contextError?.title) && (
-            <p className="mt-1 text-sm text-red-500">{localErrors.title || contextError?.title}</p>
-          )}
-        </div>
-
-        <div>
-          <Label htmlFor="clientName">
-            Client Name <span className="text-red-500">*</span>
-          </Label>
-          <Input
-            id="clientName"
-            type="text"
-            name="clientName"
-            value={reportValues.clientName}
-            onChange={onChange}
-            placeholder="e.g., John Smith"
-            className={(localErrors.clientName || contextError?.clientName) ? 'border-red-500' : ''}
-          />
-          {(localErrors.clientName || contextError?.clientName) && (
-            <p className="mt-1 text-sm text-red-500">{localErrors.clientName || contextError?.clientName}</p>
-          )}
-        </div>
-
-        {/* Property Address */}
-        <div>
-          <h3 className="text-lg font-semibold mb-3 text-gray-700 dark:text-gray-300">Property Address</h3>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <form onSubmit={handleSubmit}>
+        <div className="space-y-6">
+          <div>
+            <Label htmlFor="title">Report Title <span className="text-red-500">*</span></Label>
+            <Input
+              id="title"
+              name="title"
+              value={report.title}
+              onChange={handleChange}
+              placeholder="Property Inspection Report"
+              className={errors.title ? 'border-red-500' : ''}
+            />
+            {errors.title && <p className="text-red-500 text-sm mt-1">{errors.title}</p>}
+          </div>
+          
+          <div>
+            <Label htmlFor="clientName">Client Name <span className="text-red-500">*</span></Label>
+            <Input
+              id="clientName"
+              name="clientName"
+              value={report.clientName}
+              onChange={handleChange}
+              placeholder="John Doe"
+              className={errors.clientName ? 'border-red-500' : ''}
+            />
+            {errors.clientName && <p className="text-red-500 text-sm mt-1">{errors.clientName}</p>}
+          </div>
+          
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium">Property Address</h3>
+            
             <div>
-              <Label htmlFor="street">
-                Street Address <span className="text-red-500">*</span>
-              </Label>
+              <Label htmlFor="propertyAddress.street">Street Address <span className="text-red-500">*</span></Label>
               <Input
-                id="street"
-                type="text"
+                id="propertyAddress.street"
                 name="propertyAddress.street"
-                value={reportValues.propertyAddress.street}
-                onChange={onChange}
-                placeholder="e.g., 123 Main St"
-                className={(localErrors['propertyAddress.street'] || contextError?.propertyAddress?.street) ? 'border-red-500' : ''}
+                value={report.propertyAddress.street}
+                onChange={handleChange}
+                placeholder="123 Main St"
+                className={errors.street ? 'border-red-500' : ''}
               />
-              {(localErrors['propertyAddress.street'] || contextError?.propertyAddress?.street) && (
-                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.street'] || contextError?.propertyAddress?.street}</p>
-              )}
+              {errors.street && <p className="text-red-500 text-sm mt-1">{errors.street}</p>}
             </div>
-            <div>
-              <Label htmlFor="city">
-                City <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="city"
-                type="text"
-                name="propertyAddress.city"
-                value={reportValues.propertyAddress.city}
-                onChange={onChange}
-                placeholder="e.g., San Francisco"
-                className={(localErrors['propertyAddress.city'] || contextError?.propertyAddress?.city) ? 'border-red-500' : ''}
-              />
-              {(localErrors['propertyAddress.city'] || contextError?.propertyAddress?.city) && (
-                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.city'] || contextError?.propertyAddress?.city}</p>
-              )}
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="propertyAddress.city">City <span className="text-red-500">*</span></Label>
+                <Input
+                  id="propertyAddress.city"
+                  name="propertyAddress.city"
+                  value={report.propertyAddress.city}
+                  onChange={handleChange}
+                  placeholder="Anytown"
+                  className={errors.city ? 'border-red-500' : ''}
+                />
+                {errors.city && <p className="text-red-500 text-sm mt-1">{errors.city}</p>}
+              </div>
+              
+              <div>
+                <Label htmlFor="propertyAddress.state">State <span className="text-red-500">*</span></Label>
+                <Input
+                  id="propertyAddress.state"
+                  name="propertyAddress.state"
+                  value={report.propertyAddress.state}
+                  onChange={handleChange}
+                  placeholder="CA"
+                  className={errors.state ? 'border-red-500' : ''}
+                />
+                {errors.state && <p className="text-red-500 text-sm mt-1">{errors.state}</p>}
+              </div>
             </div>
-            <div>
-              <Label htmlFor="state">
-                State <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="state"
-                type="text"
-                name="propertyAddress.state"
-                value={reportValues.propertyAddress.state}
-                onChange={onChange}
-                placeholder="e.g., CA"
-                className={(localErrors['propertyAddress.state'] || contextError?.propertyAddress?.state) ? 'border-red-500' : ''}
-              />
-              {(localErrors['propertyAddress.state'] || contextError?.propertyAddress?.state) && (
-                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.state'] || contextError?.propertyAddress?.state}</p>
-              )}
-            </div>
-            <div>
-              <Label htmlFor="zipCode">
-                ZIP Code <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="zipCode"
-                type="text"
-                name="propertyAddress.zipCode"
-                value={reportValues.propertyAddress.zipCode}
-                onChange={onChange}
-                placeholder="e.g., 94105"
-                className={(localErrors['propertyAddress.zipCode'] || contextError?.propertyAddress?.zipCode) ? 'border-red-500' : ''}
-              />
-              {(localErrors['propertyAddress.zipCode'] || contextError?.propertyAddress?.zipCode) && (
-                <p className="mt-1 text-sm text-red-500">{localErrors['propertyAddress.zipCode'] || contextError?.propertyAddress?.zipCode}</p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Inspection Date */}
-        <div>
-          <Label htmlFor="inspectionDate">
-            Inspection Date <span className="text-red-500">*</span>
-          </Label>
-          <Input
-            id="inspectionDate"
-            type="date"
-            name="inspectionDate"
-            value={reportValues.inspectionDate}
-            onChange={onChange}
-            className={(localErrors.inspectionDate || contextError?.inspectionDate) ? 'border-red-500' : ''}
-          />
-          {(localErrors.inspectionDate || contextError?.inspectionDate) && (
-            <p className="mt-1 text-sm text-red-500">{localErrors.inspectionDate || contextError?.inspectionDate}</p>
-          )}
-        </div>
-
-        {/* Weather Conditions */}
-        <div>
-          <h3 className="text-lg font-semibold mb-3 text-gray-700 dark:text-gray-300">Weather Conditions</h3>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div>
-              <Label htmlFor="temperature">Temperature</Label>
-              <Input
-                id="temperature"
-                type="text"
-                name="weather.temperature"
-                value={reportValues.weather.temperature}
-                onChange={onChange}
-                placeholder="e.g., 75°F"
-              />
-            </div>
-            <div>
-              <Label htmlFor="conditions">Conditions</Label>
-              <Input
-                id="conditions"
-                type="text"
-                name="weather.conditions"
-                value={reportValues.weather.conditions}
-                onChange={onChange}
-                placeholder="e.g., Partly Cloudy"
-              />
-            </div>
-            <div>
-              <Label htmlFor="windSpeed">Wind Speed</Label>
-              <Input
-                id="windSpeed"
-                type="text"
-                name="weather.windSpeed"
-                value={reportValues.weather.windSpeed}
-                onChange={onChange}
-                placeholder="e.g., 5-10 mph"
-              />
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="propertyAddress.zipCode">Zip Code <span className="text-red-500">*</span></Label>
+                <Input
+                  id="propertyAddress.zipCode"
+                  name="propertyAddress.zipCode"
+                  value={report.propertyAddress.zipCode}
+                  onChange={handleChange}
+                  placeholder="12345"
+                  className={errors.zipCode ? 'border-red-500' : ''}
+                />
+                {errors.zipCode && <p className="text-red-500 text-sm mt-1">{errors.zipCode}</p>}
+              </div>
+              
+              <div>
+                <Label htmlFor="inspectionDate">Inspection Date</Label>
+                <Input
+                  id="inspectionDate"
+                  name="inspectionDate"
+                  type="date"
+                  value={report.inspectionDate}
+                  onChange={handleChange}
+                />
+              </div>
             </div>
           </div>
+          
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium">Weather Conditions (Optional)</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="weather.conditions">Conditions</Label>
+                <Input
+                  id="weather.conditions"
+                  name="weather.conditions"
+                  value={report.weather.conditions}
+                  onChange={handleChange}
+                  placeholder="Sunny"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="weather.temperature">Temperature</Label>
+                <Input
+                  id="weather.temperature"
+                  name="weather.temperature"
+                  value={report.weather.temperature}
+                  onChange={handleChange}
+                  placeholder="72°F"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="weather.windSpeed">Wind Speed</Label>
+                <Input
+                  id="weather.windSpeed"
+                  name="weather.windSpeed"
+                  value={report.weather.windSpeed}
+                  onChange={handleChange}
+                  placeholder="5 mph"
+                />
+              </div>
+            </div>
+          </div>
+          
+          <div className="pt-6 flex justify-end">
+            <Button type="submit">
+              Next: Photos & Analysis
+            </Button>
+          </div>
         </div>
-      </div>
-
-      <div className="flex justify-end space-x-4 mt-8">
-        {/* Debug button */}
-        <Button 
-          variant="outline"
-          type="button"
-          onClick={() => {
-            console.log('Current report values:', reportValues);
-            console.log('Context error:', contextError);
-          }}
-        >
-          Debug
-        </Button>
-        
-        <Button
-          type="button"
-          onClick={handleNextClick}
-        >
-          Next Step
-        </Button>
-      </div>
+      </form>
     </div>
   );
 };

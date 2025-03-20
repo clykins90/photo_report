@@ -227,16 +227,45 @@ export const ReportProvider = ({ children }) => {
     }
   }, [photos, report.damages]);
 
-  // Generate PDF from report data
-  const generatePdf = useCallback(async (user) => {
-    if (!report._id) {
-      setError('Report must be saved before generating a PDF');
-      return;
+  // Create a draft report to get an ID
+  const createDraftReport = useCallback(async (user) => {
+    try {
+      // Create a minimal report with just the basic info
+      const draftData = {
+        title: report.title || 'Draft Report',
+        clientName: report.clientName || 'Draft Client',
+        propertyAddress: report.propertyAddress,
+        inspectionDate: report.inspectionDate,
+        isDraft: true,
+        user: user?._id
+      };
+      
+      const response = await createReport(draftData);
+      const reportId = response._id || response.data._id;
+      
+      // Update report with the new ID
+      setReport(prev => ({
+        ...prev,
+        _id: reportId
+      }));
+      
+      return reportId;
+    } catch (err) {
+      setError('Error creating draft report: ' + err.message);
+      throw err;
     }
-    
-    if (!user) {
-      setError('You must be logged in to generate a PDF report');
-      return;
+  }, [report, setReport, setError]);
+
+  // Generate PDF from report data
+  const generatePdf = useCallback(async () => {
+    if (!report._id) {
+      // Auto-create a draft report if needed
+      try {
+        await createDraftReport();
+      } catch (err) {
+        setError('Failed to create draft report before PDF generation');
+        return;
+      }
     }
     
     try {
@@ -259,44 +288,7 @@ export const ReportProvider = ({ children }) => {
     } finally {
       setGeneratingPdf(false);
     }
-  }, [report._id]);
-
-  // Create a draft report to get an ID
-  const createDraftReport = useCallback(async (user, reportData = null) => {
-    // console.log("createDraftReport called with user:", user);
-    try {
-      // Use provided reportData or fall back to current report state
-      // This prevents dependency on the report state which can cause infinite loops
-      const currentReport = reportData || report;
-      
-      // Create a minimal report with just the basic info
-      const draftData = {
-        title: currentReport.title || 'Draft Report',
-        clientName: currentReport.clientName || 'Draft Client',
-        propertyAddress: currentReport.propertyAddress,
-        inspectionDate: currentReport.inspectionDate,
-        isDraft: true,
-        user: user?._id
-      };
-      
-      // console.log("Creating draft with data:", draftData);
-      const response = await createReport(draftData);
-      const reportId = response._id || response.data._id;
-      // console.log("Draft report created with ID:", reportId);
-      
-      // Update report with the new ID
-      setReport(prev => ({
-        ...prev,
-        _id: reportId
-      }));
-      
-      return reportId;
-    } catch (err) {
-      // console.error("Error creating draft report:", err);
-      setError('Error creating draft report: ' + err.message);
-      throw err;
-    }
-  }, [setReport, setError, createReport]);
+  }, [report._id, createDraftReport]);
 
   // Submit the report
   const submitReport = useCallback(async (user) => {
@@ -305,56 +297,14 @@ export const ReportProvider = ({ children }) => {
       return;
     }
     
-    // Validate all required fields including address
-    const { isValid, errors } = validateReportForm(report, 4);
-    if (!isValid) {
-      setError(errors);
-      return;
-    }
-    
     try {
       setIsSubmitting(true);
       setError(null);
-      
-      // Create default company information if missing
-      let companyData;
-      
-      if (!user.company) {
-        // Placeholder company data
-        companyData = {
-          name: "[COMPANY NAME]",
-          address: {
-            street: "[STREET ADDRESS]",
-            city: "[CITY]",
-            state: "[STATE]",
-            zipCode: "[ZIP]"
-          },
-          phone: "[PHONE]",
-          email: "[EMAIL]",
-          website: "[WEBSITE]"
-        };
-      } else if (typeof user.company === 'string') {
-        try {
-          // Fetch company data
-          const companyRes = await api.get('/company');
-          companyData = companyRes.data.data || companyRes.data;
-        } catch (err) {
-          // Fallback to ID
-          companyData = {
-            name: "[COMPANY NAME]",
-            _id: user.company
-          };
-        }
-      } else {
-        // Company data is embedded in user
-        companyData = user.company;
-      }
       
       // Build the report data
       const reportData = {
         ...report,
         user: user._id,
-        company: companyData
       };
       
       // Create or update the report
@@ -383,163 +333,24 @@ export const ReportProvider = ({ children }) => {
     }
   }, [report]);
 
-  // Validate the current step without causing re-renders
-  const validateStep = useCallback((currentStep = step) => {
-    // Only perform validation if we have a report object
-    if (!report) return false;
-    
-    // TEMPORARY: Log validation results but always return true to bypass validation
-    const { isValid, errors } = validateReportForm(report, currentStep);
-    console.log('validateStep results:', { isValid, errors });
-    
-    // Temporarily bypass validation
-    return true;
-    
-    // Original validation logic (commented out for testing)
-    /*
-    // Store validation result without triggering state updates
-    if (!isValid) {
-      // Only set error if there's actually an error message to show
-      setError(errors);
-      return false;
-    }
-    
-    // Clear error if validation passed
-    setError(null);
-    return true;
-    */
-  }, [report, setError]);
-
-  // Move to the next step - completely refactored to prevent infinite loops
-  const nextStep = useCallback(async (user) => {
-    // Prevent multiple calls to nextStep in the same render cycle
-    if (isSubmitting) return null;
-    
-    // Create a local copy of all needed state to avoid dependencies
-    const currentStep = step;
-    const currentReport = {...report};
-    const hasReportId = !!currentReport._id;
-    
-    // Set submitting immediately to prevent multiple calls
-    setIsSubmitting(true);
-    
-    try {
-      // Create a local copy of the validation function to avoid closures
-      const validationResult = (() => {
-        try {
-          return validateReportForm(currentReport, currentStep);
-        } catch (err) {
-          console.error('Validation error:', err);
-          return { isValid: false, errors: { general: 'Validation error' } };
-        }
-      })();
-      
-      if (!validationResult.isValid) {
-        // Debug: Log validation errors to console
-        console.log('Validation errors:', JSON.stringify(validationResult.errors, null, 2));
-        
-        // Use timeout to break render cycle
-        setTimeout(() => {
-          // Temporarily override validation for testing
-          // Comment this line out to bypass validation for testing
-          // setError(getFormErrorMessage(validationResult.errors));
-          
-          // Force proceed for testing
-          setIsSubmitting(false);
-          setStep(currentStep + 1);
-        }, 0);
-        
-        // For debugging, we're bypassing the validation temporarily
-        return currentReport._id || 'temp-id';
-      }
-      
-      // For new reports at step 1, create a draft report
-      if (currentStep === 1 && !hasReportId) {
-        // Make sure user is an object and not treated as a function
-        if (!user || typeof user !== 'object') {
-          setTimeout(() => {
-            setError('Authentication error: Please try logging in again');
-            setIsSubmitting(false);
-          }, 0);
-          return null;
-        }
-        
-        try {
-          // Create draft report with the local copy of data
-          const response = await createReport({
-            title: currentReport.title || 'Draft Report',
-            clientName: currentReport.clientName || 'Draft Client',
-            propertyAddress: currentReport.propertyAddress,
-            inspectionDate: currentReport.inspectionDate,
-            isDraft: true,
-            user: user._id
-          });
-          
-          const reportId = response._id || response.data?._id;
-          
-          // Use timeout to break render cycle
-          setTimeout(() => {
-            // Update report with the new ID
-            setReport(prev => ({...prev, _id: reportId}));
-            setStep(currentStep + 1);
-            setIsSubmitting(false);
-          }, 0);
-          
-          return reportId;
-        } catch (err) {
-          setTimeout(() => {
-            setError('Failed to create draft report: ' + (err.message || 'Unknown error'));
-            setIsSubmitting(false);
-          }, 0);
-          return null;
-        }
-      } else {
-        // For existing reports or other steps, just increment the step
-        setTimeout(() => {
-          setStep(currentStep + 1);
-          setIsSubmitting(false);
-        }, 0);
-        return currentReport._id;
-      }
-    } catch (err) {
-      setTimeout(() => {
-        setError('Error proceeding to next step: ' + (err.message || 'Unknown error'));
-        setIsSubmitting(false);
-      }, 0);
-      return null;
-    }
-  // Explicitly exclude report and step from dependencies to prevent infinite loops
-  // We're using local copies inside the function
+  // Simplified step navigation - these no longer need validation
+  const nextStep = useCallback(() => {
+    setStep(prevStep => Math.min(prevStep + 1, 3));
   }, []);
 
-  // Move to the previous step
   const prevStep = useCallback(() => {
-    setStep(Math.max(1, step - 1));
-  }, [step]);
+    setStep(prevStep => Math.max(prevStep - 1, 1));
+  }, []);
 
-  // Go to a specific step
   const goToStep = useCallback((stepNumber) => {
-    // Validate previous steps
-    if (stepNumber > 1) {
-      const isValid = validateStep(1);
-      if (!isValid) return;
+    if (stepNumber >= 1 && stepNumber <= 3) {
+      setStep(stepNumber);
     }
-    
-    // If going past the photo step, ensure we have photos
-    if (stepNumber > 2 && photos.length === 0) {
-      setError('Please upload photos before proceeding');
-      return;
-    }
-    
-    setStep(stepNumber);
-  }, [photos.length, validateStep, setError]);
+  }, []);
 
-  // Reset the report state for a new report
+  // Reset the report state
   const resetReport = useCallback(() => {
-    // Guard against recursive updates
-    if (report.title === '' && report.clientName === '') return;
-
-    const defaultReport = {
+    setReport({
       title: '',
       clientName: '',
       propertyAddress: {
@@ -560,17 +371,13 @@ export const ReportProvider = ({ children }) => {
       recommendations: '',
       materials: '',
       tags: []
-    };
-    
-    setTimeout(() => {
-      setReport(defaultReport);
-      setStep(1);
-      setError(null);
-      setPdfUrl(null);
-    }, 0);
-  }, [report.title, report.clientName]);
+    });
+    setStep(1);
+    setError(null);
+    setPdfUrl(null);
+  }, []);
 
-  // Context value
+  // Expose all needed values and functions
   const contextValue = {
     report,
     step,
@@ -579,22 +386,18 @@ export const ReportProvider = ({ children }) => {
     generatingSummary,
     generatingPdf,
     pdfUrl,
-    setReport,
     handleChange,
     loadReport,
+    resetReport,
     addDamage,
     updateDamage,
     removeDamage,
+    submitReport,
     generateSummary,
     generatePdf,
-    submitReport,
-    validateStep,
     nextStep,
     prevStep,
     goToStep,
-    resetReport,
-    setError,
-    createDraftReport
   };
 
   return (
