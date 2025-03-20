@@ -47,9 +47,12 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
     // Add files to form data and track their client IDs
     const clientIds = [];
     Array.from(files).forEach((file, index) => {
-      // Get the original temp ID if it exists
-      const originalTempId = file._tempId || file.clientId;
-      clientIds.push(originalTempId || `temp_${Date.now()}_${index}`);
+      // Get the original temp ID from all possible sources
+      const originalTempId = file._tempId || file.clientId || file.originalClientId;
+      if (!originalTempId) {
+        console.warn(`No client ID found for file ${file.name} at index ${index}`);
+      }
+      clientIds.push(originalTempId); // Don't create a new one, let the schema handle it if needed
       formData.append('photos', file);
     });
     

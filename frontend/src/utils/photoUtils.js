@@ -42,7 +42,7 @@ export const createPhotoFromFile = (file, options = {}) => {
   
   // Create the base photo object
   const photoObject = {
-    id: schemaPhoto.clientId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    id: schemaPhoto.clientId,
     name: file.name || 'Unnamed photo',
     file,
     preview,

@@ -108,7 +108,17 @@ const PhotoUploadAnalysisStep = () => {
     }
     
     try {
-      await analyzePhotos(report._id);
+      // Pass the full photo objects for analysis
+      const photosToAnalyze = photos.map(photo => ({
+        ...photo,
+        file: photo.file,  // Ensure file object is included
+        preview: photo.preview,
+        localDataUrl: photo.localDataUrl,
+        _id: photo._id,
+        path: photo.path
+      }));
+      
+      await analyzePhotos(report._id, photosToAnalyze);
       setAnalyzeComplete(true);
       
       // Auto-generate summary when analysis is complete

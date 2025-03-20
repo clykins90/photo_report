@@ -559,7 +559,7 @@ const ReportForm = ({ existingReport = null, initialData = null, isEditing = fal
           
           // Prepare metadata with client IDs
           const fileMetadata = photosToUpload.map(photo => ({
-            clientId: photo.clientId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+            clientId: photo.clientId,
           }));
           
           // Upload the photos to the report
