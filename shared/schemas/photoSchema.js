@@ -136,14 +136,17 @@ const PhotoSchema = {
       path = `/api${path}`;
     }
     
-    // Determine the correct status based on photo data
+    // Prioritize the status directly from the API response
+    // Only fall back to derived status if API status is missing
     let status = apiPhoto.status || 'pending';
     
-    // Only set to analyzed if we have both _id and aiAnalysis
-    if (apiPhoto._id && !apiPhoto.aiAnalysis) {
-      status = 'uploaded';  // If we have _id but no analysis, it's just uploaded
-    } else if (apiPhoto._id && apiPhoto.aiAnalysis) {
-      status = 'analyzed';  // Only mark as analyzed if we have both _id and analysis
+    // Don't override the API's status value unless it's missing
+    if (!apiPhoto.status) {
+      if (apiPhoto._id && !apiPhoto.aiAnalysis) {
+        status = 'uploaded';  // If we have _id but no analysis, it's just uploaded
+      } else if (apiPhoto._id && apiPhoto.aiAnalysis) {
+        status = 'analyzed';  // Only mark as analyzed if we have both _id and analysis
+      }
     }
     
     return {

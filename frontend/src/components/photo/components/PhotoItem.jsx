@@ -56,21 +56,17 @@ const PhotoItem = ({
       'uploaded': { bg: 'bg-blue-100', text: 'text-blue-800', label: 'Uploaded' },
       'analyzing': { bg: 'bg-purple-100', text: 'text-purple-800', label: 'Analyzing' },
       'analyzed': { bg: 'bg-green-100', text: 'text-green-800', label: 'Analyzed' },
-      'error': { bg: 'bg-red-100', text: 'text-red-800', label: 'Error' }
+      'error': { bg: 'bg-red-100', text: 'text-red-800', label: 'Error' },
+      'pending': { bg: 'bg-gray-100', text: 'text-gray-800', label: 'Pending' }
     };
     
-    const status = statusMap[photo.status] || { bg: 'bg-gray-100', text: 'text-gray-800', label: photo.status };
-    
-    // Check for valid MongoDB ObjectId
-    const isValidMongoId = photo._id && typeof photo._id === 'string' && /^[0-9a-f]{24}$/i.test(photo._id);
-    let label = status.label;
-    if (photo.status === 'uploaded' && !isValidMongoId) {
-      label += ' (pending server ID)';
-    }
+    // Use API status if available or fallback to local status
+    const displayStatus = photo.status;
+    const status = statusMap[displayStatus] || { bg: 'bg-gray-100', text: 'text-gray-800', label: displayStatus };
     
     return (
       <span className={`absolute top-2 left-2 text-xs ${status.bg} ${status.text} px-2 py-0.5 rounded-full`}>
-        {label}
+        {status.label}
       </span>
     );
   };
