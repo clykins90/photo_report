@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { getPhotoUrl } from '../../../utils/photoUtils';
 
@@ -39,6 +39,13 @@ const PhotoItem = ({
     }
   };
 
+  const handleRemovePhoto = useCallback((photo) => {
+    onRemove(photo);
+    if (isSelected && selectedPhoto?._id === photo._id) {
+      setSelectedPhoto(null);
+    }
+  }, [onRemove, isSelected, selectedPhoto]);
+
   // Render the status badge
   const renderStatus = () => {
     if (!photo.status) return null;
@@ -53,11 +60,11 @@ const PhotoItem = ({
     
     const status = statusMap[photo.status] || { bg: 'bg-gray-100', text: 'text-gray-800', label: photo.status };
     
-    // Check for valid server ID
-    const hasValidId = photo._id && typeof photo._id === 'string' && /^[0-9a-f]{24}$/i.test(photo._id);
+    // Check for valid MongoDB ObjectId
+    const isValidMongoId = photo._id && typeof photo._id === 'string' && /^[0-9a-f]{24}$/i.test(photo._id);
     let label = status.label;
-    if (photo.status === 'uploaded' && !hasValidId) {
-      label += ' (no server ID)';
+    if (photo.status === 'uploaded' && !isValidMongoId) {
+      label += ' (pending server ID)';
     }
     
     return (
@@ -106,7 +113,7 @@ const PhotoItem = ({
           {/* Remove button */}
           {onRemove && (
             <button
-              onClick={() => onRemove(photo)}
+              onClick={() => handleRemovePhoto(photo)}
               className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-full"
               aria-label="Remove photo"
             >

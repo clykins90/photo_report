@@ -2,9 +2,7 @@ import api from './api';
 import PhotoSchema from 'shared/schemas/photoSchema';
 import { photoLogger } from '../utils/logger';
 import { 
-  createPhotoFromFile, 
   getPhotoUrl as getPhotoUrlUtil,
-  preservePhotoData,
   dataURLtoBlob,
   getBestDataSource,
   groupPhotosByDataAvailability
@@ -16,7 +14,7 @@ import {
  */
 
 /**
- * Get the URL for a photo - delegates to photoUtils
+ * Get the URL for a photo
  * @param {String|Object} photoOrId - Photo object or ID
  * @param {String} size - Size variant ('original', 'thumbnail', 'medium')
  * @returns {String} Photo URL
@@ -42,27 +40,21 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
       return { success: false, error: 'Report ID is required' };
     }
     
-    // Create client photo objects for tracking
-    const clientPhotos = Array.from(files).map(file => {
-      // Create photo objects using our consolidated utility
-      return createPhotoFromFile(file);
-    });
+    // Create photo objects using PhotoSchema
+    const clientPhotos = Array.from(files).map(file => PhotoSchema.createFromFile(file));
     
     // Create form data for upload
     const formData = new FormData();
     formData.append('reportId', reportId);
     
     // Add client IDs for tracking
-    const clientIds = clientPhotos.map(photo => photo.clientId || photo.id);
+    const clientIds = clientPhotos.map(photo => photo.clientId);
     formData.append('clientIds', JSON.stringify(clientIds));
     
     // Add files to form data
     Array.from(files).forEach((file, index) => {
       formData.append('photos', file);
     });
-    
-    // Track overall progress
-    let overallProgress = 0;
     
     // Upload files
     const response = await api.post('/photos/upload', formData, {
@@ -73,7 +65,6 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
         if (progressCallback) {
           // Calculate progress percentage
           const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          overallProgress = progress;
           
           // Update progress for each photo
           const updatedPhotos = clientPhotos.map(photo => ({
@@ -82,7 +73,7 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
             status: progress === 100 ? 'uploaded' : 'uploading'
           }));
           
-          // Call the progress callback with both the updated photos and the progress percentage
+          // Call the progress callback
           progressCallback(updatedPhotos, progress);
         }
       }
@@ -90,39 +81,37 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
     
     // Process response
     if (response.data.success) {
-      // Get the ID mapping from clientId to server ID and photos - access from nested data if present
       const responseData = response.data.data || response.data;
       const { idMapping, photos: serverPhotos } = responseData;
       
       // Create properly formed photo objects
       const uploadedPhotos = clientPhotos.map(clientPhoto => {
-        const serverId = idMapping && idMapping[clientPhoto.clientId || clientPhoto.id];
+        const serverId = idMapping && idMapping[clientPhoto.clientId];
         const serverPhoto = serverPhotos && serverPhotos.find(p => p._id === serverId);
         
         if (serverPhoto) {
-          // Create a merged photo object with both server data and client data
-          const mergedPhoto = {
-            ...serverPhoto,
-            // Explicitly preserve the file object and preview URL
+          return {
+            ...PhotoSchema.deserializeFromApi(serverPhoto),
             file: clientPhoto.file,
-            preview: clientPhoto.preview,
-            // Preserve any local data URL
-            localDataUrl: clientPhoto.localDataUrl || (clientPhoto.preview && clientPhoto.preview.startsWith('data:') ? clientPhoto.preview : null)
+            preview: clientPhoto.preview
           };
-          
-          // Use our preservePhotoData function to ensure consistency
-          return preservePhotoData(mergedPhoto);
         }
         
-        return preservePhotoData(clientPhoto);
+        // If no server photo found, return error state
+        return {
+          ...clientPhoto,
+          status: 'error',
+          uploadProgress: 0
+        };
       });
       
       // Log the photo data availability
       photoLogger.info('Upload complete with photos:', 
         uploadedPhotos.map(p => ({
-          id: p._id || p.id,
+          _id: p._id,
           hasFile: !!p.file,
-          hasPreview: !!p.preview
+          hasPreview: !!p.preview,
+          status: p.status
         }))
       );
       
@@ -149,7 +138,7 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
       success: false,
       error: error.message || 'Upload failed',
       photos: files ? Array.from(files).map(file => ({
-        ...createPhotoFromFile(file),
+        ...PhotoSchema.createFromFile(file),
         status: 'error'
       })) : []
     };

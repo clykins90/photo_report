@@ -85,7 +85,45 @@ const PhotoUploadAnalysisStep = () => {
     }
     
     try {
-      await uploadPhotosToServer(photos, report._id);
+      // Get photos that need to be uploaded (status is not 'uploaded' or 'analyzed')
+      const photosToUpload = photos.filter(photo => 
+        !['uploaded', 'analyzed'].includes(photo.status)
+      );
+      
+      if (photosToUpload.length === 0) {
+        console.log('No new photos to upload');
+        return;
+      }
+      
+      // Extract files from photos
+      const files = photosToUpload.map(photo => photo.file).filter(Boolean);
+      
+      const uploadResult = await uploadPhotosToServer(files, report._id);
+      
+      if (uploadResult.success) {
+        const uploadedPhotos = uploadResult.data?.photos || [];
+        
+        // Update the photos in context with the uploaded ones
+        const updatedPhotos = photos.map(existingPhoto => {
+          // Find matching uploaded photo by clientId or file name
+          const uploadedPhoto = uploadedPhotos.find(up => 
+            up.clientId === existingPhoto.clientId || 
+            up.originalName === existingPhoto.file?.name
+          );
+          
+          return uploadedPhoto || existingPhoto;
+        });
+        
+        // Log the state update
+        console.log('Updated photos after upload:', updatedPhotos.map(p => ({
+          id: p._id || p.id,
+          status: p.status,
+          hasFile: !!p.file,
+          hasPreview: !!p.preview
+        })));
+      } else {
+        setPhotoError(uploadResult.error || "Failed to upload photos");
+      }
     } catch (error) {
       console.error("Error uploading photos:", error);
       setPhotoError("Failed to upload photos. Please try again.");
