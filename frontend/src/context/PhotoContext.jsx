@@ -69,12 +69,6 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         return canUpload;
       });
 
-      console.log('Valid photos for upload:', validPhotos.map(p => ({
-        clientId: p.clientId,
-        status: p.status,
-        hasFile: !!p.file
-      })));
-
       const files = validPhotos.map(p => p.file).filter(Boolean);
       const clientIds = validPhotos.map(p => p.clientId).filter(Boolean);
       
@@ -89,31 +83,22 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         return { success: false, error };
       }
 
-      // Set uploading state using state machine
-      setPhotos(prevPhotos => 
-        prevPhotos.map(photo => {
-          if (!clientIds.includes(photo.clientId)) return photo;
-          try {
-            return photoStateMachine.transition(photo, PhotoState.UPLOADING);
-          } catch (err) {
-            console.warn(`Failed to transition photo ${photo.clientId} to uploading state:`, err);
-            // If we can't transition to uploading, try to transition to error
-            try {
-              return photoStateMachine.transition({
-                ...photo,
-                error: 'Failed to prepare for upload'
-              }, PhotoState.ERROR);
-            } catch (e) {
-              console.error('Failed to set error state:', e);
-              return photo;
-            }
-          }
-        })
-      );
+      // Set uploading state for only the photos being uploaded
+      setPhotos(prevPhotos => {
+        // Keep existing photos that aren't being uploaded
+        const existingPhotos = prevPhotos.filter(photo => !clientIds.includes(photo.clientId));
+        
+        // Add the uploading photos
+        const uploadingPhotos = validPhotos.map(photo => 
+          photoStateMachine.transition(photo, PhotoState.UPLOADING)
+        );
+        
+        return [...existingPhotos, ...uploadingPhotos];
+      });
 
       const result = await uploadPhotos(files, reportId, (progress) => {
         setUploadProgress(progress);
-        // Update progress but don't change state
+        // Update progress for only the uploading photos
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => 
             clientIds.includes(photo.clientId)
@@ -126,12 +111,6 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       if (result.success) {
         const { photos: uploadedPhotos, idMapping } = result.data;
         
-        console.log('Upload successful:', {
-          uploadedPhotos: uploadedPhotos.map(p => ({id: p._id, status: 'uploaded'})),
-          idMapping,
-          clientIds
-        });
-        
         // Create a map of client IDs to server photos for easier lookup
         const serverPhotoMap = {};
         Object.entries(idMapping).forEach(([clientId, serverId]) => {
@@ -141,13 +120,13 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           }
         });
         
-        // Update photos with server data using state machine
-        setPhotos(prevPhotos => 
-          prevPhotos.map(photo => {
-            // Skip photos that weren't part of this upload
-            if (!clientIds.includes(photo.clientId)) return photo;
-            
-            // Find the corresponding server photo
+        // Update only the photos that were uploaded
+        setPhotos(prevPhotos => {
+          // Keep existing photos that weren't part of this upload
+          const existingPhotos = prevPhotos.filter(photo => !clientIds.includes(photo.clientId));
+          
+          // Update the uploaded photos
+          const updatedPhotos = validPhotos.map(photo => {
             const serverPhoto = serverPhotoMap[photo.clientId];
             
             if (!serverPhoto) {
@@ -157,10 +136,9 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
                 uploadedPhotoIds: uploadedPhotos.map(p => p._id)
               });
               
-              // Use idMapping to get the server ID even if we don't have the full server photo
+              // Use idMapping to get the server ID
               const serverId = idMapping[photo.clientId];
               if (serverId) {
-                // Create a minimal server photo object with the ID and path
                 try {
                   return photoStateMachine.transition({
                     ...photo,
@@ -173,6 +151,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
                   return photo;
                 }
               }
+              
               return photo;
             }
 
@@ -191,25 +170,27 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
                 error: 'Failed to process server response'
               }, PhotoState.ERROR);
             }
-          })
-        );
+          });
+          
+          return [...existingPhotos, ...updatedPhotos];
+        });
       } else {
         console.error('Upload failed:', result.error);
-        // Set error state using state machine
-        setPhotos(prevPhotos => 
-          prevPhotos.map(photo => {
-            if (!clientIds.includes(photo.clientId)) return photo;
-            try {
-              return photoStateMachine.transition({
-                ...photo,
-                error: result.error || 'Upload failed'
-              }, PhotoState.ERROR);
-            } catch (err) {
-              console.warn(`Failed to transition photo ${photo.clientId} to error state:`, err);
-              return photo;
-            }
-          })
-        );
+        // Update only the failed photos
+        setPhotos(prevPhotos => {
+          // Keep existing photos that weren't part of this upload
+          const existingPhotos = prevPhotos.filter(photo => !clientIds.includes(photo.clientId));
+          
+          // Update the failed photos
+          const failedPhotos = validPhotos.map(photo => 
+            photoStateMachine.transition({
+              ...photo,
+              error: result.error || 'Upload failed'
+            }, PhotoState.ERROR)
+          );
+          
+          return [...existingPhotos, ...failedPhotos];
+        });
         setError(result.error || 'Upload failed');
       }
 
