@@ -121,6 +121,14 @@ const analyzePhoto = async (imagePath) => {
     const content = response.choices[0].message.content;
     console.log(`[OPENAI] 3. STARTING ANALYSIS OF OPENAI RESPONSE at ${new Date().toISOString()} - elapsed: ${(Date.now() - startTime)/1000}s`);
     
+    // Add detailed response logging
+    console.log('[OPENAI] Raw API Response:', {
+      model: response.model,
+      usage: response.usage,
+      content: content,
+      timestamp: new Date().toISOString()
+    });
+    
     let analysisResult;
     
     try {
