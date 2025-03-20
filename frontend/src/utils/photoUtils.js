@@ -22,7 +22,7 @@ import { createAndTrackBlobUrl } from './blobUrlManager';
  */
 
 // ====================================================
-// PHOTO OBJECT CREATION AND TRANSFORMATION
+// PHOTO OBJECT TRANSFORMATION
 // ====================================================
 
 /**
@@ -42,24 +42,19 @@ export const createPhotoFromFile = (file, options = {}) => {
   
   // Create the base photo object
   const photoObject = {
-    // Use client ID from schema for consistency
     id: schemaPhoto.clientId || `client_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
     name: file.name || 'Unnamed photo',
     file,
     preview,
     uploadProgress: options.uploadProgress || 0,
-    // Preserve originalName and other properties from schema
     originalName: file.name,
     contentType: file.type,
   };
   
-  // Merge in schema properties
-  Object.assign(photoObject, schemaPhoto);
+  // Merge in schema properties and options
+  Object.assign(photoObject, schemaPhoto, options);
   
-  // Merge in options, but ensure status is properly set
-  Object.assign(photoObject, options);
-  
-  // Explicitly set status last to ensure it's not overridden
+  // Ensure status is properly set
   photoObject.status = options.status || 'pending';
   
   return photoObject;
@@ -74,15 +69,14 @@ export const createPhotoFromFile = (file, options = {}) => {
 export const updatePhotoWithServerData = (photo, serverData) => {
   if (!photo || !serverData) return photo;
   
-  // Only transform data, don't manage state
   return {
     ...photo,
     _id: serverData._id || serverData.id,
     url: serverData.url || serverData.path,
-    uploadProgress: photo.uploadProgress,  // Preserve existing progress
-    file: photo.file,                     // Preserve local data
-    preview: photo.preview,               // Preserve local data
-    status: photo.status                  // Let context manage status
+    uploadProgress: photo.uploadProgress,
+    file: photo.file,
+    preview: photo.preview,
+    status: photo.status
   };
 };
 
@@ -224,9 +218,7 @@ export const groupPhotosByStatus = (photos) => {
   
   return photos.reduce((acc, photo) => {
     const status = photo.status || 'pending';
-    if (!acc[status]) {
-      acc[status] = [];
-    }
+    if (!acc[status]) acc[status] = [];
     acc[status].push(photo);
     return acc;
   }, {
@@ -240,30 +232,25 @@ export const groupPhotosByStatus = (photos) => {
 };
 
 // ====================================================
-// URL GENERATION AND HANDLING
+// URL AND DATA HANDLING
 // ====================================================
 
 /**
  * Get the URL for displaying a photo
  * @param {PhotoObject|String} photoOrId - Photo object or ID string
- * @param {Object} [options] - Options for URL generation
- * @param {String} [options.size] - Size variant ('original', 'thumbnail', 'medium')
  * @returns {string} Best URL for the photo
  */
-export const getPhotoUrl = (photoOrId, options = {}) => {
+export const getPhotoUrl = (photoOrId) => {
   if (!photoOrId) return null;
   
-  // If it's a string, assume it's an ID
   if (typeof photoOrId === 'string') {
     return `/api/photos/${photoOrId}`;
   }
   
-  // If it's an object, use the _id
   if (photoOrId._id) {
     return `/api/photos/${photoOrId._id}`;
   }
   
-  // If it's a local file, use the preview
   if (photoOrId.preview) {
     return photoOrId.preview;
   }
@@ -271,19 +258,13 @@ export const getPhotoUrl = (photoOrId, options = {}) => {
   return null;
 };
 
-// ====================================================
-// FILE AND DATA URL UTILITIES
-// ====================================================
-
 /**
  * Convert a data URL to a Blob object
  * @param {String} dataUrl - The data URL to convert
  * @returns {Blob} - The resulting Blob
  */
 export const dataURLtoBlob = (dataUrl) => {
-  if (!dataUrl || !dataUrl.startsWith('data:')) {
-    return null;
-  }
+  if (!dataUrl || !dataUrl.startsWith('data:')) return null;
 
   const arr = dataUrl.split(',');
   const mime = arr[0].match(/:(.*?);/)[1];
@@ -385,9 +366,8 @@ export const getBestDataSource = (photo) => {
   return { type: 'none', data: null };
 };
 
-// Default export that combines function and object access
+// Default export
 const photoUtils = {
-  // Photo object management
   createPhotoFromFile,
   updatePhotoWithServerData,
   updatePhotoWithAnalysis,
@@ -395,21 +375,14 @@ const photoUtils = {
   preserveBatchPhotoData,
   getBestDataSource,
   groupPhotosByDataAvailability,
-  
-  // Filtering and grouping
   filterPhotosByStatus,
   extractPhotoIds,
   groupPhotosByStatus,
-  
-  // URL handling
   getPhotoUrl,
-  
-  // File utilities
   dataURLtoBlob,
   blobToDataURL,
   blobToFile,
   createDataUrlFromFile
 };
 
-// Export the utilities as a plain object
 export default photoUtils; 

@@ -18,8 +18,7 @@ const PhotoUploadAnalysisStep = () => {
     isAnalyzing, 
     error: photoError, 
     addPhotosFromFiles, 
-    uploadPhotosToServer, 
-    analyzePhotos,
+    handlePhotoUploadAndAnalysis,
     removePhoto,
     setError: setPhotoError
   } = usePhotoContext();
@@ -84,56 +83,8 @@ const PhotoUploadAnalysisStep = () => {
       return;
     }
     
-    try {
-      // Get photos that need to be uploaded (status is not 'uploaded' or 'analyzed')
-      const photosToUpload = photos.filter(photo => 
-        !['uploaded', 'analyzed'].includes(photo.status)
-      );
-      
-      if (photosToUpload.length === 0) {
-        console.log('No new photos to upload');
-        return;
-      }
-      
-      // Pass the entire photo objects to uploadPhotosToServer
-      // This ensures the service has access to both file and preview properties
-      const uploadResult = await uploadPhotosToServer(photosToUpload, report._id);
-      
-      // Safely check if we have a proper result
-      if (!uploadResult) {
-        setPhotoError("Upload failed - no response received");
-        return;
-      }
-      
-      if (uploadResult.success) {
-        const uploadedPhotos = uploadResult.data?.photos || [];
-        
-        // Update the photos in context with the uploaded ones
-        const updatedPhotos = photos.map(existingPhoto => {
-          // Find matching uploaded photo by clientId or file name
-          const uploadedPhoto = uploadedPhotos.find(up => 
-            up.clientId === existingPhoto.clientId || 
-            up.originalName === existingPhoto.file?.name
-          );
-          
-          return uploadedPhoto || existingPhoto;
-        });
-        
-        // Log the state update
-        console.log('Updated photos after upload:', updatedPhotos.map(p => ({
-          id: p._id || p.id,
-          status: p.status,
-          hasFile: !!p.file,
-          hasPreview: !!p.preview
-        })));
-      } else {
-        setPhotoError(uploadResult.error || "Failed to upload photos");
-      }
-    } catch (error) {
-      console.error("Error uploading photos:", error);
-      setPhotoError("Failed to upload photos. Please try again.");
-    }
-  }, [report._id, photos, uploadPhotosToServer, submitReport, user, setPhotoError]);
+    await handlePhotoUploadAndAnalysis(report._id);
+  }, [report._id, photos, handlePhotoUploadAndAnalysis, submitReport, user, setPhotoError]);
 
   // Analyze photos
   const handleAnalyzePhotos = useCallback(async () => {
@@ -147,19 +98,8 @@ const PhotoUploadAnalysisStep = () => {
       return;
     }
     
-    // Check for photos with valid server IDs
-    const photosWithValidIds = photos.filter(photo => {
-      const hasValidId = photo._id && typeof photo._id === 'string' && /^[0-9a-f]{24}$/i.test(photo._id);
-      return photo.status === 'uploaded' && hasValidId;
-    });
-    
-    if (photosWithValidIds.length === 0) {
-      setPhotoError("No photos with valid server IDs found. Please make sure photos are fully uploaded before analyzing.");
-      return;
-    }
-    
     try {
-      await analyzePhotos(report._id);
+      await handlePhotoUploadAndAnalysis(report._id);
       setAnalyzeComplete(true);
       
       // Auto-generate summary when analysis is complete
@@ -173,7 +113,7 @@ const PhotoUploadAnalysisStep = () => {
       console.error("Error analyzing photos:", error);
       setPhotoError("Failed to analyze photos. Please try again.");
     }
-  }, [report._id, photos, analyzePhotos, generateSummary, setPhotoError]);
+  }, [report._id, photos, handlePhotoUploadAndAnalysis, generateSummary, setPhotoError]);
 
   // Handle next step
   const handleNext = useCallback(() => {

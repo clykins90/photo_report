@@ -28,20 +28,104 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     return () => cleanupAllBlobUrls();
   }, []);
 
+  // Handle complete photo upload and analysis workflow
+  const handlePhotoUploadAndAnalysis = useCallback(async (reportId) => {
+    if (!reportId) {
+      setError('Report ID is required');
+      return { success: false, error: 'Report ID is required' };
+    }
+
+    try {
+      // Step 1: Check for photos that need to be uploaded
+      const pendingPhotos = photos.filter(photo => 
+        !['uploaded', 'analyzed'].includes(photo.status)
+      );
+      
+      console.log('Photos ready for processing:', photos.map(p => ({
+        id: p._id,
+        clientId: p.clientId,
+        status: p.status,
+        hasFile: !!p.file
+      })));
+
+      // Step 2: Upload any pending photos if they exist
+      if (pendingPhotos.length > 0) {
+        console.log(`Uploading ${pendingPhotos.length} pending photos`);
+        const uploadResult = await uploadPhotosToServer(pendingPhotos, reportId);
+        
+        if (!uploadResult.success) {
+          return uploadResult;
+        }
+      } else if (photos.length === 0) {
+        setError('No photos to process');
+        return { success: false, error: 'No photos to process' };
+      }
+      
+      // Step 3: Refresh photos list after upload to get latest state
+      const photosWithValidIds = photos.filter(photo => {
+        const hasValidId = photo._id && typeof photo._id === 'string' && /^[0-9a-f]{24}$/i.test(photo._id);
+        return photo.status === 'uploaded' && hasValidId;
+      });
+      
+      console.log(`Found ${photosWithValidIds.length} photos with valid IDs for analysis`);
+      
+      if (photosWithValidIds.length === 0) {
+        console.log('No valid photos for analysis, checking if upload was successful');
+        // If we've uploaded photos but don't have valid IDs, it's likely an error in state management
+        // Let's check if we have any photos to analyze despite this
+        const anyValidPhotos = photos.some(photo => photo._id);
+        
+        if (!anyValidPhotos) {
+          setError('No photos with valid server IDs found. Please try uploading again.');
+          return { 
+            success: false, 
+            error: 'No valid photo IDs for analysis' 
+          };
+        }
+      }
+      
+      // Step 4: Analyze the photos
+      console.log(`Analyzing photos for report ${reportId}`);
+      setIsAnalyzing(true);
+      const analyzeResult = await analyzePhotos(reportId);
+      setIsAnalyzing(false);
+      
+      return analyzeResult;
+    } catch (error) {
+      console.error('Error in handlePhotoUploadAndAnalysis:', error);
+      setError(error.message || 'Upload and analysis failed');
+      return { success: false, error: error.message };
+    } finally {
+      setIsUploading(false);
+      setIsAnalyzing(false);
+    }
+  }, [photos, uploadPhotosToServer, analyzePhotos, setError]);
+
   // Add photos from files (simplified)
   const addPhotosFromFiles = useCallback((files, reportId = null) => {
     if (!files?.length) return;
 
-    const newPhotos = Array.from(files).map(file => ({
-      clientId: `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-      file,
-      preview: URL.createObjectURL(file),
-      status: 'pending',
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      uploadProgress: 0
-    }));
+    const newPhotos = Array.from(files).map(file => {
+      // Generate a unique client ID for tracking
+      const clientId = `temp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      
+      return {
+        clientId,
+        file,
+        preview: URL.createObjectURL(file),
+        status: 'pending',
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        uploadProgress: 0
+      };
+    });
+    
+    console.log('Adding new photos:', newPhotos.map(p => ({ 
+      clientId: p.clientId, 
+      name: p.name, 
+      status: p.status 
+    })));
     
     setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
 
@@ -94,6 +178,11 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       if (result.success) {
         const { photos: uploadedPhotos, idMapping } = result.data;
         
+        // Log uploaded photos data for debugging
+        console.log('Server returned uploaded photos:', 
+          uploadedPhotos.map(p => ({id: p._id, status: 'uploaded'}))
+        );
+        
         // Single state update after successful upload
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => {
@@ -140,7 +229,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   const analyzePhotos = useCallback(async (reportId) => {
     if (!reportId) {
       setError('Report ID is required');
-      return;
+      return { success: false, error: 'Report ID is required' };
     }
 
     try {
@@ -153,12 +242,57 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         photo._id?.match(/^[0-9a-f]{24}$/i)
       );
 
+      console.log('Photos available for analysis:', 
+        photos.map(p => ({
+          id: p._id, 
+          clientId: p.clientId,
+          status: p.status, 
+          isValid: p._id?.match(/^[0-9a-f]{24}$/i) ? true : false
+        }))
+      );
+
       if (!photosToAnalyze.length) {
+        console.warn('No uploaded photos found with valid IDs for analysis');
+        // Check if we have any photos with IDs that we can try to analyze anyway
+        const anyPhotosWithIds = photos.filter(p => p._id);
+        
+        if (anyPhotosWithIds.length > 0) {
+          console.log(`Attempting to analyze ${anyPhotosWithIds.length} photos with IDs despite status concerns`);
+          // Try to analyze them anyway
+          const photoIds = anyPhotosWithIds.map(p => p._id);
+          
+          // Set analyzing state for these photos
+          setPhotos(prevPhotos => 
+            prevPhotos.map(photo => 
+              photoIds.includes(photo._id)
+                ? { ...photo, status: 'analyzing' }
+                : photo
+            )
+          );
+          
+          const result = await analyzePhotosService(reportId, photoIds);
+          
+          if (result.success && result.data?.photos) {
+            setPhotos(prevPhotos => 
+              prevPhotos.map(photo => {
+                const analyzedPhoto = result.data.photos.find(ap => ap._id === photo._id);
+                return analyzedPhoto ? {
+                  ...photo,
+                  ...analyzedPhoto,
+                  status: 'analyzed'
+                } : photo;
+              })
+            );
+            return result;
+          }
+        }
+        
         setError('No uploaded photos to analyze');
-        return;
+        return { success: false, error: 'No uploaded photos to analyze' };
       }
 
       const photoIds = photosToAnalyze.map(p => p._id);
+      console.log(`Sending ${photoIds.length} photo IDs for analysis:`, photoIds);
 
       // Set analyzing state
       setPhotos(prevPhotos => 
@@ -170,6 +304,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       );
 
       const result = await analyzePhotosService(reportId, photoIds);
+      console.log('Analysis service result:', result);
 
       if (result.success && result.data?.photos) {
         setPhotos(prevPhotos => 
@@ -192,8 +327,12 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           )
         );
       }
+      
+      return result;
     } catch (err) {
+      console.error('Photo analysis error:', err);
       setError(err.message || 'Analysis failed');
+      return { success: false, error: err.message };
     } finally {
       setIsAnalyzing(false);
     }
@@ -244,6 +383,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     removePhoto,
     clearPhotos,
     setError,
+    handlePhotoUploadAndAnalysis,
     getPhotoUrl: (photoOrId, options = {}) => getPhotoUrl(photoOrId, options),
   };
   
