@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useCallback, useEffect } from 'react';
+import React, { createContext, useState, useContext, useCallback, useEffect, useRef } from 'react';
 import { uploadPhotos, analyzePhotos as analyzePhotosService } from '../services/photoService';
 import { safelyRevokeBlobUrl, cleanupAllBlobUrls } from '../utils/blobUrlManager';
 import { getPhotoUrl } from '../utils/photoUtils';
@@ -19,6 +19,13 @@ export const usePhotoContext = () => {
 export const PhotoProvider = ({ children, initialPhotos = [] }) => {
   const [photos, setPhotos] = useState(() => initialPhotos || []);
   const [status, setStatus] = useState({ type: null, progress: 0, error: null });
+  // Use a ref to keep track of the latest photos for logging purposes
+  const photosRef = useRef(photos);
+  
+  // Update the ref when photos change
+  useEffect(() => {
+    photosRef.current = photos;
+  }, [photos]);
 
   // Clean up blob URLs when component unmounts
   useEffect(() => {
@@ -69,54 +76,51 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         if (result.success) {
           // Debug the server response
           console.log('Server response photos:', result.data.photos);
-          console.log('Server photos with status:', result.data.photos.map(p => ({ 
-            id: p._id, 
-            clientId: p.clientId,
-            status: p.status 
-          })));
           
           // Process the response using direct object mapping
-          setPhotos(prev => {
-            const updatedPhotos = prev.map(photo => {
-              // First try matching by clientId (most reliable)
-              const uploaded = result.data.photos.find(up => 
-                // Try all possible ways to match the photos
-                up.clientId === photo.clientId || 
-                up.originalClientId === photo.clientId ||
-                photo.originalClientId === up.clientId ||
-                (up.originalName === photo.originalName && photo.status === 'pending')
-              );
+          const updatedPhotos = await new Promise(resolve => {
+            setPhotos(prev => {
+              const updated = prev.map(photo => {
+                // First try matching by clientId (most reliable)
+                const uploaded = result.data.photos.find(up => 
+                  // Try all possible ways to match the photos
+                  up.clientId === photo.clientId || 
+                  up.originalClientId === photo.clientId ||
+                  photo.originalClientId === up.clientId ||
+                  (up.originalName === photo.originalName && photo.status === 'pending')
+                );
+                
+                if (uploaded) {
+                  // Create a merged photo with explicit status enforcement
+                  return {
+                    ...photo,                         // Base is client photo
+                    _id: uploaded._id,                // Server ID
+                    path: uploaded.path,              // Server path
+                    status: 'uploaded',               // FORCE status to uploaded
+                    uploadProgress: 100,              // Complete progress
+                    uploadDate: uploaded.uploadDate,  // Server timestamp
+                    aiAnalysis: uploaded.aiAnalysis,  // Analysis if present
+                    preview: photo.preview,           // Preserve preview
+                    file: photo.file                  // Preserve file
+                  };
+                }
+                return photo;
+              });
               
-              if (uploaded) {
-                // Create a merged photo with explicit status enforcement
-                return {
-                  ...photo,                         // Base is client photo
-                  _id: uploaded._id,                // Server ID
-                  path: uploaded.path,              // Server path
-                  status: 'uploaded',               // FORCE status to uploaded
-                  uploadProgress: 100,              // Complete progress
-                  uploadDate: uploaded.uploadDate,  // Server timestamp
-                  aiAnalysis: uploaded.aiAnalysis,  // Analysis if present
-                  preview: photo.preview,           // Preserve preview
-                  file: photo.file                  // Preserve file
-                };
-              }
-              return photo;
+              // Resolve with the new state for logging
+              setTimeout(() => resolve(updated), 0);
+              return updated;
             });
-            
-            return updatedPhotos;
           });
           
-          // Double-check the state update worked by logging after a short delay
-          setTimeout(() => {
-            console.log('Updated photos status check:', 
-              photos.map(p => ({ 
-                id: p._id, 
-                clientId: p.clientId, 
-                status: p.status 
-              }))
-            );
-          }, 500);
+          // Log the actually updated photos
+          console.log('Photos after update:', 
+            updatedPhotos.map(p => ({ 
+              id: p._id, 
+              clientId: p.clientId, 
+              status: p.status 
+            }))
+          );
           
           setStatus({ type: null });
           return true;
