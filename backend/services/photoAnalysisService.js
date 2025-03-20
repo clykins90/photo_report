@@ -77,7 +77,7 @@ const analyzePhoto = async (imagePath) => {
     const apiCallStartTime = Date.now();
     
     // Log the request details (without the actual image data)
-    console.log(`[OPENAI] Request details: model=gpt-4o-mini, max_tokens=1000, response_format=json_object`);
+    console.log(`[OPENAI] Request details: model=gpt-4o-mini, max_tokens=1000, response_format=json_object, store=true`);
     
     // Create the request payload
     const requestPayload = {
@@ -101,7 +101,8 @@ const analyzePhoto = async (imagePath) => {
         }
       ],
       max_tokens: 1000,
-      response_format: { type: "json_object" }
+      response_format: { type: "json_object" },
+      store: true
     };
     
     // Make the API call
@@ -340,7 +341,7 @@ const analyzePhotos = async (photos, reportId) => {
         const apiCallStartTime = Date.now();
         
         // Log the request details (without the actual image data)
-        console.log(`[OPENAI] Request details: model=gpt-4o-mini, max_tokens=2000, response_format=json_object, images=${validImages.length}`);
+        console.log(`[OPENAI] Request details: model=gpt-4o-mini, max_tokens=2000, response_format=json_object, images=${validImages.length}, store=true`);
         
         // Create content array with all images
         const content = [
@@ -382,7 +383,8 @@ const analyzePhotos = async (photos, reportId) => {
             }
           ],
           max_tokens: 2000,
-          response_format: { type: "json_object" }
+          response_format: { type: "json_object" },
+          store: true
         };
         
         // Make the API call
