@@ -29,28 +29,6 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     return () => cleanupAllBlobUrls();
   }, []);
 
-  // Add photos from files (simplified)
-  const addPhotosFromFiles = useCallback((files, reportId = null) => {
-    if (!files?.length) return;
-
-    const newPhotos = Array.from(files).map(file => createNewPhoto(file));
-    
-    console.log('Adding new photos:', newPhotos.map(p => ({ 
-      clientId: p.clientId, 
-      name: p.name, 
-      status: p.status 
-    })));
-    
-    // If we have a reportId, upload immediately without updating state
-    if (reportId) {
-      return uploadPhotosToServer(newPhotos, reportId);
-    }
-    
-    // Otherwise, just add to state
-    setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
-    return newPhotos;
-  }, [uploadPhotosToServer]);
-
   // Upload photos to server
   const uploadPhotosToServer = useCallback(async (photosToUpload, reportId) => {
     if (!reportId || !photosToUpload?.length) {
@@ -205,6 +183,28 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       setUploadProgress(0);
     }
   }, []);
+
+  // Add photos from files (simplified)
+  const addPhotosFromFiles = useCallback((files, reportId = null) => {
+    if (!files?.length) return;
+
+    const newPhotos = Array.from(files).map(file => createNewPhoto(file));
+    
+    console.log('Adding new photos:', newPhotos.map(p => ({ 
+      clientId: p.clientId, 
+      name: p.name, 
+      status: p.status 
+    })));
+    
+    // If we have a reportId, upload immediately without updating state
+    if (reportId) {
+      return uploadPhotosToServer(newPhotos, reportId);
+    }
+    
+    // Otherwise, just add to state
+    setPhotos(prevPhotos => [...prevPhotos, ...newPhotos]);
+    return newPhotos;
+  }, [uploadPhotosToServer]);
 
   // Analyze photos
   const analyzePhotos = useCallback(async (reportId) => {
