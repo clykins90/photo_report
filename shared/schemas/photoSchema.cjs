@@ -98,13 +98,13 @@ const PhotoSchema = {
       path: rawData.path || '',
       section: rawData.section || 'Uncategorized',
       userDescription: rawData.userDescription || '',
-      aiAnalysis: rawData.aiAnalysis ? { 
-        tags: rawData.aiAnalysis.tags || [], 
-        severity: rawData.aiAnalysis.severity || 'unknown',
-        description: rawData.aiAnalysis.description || '',
-        confidence: rawData.aiAnalysis.confidence || 0,
-        damageDetected: rawData.aiAnalysis.damageDetected || false
-      } : { tags: [], severity: 'unknown' }
+      aiAnalysis: (rawData.analysis || rawData.aiAnalysis) ? { 
+        tags: (rawData.analysis?.tags || rawData.aiAnalysis?.tags || []), 
+        severity: (rawData.analysis?.severity || rawData.aiAnalysis?.severity || 'unknown'),
+        description: (rawData.analysis?.description || rawData.aiAnalysis?.description || ''),
+        confidence: (rawData.analysis?.confidence || rawData.aiAnalysis?.confidence || 0),
+        damageDetected: (rawData.analysis?.damageDetected || rawData.aiAnalysis?.damageDetected || false)
+      } : { tags: [], severity: 'unknown', description: '', confidence: 0, damageDetected: false }
     };
     
     // Add other fields if they exist

@@ -92,6 +92,15 @@ const PhotoUploadAnalysisStep = () => {
       return;
     }
     
+    const uploadResult = await uploadPhotosToServer(photosToUpload, report._id);
+    
+    // If upload was successful, automatically trigger analysis
+    if (uploadResult.success) {
+      // Wait a short moment to ensure the server has processed the upload
+      setTimeout(() => {
+        handleAnalyzePhotos();
+      }, 1000);
+    }
     await uploadPhotosToServer(photosToUpload, report._id);
   }, [report._id, photos, uploadPhotosToServer, submitReport, user, setPhotoError, canUploadPhoto]);
 
