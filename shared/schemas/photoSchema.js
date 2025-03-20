@@ -89,11 +89,22 @@ const PhotoSchema = {
       path = `/api${path}`;
     }
     
+    // Determine the correct status based on photo data
+    let status = apiPhoto.status;
+    if (!status) {
+      // If no status provided but has _id, it's at least uploaded
+      status = apiPhoto._id ? 'uploaded' : 'pending';
+      // If it has analysis data, it should be analyzed
+      if (apiPhoto.analysis) {
+        status = 'analyzed';
+      }
+    }
+    
     return {
       _id: apiPhoto._id,
       originalName: apiPhoto.originalName,
       contentType: apiPhoto.contentType,
-      status: apiPhoto.status || 'uploaded',
+      status: status,
       path,
       uploadDate: apiPhoto.uploadDate ? new Date(apiPhoto.uploadDate) : new Date(),
       size: apiPhoto.size,

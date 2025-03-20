@@ -85,15 +85,20 @@ const PhotoUploadAnalysisStep = () => {
         path: photo.path
       }));
       
-      await analyzePhotos(report._id, photosToAnalyze);
-      setAnalyzeComplete(true);
+      const analysisResult = await analyzePhotos(report._id, photosToAnalyze);
       
-      // Auto-generate summary when analysis is complete
-      try {
-        await generateSummary();
-      } catch (error) {
-        console.error("Error generating summary:", error);
-        // Don't block the flow if summary generation fails
+      if (analysisResult.success) {
+        setAnalyzeComplete(true);
+        
+        // Auto-generate summary when analysis is complete
+        try {
+          await generateSummary();
+        } catch (error) {
+          console.error("Error generating summary:", error);
+          // Don't block the flow if summary generation fails
+        }
+      } else {
+        setPhotoError(analysisResult.error || "Failed to analyze photos. Please try again.");
       }
     } catch (error) {
       console.error("Error analyzing photos:", error);
@@ -136,8 +141,21 @@ const PhotoUploadAnalysisStep = () => {
     // If upload was successful, automatically trigger analysis
     if (uploadResult.success) {
       // Wait a short moment to ensure the server has processed the upload
-      setTimeout(() => {
-        handleAnalyzePhotos();
+      setTimeout(async () => {
+        console.log('Checking photos before auto-analysis:', photos.map(p => ({
+          id: p._id || p.clientId,
+          status: p.status,
+          canAnalyze: canAnalyzePhoto(p)
+        })));
+        
+        // Check if there are photos that can be analyzed
+        const analyzablePhotos = photos.filter(photo => canAnalyzePhoto(photo));
+        
+        if (analyzablePhotos.length === 0) {
+          console.log('No photos can be analyzed after upload. This may indicate a state transition issue.');
+        } else {
+          await handleAnalyzePhotos();
+        }
       }, 1000);
     }
   }, [report._id, photos, uploadPhotosToServer, submitReport, user, setPhotoError, canUploadPhoto, handleAnalyzePhotos]);

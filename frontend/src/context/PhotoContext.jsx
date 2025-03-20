@@ -69,11 +69,14 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         return { success: false, error };
       }
 
-      // Update state to uploading
+      // Update state to uploading while preserving blob URLs
       setPhotos(prevPhotos => 
         prevPhotos.map(photo => 
           clientIds.includes(photo.clientId)
-            ? photoStateMachine.transition(photo, PhotoState.UPLOADING)
+            ? {
+                ...photoStateMachine.transition(photo, PhotoState.UPLOADING),
+                preview: photo.preview // Preserve the preview URL
+              }
             : photo
         )
       );
@@ -83,7 +86,11 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => 
             clientIds.includes(photo.clientId)
-              ? { ...photo, uploadProgress: progress }
+              ? { 
+                  ...photo, 
+                  uploadProgress: progress,
+                  preview: photo.preview // Preserve the preview URL
+                }
               : photo
           )
         );
@@ -92,7 +99,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       if (result.success) {
         const { photos: uploadedPhotos, idMapping } = result.data;
         
-        // Update photos with server data
+        // Update photos with server data while preserving blob URLs
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => {
             if (!clientIds.includes(photo.clientId)) return photo;
@@ -102,7 +109,8 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
               console.warn(`No server ID found for photo ${photo.clientId}`);
               return photoStateMachine.transition({
                 ...photo,
-                error: 'No server ID returned'
+                error: 'No server ID returned',
+                preview: photo.preview // Preserve the preview URL
               }, PhotoState.ERROR);
             }
 
@@ -111,24 +119,29 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
               console.warn(`No server data found for photo ${photo.clientId}`);
               return photoStateMachine.transition({
                 ...photo,
-                error: 'No server data returned'
+                error: 'No server data returned',
+                preview: photo.preview // Preserve the preview URL
               }, PhotoState.ERROR);
             }
 
             try {
-              return photoStateMachine.transition({
-                ...photo,
-                _id: serverId,
-                path: serverPhoto.path,
-                contentType: serverPhoto.contentType,
-                size: serverPhoto.size,
-                originalClientId: photo.clientId // Store original client ID for reference
-              }, PhotoState.UPLOADED);
+              return {
+                ...photoStateMachine.transition({
+                  ...photo,
+                  _id: serverId,
+                  path: serverPhoto.path,
+                  contentType: serverPhoto.contentType,
+                  size: serverPhoto.size,
+                  originalClientId: photo.clientId // Store original client ID for reference
+                }, PhotoState.UPLOADED),
+                preview: photo.preview // Preserve the preview URL
+              };
             } catch (err) {
               console.warn(`Failed to transition photo ${photo.clientId} to uploaded state:`, err);
               return photoStateMachine.transition({
                 ...photo,
-                error: err.message
+                error: err.message,
+                preview: photo.preview // Preserve the preview URL
               }, PhotoState.ERROR);
             }
           })
@@ -140,10 +153,13 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         setPhotos(prevPhotos => 
           prevPhotos.map(photo => 
             clientIds.includes(photo.clientId)
-              ? photoStateMachine.transition({
-                  ...photo,
-                  error: result.error || 'Upload failed'
-                }, PhotoState.ERROR)
+              ? {
+                  ...photoStateMachine.transition({
+                    ...photo,
+                    error: result.error || 'Upload failed'
+                  }, PhotoState.ERROR),
+                  preview: photo.preview // Preserve the preview URL
+                }
               : photo
           )
         );
