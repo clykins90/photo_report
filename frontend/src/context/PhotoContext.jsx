@@ -113,6 +113,15 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
               }
             });
             
+            // Add additional debug information
+            console.log('Server photo map keys:', Object.keys(serverPhotoMap));
+            console.log('Server photos details:', result.data.photos.map(sp => ({
+              id: sp._id,
+              clientId: sp.clientId,
+              originalName: sp.originalName,
+              status: sp.status || 'unknown'
+            })));
+            
             // Update client photos with server data
             const updated = prev.map(photo => {
               // Try to find the matching server photo
@@ -133,8 +142,28 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
                   file: photo.file                      // Preserve file
                 };
               } else if (photo.status === 'pending') {
-                // If no server match found but we were trying to upload this photo,
-                // Try a fallback match by original filename
+                // Try matching by ID map from server response
+                if (result.data.idMapping && result.data.idMapping[photo.clientId]) {
+                  const mappedId = result.data.idMapping[photo.clientId];
+                  const mappedPhoto = result.data.photos.find(sp => sp._id === mappedId);
+                  
+                  if (mappedPhoto) {
+                    console.log(`Found match through ID mapping: Client ID ${photo.clientId} -> Server ID ${mappedPhoto._id}`);
+                    return {
+                      ...photo,
+                      _id: mappedPhoto._id,
+                      path: mappedPhoto.path,
+                      status: 'uploaded',
+                      uploadProgress: 100,
+                      uploadDate: mappedPhoto.uploadDate,
+                      aiAnalysis: mappedPhoto.aiAnalysis,
+                      preview: photo.preview,
+                      file: photo.file
+                    };
+                  }
+                }
+                
+                // If still no match, try a fallback match by original filename
                 const fallbackMatch = result.data.photos.find(sp => 
                   sp.originalName === photo.originalName
                 );

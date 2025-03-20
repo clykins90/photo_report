@@ -113,10 +113,15 @@ const PhotoSchema = {
     if (rawData.size) cleanPhoto.size = rawData.size;
     if (rawData.uploadDate) cleanPhoto.uploadDate = rawData.uploadDate;
     if (rawData.status) cleanPhoto.status = rawData.status;
+    if (rawData.clientId) cleanPhoto.clientId = rawData.clientId;
+    if (rawData.originalName) cleanPhoto.originalName = rawData.originalName;
     
     // If there's metadata, extract only what's needed
     if (rawData.metadata && typeof rawData.metadata === 'object') {
       cleanPhoto.reportId = rawData.metadata.reportId;
+      if (!cleanPhoto.clientId && rawData.metadata.clientId) {
+        cleanPhoto.clientId = rawData.metadata.clientId;
+      }
     }
     
     return cleanPhoto;
