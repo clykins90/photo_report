@@ -13,7 +13,8 @@ const PhotoUploadAnalysisStep = () => {
     add: addPhotos,
     upload: uploadPhotos,
     analyze: analyzePhotos,
-    remove: removePhoto
+    remove: removePhoto,
+    forceUpdateStatus
   } = usePhotoContext();
 
   const {
@@ -51,6 +52,17 @@ const PhotoUploadAnalysisStep = () => {
       setSelectedPhoto(null);
     }
   }, [removePhoto, selectedPhoto]);
+
+  // Debug handler to force update pending photos
+  const handleForceStatus = useCallback(() => {
+    // For each uploaded photo with pending status, force it to "uploaded"
+    photos.forEach(photo => {
+      if (photo._id && photo.status === 'pending') {
+        console.log('Forcing status update for photo:', photo.clientId || photo._id);
+        forceUpdateStatus(photo._id || photo.clientId, 'uploaded');
+      }
+    });
+  }, [photos, forceUpdateStatus]);
 
   // Render helpers
   const renderStatus = () => {
@@ -92,6 +104,8 @@ const PhotoUploadAnalysisStep = () => {
   const canUpload = photos.some(p => p.status === 'pending');
   const canAnalyze = photos.some(p => p.status === 'uploaded');
   const isComplete = photos.every(p => p.status === 'analyzed');
+  // Check if any photos are stuck in pending despite having server IDs
+  const hasStuckPhotos = photos.some(p => p._id && p.status === 'pending');
 
   return (
     <div className="space-y-6">
@@ -128,6 +142,16 @@ const PhotoUploadAnalysisStep = () => {
               >
                 {isComplete ? "Analysis Complete" : "Analyze Photos"}
               </Button>
+              
+              {hasStuckPhotos && (
+                <Button 
+                  variant="outline" 
+                  className="border-orange-400 text-orange-600 hover:bg-orange-50"
+                  onClick={handleForceStatus}
+                >
+                  Fix Status
+                </Button>
+              )}
             </div>
           </>
         )}

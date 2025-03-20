@@ -60,7 +60,18 @@ const PhotoSchema = {
     },
 
     canAnalyze(photo) {
-      return photo?.status === 'uploaded' && !!photo._id;
+      // A photo can be analyzed if:
+      // 1. It has a status of 'uploaded' AND has an _id (preferred path)
+      if (photo?.status === 'uploaded' && !!photo._id) {
+        return true;
+      }
+      
+      // 2. It has an _id but no analysis yet (fallback)
+      if (!!photo?._id && !photo.aiAnalysis && photo.status !== 'analyzed' && photo.status !== 'pending') {
+        return true;
+      }
+      
+      return false;
     },
 
     validatePhoto(photo) {

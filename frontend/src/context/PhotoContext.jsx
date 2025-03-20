@@ -34,6 +34,17 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       return newPhotos;
     }, []),
 
+    // Function to force update photo status (for debugging/recovery)
+    forceUpdateStatus: useCallback((photoId, newStatus) => {
+      setPhotos(prev => prev.map(photo => {
+        // Match by _id or clientId
+        if ((photoId === photo._id) || (photoId === photo.clientId)) {
+          return { ...photo, status: newStatus };
+        }
+        return photo;
+      }));
+    }, []),
+
     upload: useCallback(async (reportId) => {
       if (!reportId) {
         setStatus({ type: 'error', error: 'No report ID provided' });
@@ -56,19 +67,56 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         );
 
         if (result.success) {
-          // Process the response using the improved deserializeFromApi
-          setPhotos(prev => prev.map(photo => {
-            // Find this photo in the server response
-            const uploaded = result.data.photos.find(
-              up => up.clientId === photo.clientId
-            );
+          // Debug the server response
+          console.log('Server response photos:', result.data.photos);
+          console.log('Server photos with status:', result.data.photos.map(p => ({ 
+            id: p._id, 
+            clientId: p.clientId,
+            status: p.status 
+          })));
+          
+          // Process the response using direct object mapping
+          setPhotos(prev => {
+            const updatedPhotos = prev.map(photo => {
+              // First try matching by clientId (most reliable)
+              const uploaded = result.data.photos.find(up => 
+                // Try all possible ways to match the photos
+                up.clientId === photo.clientId || 
+                up.originalClientId === photo.clientId ||
+                photo.originalClientId === up.clientId ||
+                (up.originalName === photo.originalName && photo.status === 'pending')
+              );
+              
+              if (uploaded) {
+                // Create a merged photo with explicit status enforcement
+                return {
+                  ...photo,                         // Base is client photo
+                  _id: uploaded._id,                // Server ID
+                  path: uploaded.path,              // Server path
+                  status: 'uploaded',               // FORCE status to uploaded
+                  uploadProgress: 100,              // Complete progress
+                  uploadDate: uploaded.uploadDate,  // Server timestamp
+                  aiAnalysis: uploaded.aiAnalysis,  // Analysis if present
+                  preview: photo.preview,           // Preserve preview
+                  file: photo.file                  // Preserve file
+                };
+              }
+              return photo;
+            });
             
-            if (uploaded) {
-              // Use the improved function that preserves client data
-              return PhotoSchema.deserializeFromApi(uploaded, photo);
-            }
-            return photo;
-          }));
+            return updatedPhotos;
+          });
+          
+          // Double-check the state update worked by logging after a short delay
+          setTimeout(() => {
+            console.log('Updated photos status check:', 
+              photos.map(p => ({ 
+                id: p._id, 
+                clientId: p.clientId, 
+                status: p.status 
+              }))
+            );
+          }, 500);
           
           setStatus({ type: null });
           return true;
