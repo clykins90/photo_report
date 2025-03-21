@@ -55,32 +55,15 @@ When analyzing multiple photos, provide your response as a JSON object with an "
  * @returns {Promise<Object>} Analysis results
  */
 const analyzePhoto = async (imagePath) => {
-  // Start timing the function execution
-  const startTime = Date.now();
   try {
-    logger.info(`[TIMING] Starting photo analysis for ${imagePath} at: ${new Date().toISOString()}`);
+    logger.info(`Starting photo analysis for ${imagePath}`);
     
     // Read image as base64
-    logger.info(`[TIMING] Reading image file - elapsed: ${(Date.now() - startTime)/1000}s`);
     const imageBuffer = await fsPromises.readFile(imagePath);
     const base64Image = imageBuffer.toString('base64');
-    const imageSizeKB = Math.round(base64Image.length/1024);
-    logger.info(`[TIMING] Image converted to base64 (${imageSizeKB} KB) - elapsed: ${(Date.now() - startTime)/1000}s`);
-    
-    // Log image size in more detail
-    console.log(`[OPENAI] Image size: ${imageSizeKB} KB (${Math.round(imageSizeKB/1024 * 100) / 100} MB)`);
     
     // Call OpenAI Vision API
-    console.log(`[OPENAI] 1. SENDING REQUEST TO OPENAI at ${new Date().toISOString()} - elapsed: ${(Date.now() - startTime)/1000}s`);
-    logger.info(`[TIMING] Starting OpenAI API call - elapsed: ${(Date.now() - startTime)/1000}s`);
-    
-    const apiCallStartTime = Date.now();
-    
-    // Log the request details (without the actual image data)
-    console.log(`[OPENAI] Request details: model=gpt-4o-mini, max_tokens=1000, temperature=0.7, response_format=json_object`);
-    
-    // Create the request payload
-    const requestPayload = {
+    const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
@@ -102,121 +85,140 @@ const analyzePhoto = async (imagePath) => {
       ],
       max_tokens: 1000,
       temperature: 0.7,
-      response_format: { type: "json_object" },
-      store: true
-    };
+      response_format: { type: "json_object" }
+    });
+
+    // Parse the response
+    const content = response.choices[0].message.content;
     
     try {
-      // Make the API call
-      console.log(`[OPENAI] Sending request to OpenAI API with payload:`, {
-        model: requestPayload.model,
-        max_tokens: requestPayload.max_tokens,
-        messageCount: requestPayload.messages.length,
-        systemPromptLength: requestPayload.messages[0].content.length,
-        imageSize: imageSizeKB
-      });
+      // Properly parse the JSON response
+      const parsedResponse = JSON.parse(content);
       
-      const response = await openai.chat.completions.create(requestPayload);
+      // Extract the analysis - look for either direct object or first item in analyses array
+      const analysisResult = parsedResponse.analyses?.[0] || parsedResponse;
       
-      // Log when we received the response
-      const apiCallDuration = (Date.now() - apiCallStartTime)/1000;
-      console.log(`[OPENAI] 2. RECEIVED RESPONSE FROM OPENAI at ${new Date().toISOString()} - took ${apiCallDuration}s`);
-      logger.info(`[TIMING] OpenAI API call completed in ${apiCallDuration}s - total elapsed: ${(Date.now() - startTime)/1000}s`);
+      logger.info(`Successfully analyzed photo ${imagePath}`);
       
-      // Log complete response for debugging
-      console.log('[OPENAI] Complete API Response:', {
-        model: response.model,
-        usage: response.usage,
-        choices: response.choices?.map(c => ({
-          role: c.message?.role,
-          contentLength: c.message?.content?.length,
-          content: c.message?.content,
-          finishReason: c.finish_reason
-        })),
-        timestamp: new Date().toISOString()
-      });
-
-      if (!response.choices?.[0]?.message?.content) {
-        throw new Error('Empty or invalid response from OpenAI API');
-      }
-
-      // Parse the response
-      const content = response.choices[0].message.content;
-      console.log(`[OPENAI] Raw response content: ${content}`);
-
-      let analysisResult;
-      
-      try {
-        // Extract JSON from the response
-        logger.info(`[TIMING] Parsing API response - elapsed: ${(Date.now() - startTime)/1000}s`);
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsedResponse = JSON.parse(jsonMatch[0]);
-          // Check if response contains analyses array and use the first analysis
-          analysisResult = parsedResponse.analyses?.[0] || parsedResponse;
-          console.log(`[OPENAI] Successfully parsed JSON response`);
-        } else {
-          throw new Error("No JSON found in response");
-        }
-      } catch (parseError) {
-        logger.error(`Error parsing AI response: ${parseError.message}`);
-        console.log(`[OPENAI] Failed to parse JSON response: ${parseError.message}`);
-        // Fallback to a simpler structure if JSON parsing fails
-        analysisResult = {
-          description: content,
-          tags: [],
-          damageDetected: false,
-          severity: "unknown",
-          confidence: 0
-        };
-      }
-      
-      console.log(`[OPENAI] 3. COMPLETED ANALYSIS OF OPENAI RESPONSE at ${new Date().toISOString()} - elapsed: ${(Date.now() - startTime)/1000}s`);
-      
-      const totalTime = (Date.now() - startTime)/1000;
-      logger.info(`[TIMING] Analysis complete for ${imagePath} - total time: ${totalTime}s (API call: ${apiCallDuration}s)`);
-      
-      // Add timing information to the result
-      analysisResult.processingTime = {
-        total: totalTime,
-        apiCall: apiCallDuration,
-        imageSize: imageSizeKB
+      // Return the analysis result
+      return { 
+        success: true,
+        data: analysisResult 
       };
-      
-      // Log a summary of the timing
-      console.log(`[OPENAI] SUMMARY: Total=${totalTime}s, API Call=${apiCallDuration}s, Image Size=${imageSizeKB}KB`);
-      
-      // Make sure we log the actual analysis content for debugging
-      logger.info(`Analysis result for ${imagePath}:`, {
-        hasDescription: !!analysisResult.description,
-        descriptionLength: analysisResult.description ? analysisResult.description.length : 0,
-        tags: analysisResult.tags || [],
-        damageDetected: !!analysisResult.damageDetected
-      });
-      
-      // Return a structure consistent with analyzePhotos results to avoid inconsistencies
-      return { data: analysisResult };
-    } catch (apiError) {
-      logger.error(`OpenAI API Error: ${apiError.message}`);
-      if (apiError.response) {
-        console.log(`[OPENAI] Error status: ${apiError.response.status}`);
-        console.log(`[OPENAI] Error data:`, apiError.response.data);
-      }
-      
-      throw apiError;
+    } catch (parseError) {
+      logger.error(`Error parsing AI response: ${parseError.message}`);
+      throw new Error(`Failed to parse AI response: ${parseError.message}`);
     }
   } catch (error) {
-    const errorTime = (Date.now() - startTime)/1000;
     logger.error(`Error analyzing photo: ${error.message}`);
-    logger.error(`[TIMING] Error occurred at elapsed time: ${errorTime}s`);
-    console.log(`[OPENAI] ERROR during OpenAI processing at ${new Date().toISOString()}: ${error.message}`);
+    throw error;
+  }
+};
+
+/**
+ * Analyze multiple photos in one batch request
+ * @param {Array<string>} imagePaths - Array of paths to image files
+ * @returns {Promise<Array<Object>>} - Array of analysis results
+ */
+const analyzeBatchPhotos = async (imagePaths) => {
+  try {
+    logger.info(`Starting batch analysis for ${imagePaths.length} photos`);
     
-    // Log more details about the error if available
-    if (error.response) {
-      console.log(`[OPENAI] Error status: ${error.response.status}`);
-      console.log(`[OPENAI] Error data:`, error.response.data);
+    // Read all images as base64
+    const imagePromises = imagePaths.map(async (path) => {
+      const imageBuffer = await fsPromises.readFile(path);
+      return {
+        path,
+        base64: imageBuffer.toString('base64')
+      };
+    });
+    
+    const images = await Promise.all(imagePromises);
+    
+    // Create content array with all images
+    const content = [
+      { 
+        type: "text", 
+        text: `Analyze these ${images.length} photos for a property inspection report. Provide a separate analysis for each photo.` 
+      }
+    ];
+    
+    // Add each image to the content array
+    images.forEach((img, index) => {
+      content.push({
+        type: "image_url",
+        image_url: {
+          url: `data:image/jpeg;base64,${img.base64}`
+        }
+      });
+      
+      // Add a separator text between images
+      if (index < images.length - 1) {
+        content.push({
+          type: "text",
+          text: `This was photo #${index + 1}. Now analyzing photo #${index + 2}:`
+        });
+      }
+    });
+    
+    // Call OpenAI Vision API with all images
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: SYSTEM_PROMPT
+        },
+        {
+          role: "user",
+          content: content
+        }
+      ],
+      max_tokens: 2000,
+      temperature: 0.7,
+      response_format: { type: "json_object" }
+    });
+    
+    // Parse the response
+    const responseContent = response.choices[0].message.content;
+    
+    try {
+      // Parse the JSON response
+      const parsedResponse = JSON.parse(responseContent);
+      
+      // Extract analyses array or create array from single result
+      let analyses = [];
+      if (parsedResponse.analyses && Array.isArray(parsedResponse.analyses)) {
+        analyses = parsedResponse.analyses;
+      } else if (parsedResponse.results && Array.isArray(parsedResponse.results)) {
+        analyses = parsedResponse.results;
+      } else {
+        // If no array is found, use the whole response as a single result
+        analyses = [parsedResponse];
+      }
+      
+      logger.info(`Successfully parsed batch response with ${analyses.length} results`);
+      
+      // Return results mapped to image paths
+      return images.map((img, index) => {
+        return {
+          path: img.path,
+          success: true,
+          data: index < analyses.length ? analyses[index] : {
+            description: "No analysis available for this image",
+            tags: ["missing", "analysis", "error"],
+            damageDetected: false,
+            severity: "unknown",
+            confidence: 0.5
+          }
+        };
+      });
+    } catch (parseError) {
+      logger.error(`Error parsing batch response: ${parseError.message}`);
+      throw new Error(`Failed to parse batch response: ${parseError.message}`);
     }
-    
+  } catch (error) {
+    logger.error(`Error in batch analysis: ${error.message}`);
     throw error;
   }
 };
@@ -229,12 +231,11 @@ const analyzePhoto = async (imagePath) => {
  */
 const analyzePhotos = async (photos, reportId) => {
   try {
-    logger.info(`Starting batch analysis for ${photos.length} photos in report ${reportId}`);
+    logger.info(`Starting analysis for ${photos.length} photos in report ${reportId}`);
     
     const results = [];
     const gridfs = require('../utils/gridfs');
     const path = require('path');
-    const fs = require('fs');
     
     // Process photos in batches of 10
     const BATCH_SIZE = 10;
@@ -242,15 +243,14 @@ const analyzePhotos = async (photos, reportId) => {
     // Split photos into batches
     for (let i = 0; i < photos.length; i += BATCH_SIZE) {
       const currentBatch = photos.slice(i, i + BATCH_SIZE);
-      logger.info(`Processing batch ${i/BATCH_SIZE + 1} with ${currentBatch.length} photos`);
+      logger.info(`Processing batch ${Math.floor(i/BATCH_SIZE) + 1} with ${currentBatch.length} photos`);
       
       // Download all photos in the batch first
-      const photoDownloadPromises = currentBatch.map(async (photo) => {
+      const downloadResults = await Promise.all(currentBatch.map(async (photo) => {
         try {
           const photoId = photo._id || photo.id;
           
           if (!photoId) {
-            logger.error(`Photo does not have a valid ID`);
             return {
               photoId: 'unknown',
               success: false,
@@ -271,10 +271,7 @@ const analyzePhotos = async (photos, reportId) => {
           try {
             // Check if we need to download the file
             if (!fs.existsSync(tempPath)) {
-              logger.info(`Downloading GridFS file to temp path: ${tempPath}`);
               await gridfs.downloadFile(photoId, tempPath);
-            } else {
-              logger.info(`Using cached GridFS file at: ${tempPath}`);
             }
           } catch (downloadError) {
             logger.error(`Error downloading photo ${photoId}: ${downloadError.message}`);
@@ -287,7 +284,6 @@ const analyzePhotos = async (photos, reportId) => {
           }
           
           if (!fs.existsSync(tempPath)) {
-            logger.error(`Failed to download photo ${photoId}`);
             return {
               photoId: photoId,
               success: false,
@@ -311,17 +307,13 @@ const analyzePhotos = async (photos, reportId) => {
             tempPath: null
           };
         }
-      });
-      
-      // Wait for all downloads to complete
-      const downloadResults = await Promise.all(photoDownloadPromises);
+      }));
       
       // Filter out successful downloads
       const successfulDownloads = downloadResults.filter(result => result.success && result.tempPath);
-      const imagePaths = successfulDownloads.map(result => result.tempPath);
       
-      if (imagePaths.length === 0) {
-        logger.error(`No photos could be downloaded for batch ${i/BATCH_SIZE + 1}`);
+      if (successfulDownloads.length === 0) {
+        logger.error(`No photos could be downloaded for batch ${Math.floor(i/BATCH_SIZE) + 1}`);
         results.push(...downloadResults.map(result => ({
           photoId: result.photoId,
           success: false,
@@ -331,185 +323,31 @@ const analyzePhotos = async (photos, reportId) => {
       }
       
       try {
-        // Start timing the batch analysis
-        const startTime = Date.now();
-        logger.info(`[TIMING] Starting batch analysis for ${imagePaths.length} photos at: ${new Date().toISOString()}`);
+        // Get array of image paths
+        const imagePaths = successfulDownloads.map(result => result.tempPath);
         
-        // Read all images as base64
-        const imagePromises = imagePaths.map(async (imagePath, index) => {
-          try {
-            const imageBuffer = await fsPromises.readFile(imagePath);
-            const base64Image = imageBuffer.toString('base64');
-            const imageSizeKB = Math.round(base64Image.length/1024);
-            logger.info(`[TIMING] Image ${index+1} converted to base64 (${imageSizeKB} KB)`);
-            
-            return {
-              path: imagePath,
-              base64: base64Image,
-              sizeKB: imageSizeKB
-            };
-          } catch (error) {
-            logger.error(`Error reading image ${imagePath}: ${error.message}`);
-            return null;
-          }
-        });
-        
-        const imageResults = await Promise.all(imagePromises);
-        const validImages = imageResults.filter(img => img !== null);
-        
-        if (validImages.length === 0) {
-          throw new Error('No valid images to analyze');
-        }
-        
-        // Calculate total size of all images
-        const totalSizeKB = validImages.reduce((sum, img) => sum + img.sizeKB, 0);
-        logger.info(`[TIMING] All ${validImages.length} images converted to base64 (Total: ${totalSizeKB} KB) - elapsed: ${(Date.now() - startTime)/1000}s`);
-        
-        // Log image sizes in more detail
-        console.log(`[OPENAI] Total image size: ${totalSizeKB} KB (${Math.round(totalSizeKB/1024 * 100) / 100} MB)`);
-        
-        // Call OpenAI Vision API
-        console.log(`[OPENAI] 1. SENDING BATCH REQUEST TO OPENAI at ${new Date().toISOString()} - elapsed: ${(Date.now() - startTime)/1000}s`);
-        logger.info(`[TIMING] Starting OpenAI API call for batch - elapsed: ${(Date.now() - startTime)/1000}s`);
-        
-        const apiCallStartTime = Date.now();
-        
-        // Log the request details (without the actual image data)
-        console.log(`[OPENAI] Request details: model=gpt-4-vision-preview, max_tokens=2000, response_format=json_object, images=${validImages.length}, store=true`);
-        
-        // Create content array with all images
-        const content = [
-          { 
-            type: "text", 
-            text: `Analyze these ${validImages.length} photos for a property inspection report. Provide a separate analysis for each photo.` 
-          }
-        ];
-        
-        // Add each image to the content array
-        validImages.forEach((img, index) => {
-          content.push({
-            type: "image_url",
-            image_url: {
-              url: `data:image/jpeg;base64,${img.base64}`
-            }
-          });
-          
-          // Add a separator text between images
-          if (index < validImages.length - 1) {
-            content.push({
-              type: "text",
-              text: `This was photo #${index + 1}. Now analyzing photo #${index + 2}:`
-            });
-          }
-        });
-        
-        // Create the request payload
-        const requestPayload = {
-          model: "gpt-4-vision-preview",
-          messages: [
-            {
-              role: "system",
-              content: SYSTEM_PROMPT
-            },
-            {
-              role: "user",
-              content: content
-            }
-          ],
-          max_tokens: 2000,
-          temperature: 0.7,
-          response_format: { type: "json_object" },
-          store: true
-        };
-        
-        // Make the API call
-        console.log(`[OPENAI] Sending batch request to OpenAI API...`);
-        const response = await openai.chat.completions.create(requestPayload);
-        
-        // Log when we received the response
-        const apiCallDuration = (Date.now() - apiCallStartTime)/1000;
-        console.log(`[OPENAI] 2. RECEIVED BATCH RESPONSE FROM OPENAI at ${new Date().toISOString()} - took ${apiCallDuration}s`);
-        logger.info(`[TIMING] OpenAI API call completed in ${apiCallDuration}s - total elapsed: ${(Date.now() - startTime)/1000}s`);
-        
-        // Log response metadata
-        console.log(`[OPENAI] Response metadata: model=${response.model}, prompt_tokens=${response.usage?.prompt_tokens || 'unknown'}, completion_tokens=${response.usage?.completion_tokens || 'unknown'}`);
-        
-        // Parse the response
-        const responseContent = response.choices[0].message.content;
-        console.log(`[OPENAI] 3. STARTING ANALYSIS OF OPENAI BATCH RESPONSE at ${new Date().toISOString()} - elapsed: ${(Date.now() - startTime)/1000}s`);
-        
-        let batchResults = [];
-        
-        try {
-          // Extract JSON from the response
-          logger.info(`[TIMING] Parsing API batch response - elapsed: ${(Date.now() - startTime)/1000}s`);
-          const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsedResponse = JSON.parse(jsonMatch[0]);
-            
-            // Check if the response has an analyses array
-            if (parsedResponse.analyses && Array.isArray(parsedResponse.analyses)) {
-              batchResults = parsedResponse.analyses;
-            } else if (parsedResponse.results && Array.isArray(parsedResponse.results)) {
-              batchResults = parsedResponse.results;
-            } else {
-              // If no array is found, try to use the whole response as a single result
-              batchResults = [parsedResponse];
-            }
-            
-            console.log(`[OPENAI] Successfully parsed JSON batch response with ${batchResults.length} results`);
-          } else {
-            throw new Error("No JSON found in batch response");
-          }
-        } catch (parseError) {
-          logger.error(`Error parsing AI batch response: ${parseError.message}`);
-          console.log(`[OPENAI] Failed to parse JSON batch response: ${parseError.message}`);
-          
-          // Fallback to a simpler structure
-          batchResults = validImages.map((img, index) => ({
-            description: `Failed to analyze photo ${index + 1}`,
-            tags: [],
-            damageDetected: false,
-            severity: "unknown",
-            confidence: 0,
-            error: parseError.message
-          }));
-        }
+        // Process entire batch in one request
+        const batchAnalysisResults = await analyzeBatchPhotos(imagePaths);
         
         // Map results back to photo IDs
         const mappedResults = successfulDownloads.map((download, index) => {
-          // Get the corresponding result or use a default
-          const result = index < batchResults.length ? batchResults[index] : {
-            description: `No analysis available for photo ${index + 1}`,
-            tags: [],
-            damageDetected: false,
-            severity: "unknown",
-            confidence: 0
-          };
+          const analysisResult = batchAnalysisResults.find(r => r.path === download.tempPath);
           
-          // Add timing information
-          result.processingTime = {
-            total: (Date.now() - startTime)/1000,
-            apiCall: apiCallDuration,
-            imageSize: validImages[index]?.sizeKB || 0
-          };
-          
-          return {
-            photoId: download.photoId,
-            success: true,
-            data: result
-          };
+          if (analysisResult && analysisResult.success) {
+            return {
+              photoId: download.photoId,
+              success: true,
+              data: analysisResult.data
+            };
+          } else {
+            return {
+              photoId: download.photoId,
+              success: false,
+              error: 'Failed to analyze photo'
+            };
+          }
         });
         
-        console.log(`[OPENAI] 3. COMPLETED ANALYSIS OF OPENAI BATCH RESPONSE at ${new Date().toISOString()} - elapsed: ${(Date.now() - startTime)/1000}s`);
-        
-        const totalTime = (Date.now() - startTime)/1000;
-        logger.info(`[TIMING] Batch analysis complete for ${validImages.length} photos - total time: ${totalTime}s (API call: ${apiCallDuration}s)`);
-        
-        // Log a summary of the timing
-        console.log(`[OPENAI] BATCH SUMMARY: Total=${totalTime}s, API Call=${apiCallDuration}s, Images=${validImages.length}, Total Size=${totalSizeKB}KB`);
-        
-        // Add the mapped results to the overall results
         results.push(...mappedResults);
         
         // Add failed downloads to results
@@ -521,7 +359,7 @@ const analyzePhotos = async (photos, reportId) => {
         })));
         
       } catch (batchError) {
-        logger.error(`Error analyzing batch ${i/BATCH_SIZE + 1}: ${batchError.message}`);
+        logger.error(`Error processing batch ${Math.floor(i/BATCH_SIZE) + 1}: ${batchError.message}`);
         
         // Mark all photos in this batch as failed
         results.push(...downloadResults.map(result => ({
@@ -531,13 +369,13 @@ const analyzePhotos = async (photos, reportId) => {
         })));
       }
       
-      // Add a small delay between batches to avoid overwhelming the system
+      // Add a small delay between batches
       if (i + BATCH_SIZE < photos.length) {
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
     }
     
-    logger.info(`Completed batch analysis for ${results.length} photos`);
+    logger.info(`Completed analysis for ${results.length} photos`);
     return results;
     
   } catch (error) {

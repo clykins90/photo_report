@@ -130,9 +130,9 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
                   uploadProgress: 100,                  // Complete progress
                   uploadDate: serverPhoto.uploadDate,   // Server timestamp
                   aiAnalysis: serverPhoto.aiAnalysis,   // Analysis if present
-                  preview: photo.preview,               // Preserve preview URL
+                  file: photo.file,                     // Keep the local file
+                  preview: photo.preview,               // IMPORTANT: Preserve local preview URL
                   url: `/api/photos/${serverPhoto._id}`, // Add direct URL for display
-                  file: photo.file                      // Preserve file
                 };
               } else if (result.data.idMapping && result.data.idMapping[photo.clientId]) {
                 // Try matching by ID map from server response
@@ -149,9 +149,9 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
                     uploadProgress: 100,
                     uploadDate: mappedPhoto.uploadDate,
                     aiAnalysis: mappedPhoto.aiAnalysis,
-                    preview: photo.preview,             // Preserve preview URL
+                    file: photo.file,                   // Keep the local file
+                    preview: photo.preview,             // IMPORTANT: Preserve local preview URL
                     url: `/api/photos/${mappedPhoto._id}`, // Add direct URL for display
-                    file: photo.file
                   };
                 }
               } else {
@@ -170,9 +170,9 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
                     uploadProgress: 100,
                     uploadDate: fallbackMatch.uploadDate,
                     aiAnalysis: fallbackMatch.aiAnalysis,
-                    preview: photo.preview,             // Preserve preview URL
+                    file: photo.file,                   // Keep the local file
+                    preview: photo.preview,             // IMPORTANT: Preserve local preview URL
                     url: `/api/photos/${fallbackMatch._id}`, // Add direct URL for display
-                    file: photo.file
                   };
                 }
               }

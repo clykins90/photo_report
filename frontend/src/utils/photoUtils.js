@@ -251,18 +251,24 @@ export const getPhotoUrl = (photoOrId, options = {}) => {
   }
   
   // For objects, use the best available source with priority
-  // 1. If we have a direct URL property, use it
+
+  // 1. If we have a local preview URL, prefer it for thumbnails (avoids downloading)
+  if (photoOrId.preview) {
+    return photoOrId.preview;
+  }
+  
+  // 2. If we have a direct URL property, use it
   if (photoOrId.url) {
     return photoOrId.url;
   }
   
-  // 2. If we have an _id, construct a server path
+  // 3. If we have an _id, construct a server path
   if (photoOrId._id) {
     const apiPath = `/api/photos/${photoOrId._id}${options.size && options.size !== 'original' ? `?size=${options.size}` : ''}`;
     return apiPath;
   }
   
-  // 3. If we have a path property that points to the API, use it
+  // 4. If we have a path property that points to the API, use it
   if (photoOrId.path && (photoOrId.path.startsWith('/api/') || photoOrId.path.startsWith('/photos/'))) {
     // Ensure the path has the correct format
     const apiPath = photoOrId.path.startsWith('/api/') 
@@ -271,11 +277,6 @@ export const getPhotoUrl = (photoOrId, options = {}) => {
     
     // Add size parameter if needed
     return `${apiPath}${options.size && options.size !== 'original' ? `?size=${options.size}` : ''}`;
-  }
-  
-  // 4. If we have a local preview URL, use it as a fallback
-  if (photoOrId.preview) {
-    return photoOrId.preview;
   }
   
   // 5. Nothing usable found
@@ -369,12 +370,12 @@ export const getBestDataSource = (photo) => {
   }
   
   // Next best is a data URL or blob URL stored locally
-  if (photo.localDataUrl) {
-    return { type: 'dataUrl', data: photo.localDataUrl };
+  if (photo.preview && (photo.preview.startsWith('data:') || photo.preview.startsWith('blob:'))) {
+    return { type: 'dataUrl', data: photo.preview };
   }
   
-  if (photo.preview && photo.preview.startsWith('data:')) {
-    return { type: 'dataUrl', data: photo.preview };
+  if (photo.localDataUrl) {
+    return { type: 'dataUrl', data: photo.localDataUrl };
   }
   
   // Fall back to server URL if we have an ID
