@@ -77,7 +77,7 @@ const analyzePhoto = async (imagePath) => {
     const apiCallStartTime = Date.now();
     
     // Log the request details (without the actual image data)
-    console.log(`[OPENAI] Request details: model=gpt-4o-mini, max_tokens=1000, response_format=json_object, store=true`);
+    console.log(`[OPENAI] Request details: model=gpt-4o-mini, max_tokens=1000, temperature=0.7, response_format=json_object`);
     
     // Create the request payload
     const requestPayload = {
@@ -101,84 +101,108 @@ const analyzePhoto = async (imagePath) => {
         }
       ],
       max_tokens: 1000,
+      temperature: 0.7,
       response_format: { type: "json_object" },
       store: true
     };
     
-    // Make the API call
-    console.log(`[OPENAI] Sending request to OpenAI API...`);
-    const response = await openai.chat.completions.create(requestPayload);
-    
-    // Log when we received the response
-    const apiCallDuration = (Date.now() - apiCallStartTime)/1000;
-    console.log(`[OPENAI] 2. RECEIVED RESPONSE FROM OPENAI at ${new Date().toISOString()} - took ${apiCallDuration}s`);
-    logger.info(`[TIMING] OpenAI API call completed in ${apiCallDuration}s - total elapsed: ${(Date.now() - startTime)/1000}s`);
-    
-    // Log response metadata
-    console.log(`[OPENAI] Response metadata: model=${response.model}, prompt_tokens=${response.usage?.prompt_tokens || 'unknown'}, completion_tokens=${response.usage?.completion_tokens || 'unknown'}`);
-    
-    // Parse the response
-    const content = response.choices[0].message.content;
-    console.log(`[OPENAI] 3. STARTING ANALYSIS OF OPENAI RESPONSE at ${new Date().toISOString()} - elapsed: ${(Date.now() - startTime)/1000}s`);
-    
-    // Add detailed response logging
-    console.log('[OPENAI] Raw API Response:', {
-      model: response.model,
-      usage: response.usage,
-      content: content,
-      timestamp: new Date().toISOString()
-    });
-    
-    let analysisResult;
-    
     try {
-      // Extract JSON from the response
-      logger.info(`[TIMING] Parsing API response - elapsed: ${(Date.now() - startTime)/1000}s`);
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        analysisResult = JSON.parse(jsonMatch[0]);
-        console.log(`[OPENAI] Successfully parsed JSON response`);
-      } else {
-        throw new Error("No JSON found in response");
+      // Make the API call
+      console.log(`[OPENAI] Sending request to OpenAI API with payload:`, {
+        model: requestPayload.model,
+        max_tokens: requestPayload.max_tokens,
+        messageCount: requestPayload.messages.length,
+        systemPromptLength: requestPayload.messages[0].content.length,
+        imageSize: imageSizeKB
+      });
+      
+      const response = await openai.chat.completions.create(requestPayload);
+      
+      // Log when we received the response
+      const apiCallDuration = (Date.now() - apiCallStartTime)/1000;
+      console.log(`[OPENAI] 2. RECEIVED RESPONSE FROM OPENAI at ${new Date().toISOString()} - took ${apiCallDuration}s`);
+      logger.info(`[TIMING] OpenAI API call completed in ${apiCallDuration}s - total elapsed: ${(Date.now() - startTime)/1000}s`);
+      
+      // Log complete response for debugging
+      console.log('[OPENAI] Complete API Response:', {
+        model: response.model,
+        usage: response.usage,
+        choices: response.choices?.map(c => ({
+          role: c.message?.role,
+          contentLength: c.message?.content?.length,
+          content: c.message?.content,
+          finishReason: c.finish_reason
+        })),
+        timestamp: new Date().toISOString()
+      });
+
+      if (!response.choices?.[0]?.message?.content) {
+        throw new Error('Empty or invalid response from OpenAI API');
       }
-    } catch (parseError) {
-      logger.error(`Error parsing AI response: ${parseError.message}`);
-      console.log(`[OPENAI] Failed to parse JSON response: ${parseError.message}`);
-      // Fallback to a simpler structure if JSON parsing fails
-      analysisResult = {
-        description: content,
-        tags: [],
-        damageDetected: false,
-        severity: "unknown",
-        confidence: 0
+
+      // Parse the response
+      const content = response.choices[0].message.content;
+      console.log(`[OPENAI] Raw response content: ${content}`);
+
+      let analysisResult;
+      
+      try {
+        // Extract JSON from the response
+        logger.info(`[TIMING] Parsing API response - elapsed: ${(Date.now() - startTime)/1000}s`);
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          analysisResult = JSON.parse(jsonMatch[0]);
+          console.log(`[OPENAI] Successfully parsed JSON response`);
+        } else {
+          throw new Error("No JSON found in response");
+        }
+      } catch (parseError) {
+        logger.error(`Error parsing AI response: ${parseError.message}`);
+        console.log(`[OPENAI] Failed to parse JSON response: ${parseError.message}`);
+        // Fallback to a simpler structure if JSON parsing fails
+        analysisResult = {
+          description: content,
+          tags: [],
+          damageDetected: false,
+          severity: "unknown",
+          confidence: 0
+        };
+      }
+      
+      console.log(`[OPENAI] 3. COMPLETED ANALYSIS OF OPENAI RESPONSE at ${new Date().toISOString()} - elapsed: ${(Date.now() - startTime)/1000}s`);
+      
+      const totalTime = (Date.now() - startTime)/1000;
+      logger.info(`[TIMING] Analysis complete for ${imagePath} - total time: ${totalTime}s (API call: ${apiCallDuration}s)`);
+      
+      // Add timing information to the result
+      analysisResult.processingTime = {
+        total: totalTime,
+        apiCall: apiCallDuration,
+        imageSize: imageSizeKB
       };
+      
+      // Log a summary of the timing
+      console.log(`[OPENAI] SUMMARY: Total=${totalTime}s, API Call=${apiCallDuration}s, Image Size=${imageSizeKB}KB`);
+      
+      // Make sure we log the actual analysis content for debugging
+      logger.info(`Analysis result for ${imagePath}:`, {
+        hasDescription: !!analysisResult.description,
+        descriptionLength: analysisResult.description ? analysisResult.description.length : 0,
+        tags: analysisResult.tags || [],
+        damageDetected: !!analysisResult.damageDetected
+      });
+      
+      // Return a structure consistent with analyzePhotos results to avoid inconsistencies
+      return { data: analysisResult };
+    } catch (apiError) {
+      logger.error(`OpenAI API Error: ${apiError.message}`);
+      if (apiError.response) {
+        console.log(`[OPENAI] Error status: ${apiError.response.status}`);
+        console.log(`[OPENAI] Error data:`, apiError.response.data);
+      }
+      
+      throw apiError;
     }
-    
-    console.log(`[OPENAI] 3. COMPLETED ANALYSIS OF OPENAI RESPONSE at ${new Date().toISOString()} - elapsed: ${(Date.now() - startTime)/1000}s`);
-    
-    const totalTime = (Date.now() - startTime)/1000;
-    logger.info(`[TIMING] Analysis complete for ${imagePath} - total time: ${totalTime}s (API call: ${apiCallDuration}s)`);
-    
-    // Add timing information to the result
-    analysisResult.processingTime = {
-      total: totalTime,
-      apiCall: apiCallDuration,
-      imageSize: imageSizeKB
-    };
-    
-    // Log a summary of the timing
-    console.log(`[OPENAI] SUMMARY: Total=${totalTime}s, API Call=${apiCallDuration}s, Image Size=${imageSizeKB}KB`);
-    
-    // Make sure we log the actual analysis content for debugging
-    logger.info(`Analysis result for ${imagePath}:`, {
-      hasDescription: !!analysisResult.description,
-      descriptionLength: analysisResult.description ? analysisResult.description.length : 0,
-      tags: analysisResult.tags || [],
-      damageDetected: !!analysisResult.damageDetected
-    });
-    
-    // Return a structure consistent with analyzePhotos results to avoid inconsistencies
-    return { data: analysisResult };
   } catch (error) {
     const errorTime = (Date.now() - startTime)/1000;
     logger.error(`Error analyzing photo: ${error.message}`);
@@ -349,7 +373,7 @@ const analyzePhotos = async (photos, reportId) => {
         const apiCallStartTime = Date.now();
         
         // Log the request details (without the actual image data)
-        console.log(`[OPENAI] Request details: model=gpt-4o-mini, max_tokens=2000, response_format=json_object, images=${validImages.length}, store=true`);
+        console.log(`[OPENAI] Request details: model=gpt-4-vision-preview, max_tokens=2000, response_format=json_object, images=${validImages.length}, store=true`);
         
         // Create content array with all images
         const content = [
@@ -379,7 +403,7 @@ const analyzePhotos = async (photos, reportId) => {
         
         // Create the request payload
         const requestPayload = {
-          model: "gpt-4o-mini",
+          model: "gpt-4-vision-preview",
           messages: [
             {
               role: "system",
@@ -391,6 +415,7 @@ const analyzePhotos = async (photos, reportId) => {
             }
           ],
           max_tokens: 2000,
+          temperature: 0.7,
           response_format: { type: "json_object" },
           store: true
         };
