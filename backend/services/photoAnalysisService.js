@@ -151,7 +151,9 @@ const analyzePhoto = async (imagePath) => {
         logger.info(`[TIMING] Parsing API response - elapsed: ${(Date.now() - startTime)/1000}s`);
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          analysisResult = JSON.parse(jsonMatch[0]);
+          const parsedResponse = JSON.parse(jsonMatch[0]);
+          // Check if response contains analyses array and use the first analysis
+          analysisResult = parsedResponse.analyses?.[0] || parsedResponse;
           console.log(`[OPENAI] Successfully parsed JSON response`);
         } else {
           throw new Error("No JSON found in response");
