@@ -265,12 +265,26 @@ const analyzePhotos = async (req, res) => {
           
           logger.debug(`Updating photo ${result.photoId} in report ${reportId}. Status: ${newStatus}. Analysis data keys: ${Object.keys(analysisData).join(', ')}`);
           
+          // Ensure the analysis data structure is complete
+          const sanitizedAnalysis = {
+            tags: Array.isArray(analysisData.tags) ? analysisData.tags : [],
+            severity: analysisData.severity || 'unknown',
+            description: analysisData.description || '',
+            confidence: typeof analysisData.confidence === 'number' ? analysisData.confidence : 0,
+            damageDetected: !!analysisData.damageDetected
+          };
+          
+          // Log if analysis data appears valid but isn't being reflected
+          if (hasRealContent) {
+            logger.debug(`Analysis for photo ${result.photoId} has content: ${sanitizedAnalysis.description.substring(0, 50)}... and ${sanitizedAnalysis.tags.length} tags`);
+          }
+          
           return {
               updateOne: {
                   filter: { _id: reportId, 'photos._id': result.photoId },
                   update: {
                       $set: {
-                          'photos.$.analysis': analysisData,
+                          'photos.$.analysis': sanitizedAnalysis,
                           'photos.$.status': newStatus,
                           'photos.$.lastUpdated': new Date() // Update photo lastUpdated
                       }

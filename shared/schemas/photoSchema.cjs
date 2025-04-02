@@ -126,6 +126,12 @@ const PhotoSchema = {
       if (rawData.status === 'analyzed') {
         cleanPhoto.status = 'analyzed';
       }
+      
+      // If we have analysis data with content but status is not 'analyzed', 
+      // ensure it's set properly
+      if (cleanPhoto.aiAnalysis.description || cleanPhoto.aiAnalysis.tags.length > 0) {
+        cleanPhoto.status = 'analyzed';
+      }
     } else {
       // No analysis data
       cleanPhoto.aiAnalysis = { 

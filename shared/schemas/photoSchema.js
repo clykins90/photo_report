@@ -161,10 +161,42 @@ const PhotoSchema = {
       path,
       uploadDate: apiPhoto.uploadDate ? new Date(apiPhoto.uploadDate) : new Date(),
       size: apiPhoto.size,
-      // Use aiAnalysis from either property name (aiAnalysis or analysis)
-      aiAnalysis: apiPhoto.aiAnalysis || apiPhoto.analysis || null,
+      // Process analysis data from the server
+      analysis: null,
       uploadProgress: 100
     };
+    
+    // Check for analysis data with proper content
+    if (apiPhoto.aiAnalysis) {
+      standardizedPhoto.analysis = {
+        tags: Array.isArray(apiPhoto.aiAnalysis.tags) ? apiPhoto.aiAnalysis.tags : [],
+        severity: apiPhoto.aiAnalysis.severity || 'unknown',
+        description: apiPhoto.aiAnalysis.description || '',
+        confidence: typeof apiPhoto.aiAnalysis.confidence === 'number' ? apiPhoto.aiAnalysis.confidence : 0,
+        damageDetected: !!apiPhoto.aiAnalysis.damageDetected
+      };
+      
+      // If we have analysis content but status is not 'analyzed', override it
+      if (status !== 'analyzed' && 
+         (standardizedPhoto.analysis.description || standardizedPhoto.analysis.tags.length > 0)) {
+        standardizedPhoto.status = 'analyzed';
+      }
+    } else if (apiPhoto.analysis) {
+      // Handle legacy or alternative analysis field
+      standardizedPhoto.analysis = {
+        tags: Array.isArray(apiPhoto.analysis.tags) ? apiPhoto.analysis.tags : [],
+        severity: apiPhoto.analysis.severity || 'unknown',
+        description: apiPhoto.analysis.description || '',
+        confidence: typeof apiPhoto.analysis.confidence === 'number' ? apiPhoto.analysis.confidence : 0,
+        damageDetected: !!apiPhoto.analysis.damageDetected
+      };
+      
+      // If we have analysis content but status is not 'analyzed', override it
+      if (status !== 'analyzed' && 
+         (standardizedPhoto.analysis.description || standardizedPhoto.analysis.tags.length > 0)) {
+        standardizedPhoto.status = 'analyzed';
+      }
+    }
     
     // Merge with client photo if provided
     if (clientPhoto) {
@@ -178,7 +210,7 @@ const PhotoSchema = {
         _id: standardizedPhoto._id,
         status: standardizedPhoto.status,
         path: standardizedPhoto.path,
-        aiAnalysis: standardizedPhoto.aiAnalysis
+        analysis: standardizedPhoto.analysis
       };
     }
     

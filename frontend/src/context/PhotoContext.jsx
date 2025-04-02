@@ -193,6 +193,15 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         const result = await analyzePhotosService(reportId, photoIdsToAnalyze); // Pass the IDs
 
         if (result.success && result.data?.photos) {
+          // Log the received analyzed photos data for debugging
+          console.log('Received analyzed photos from server:', result.data.photos.map(p => ({
+            id: p._id,
+            hasAnalysis: !!p.aiAnalysis,
+            status: p.status,
+            tags: p.aiAnalysis?.tags?.length || 0,
+            descLength: p.aiAnalysis?.description?.length || 0
+          })));
+          
           // Create a map of analyzed photos keyed by their _id for efficient lookup
           const analyzedPhotoMap = result.data.photos.reduce((map, ap) => {
             if (ap && ap._id) {
@@ -207,9 +216,21 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
 
             if (analyzedData) {
               // Found analysis data for this photo
-              const updatedPhoto = PhotoSchema.deserializeFromApi(analyzedData, photo);
+              const updatedPhoto = {
+                ...photo,
+                status: analyzedData.status || 'analyzed',
+                analysis: analyzedData.aiAnalysis || null
+              };
+              
+              // Make sure if aiAnalysis exists but is empty, we don't lose any existing analysis data
+              if (analyzedData.aiAnalysis && 
+                  (analyzedData.aiAnalysis.description || 
+                   (analyzedData.aiAnalysis.tags && analyzedData.aiAnalysis.tags.length > 0))) {
+                updatedPhoto.analysis = analyzedData.aiAnalysis;
+              }
+              
               console.log('Updated photo with analysis:', updatedPhoto);
-              return updatedPhoto; // Includes status update from deserializeFromApi
+              return updatedPhoto;
             } else if (photoIdsToAnalyze.includes(photo._id)) {
               // Was part of the batch, but no analysis data returned (treat as error or just leave status?)
               // Let's mark it as error for clarity
