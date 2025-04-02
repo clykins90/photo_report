@@ -142,6 +142,10 @@ const analyzeBatchPhotos = async (imageData) => {
     const responseContent = response.choices[0].message.content;
     const parsedResponse = JSON.parse(responseContent);
 
+    // --- BEGIN ADDED LOGGING ---
+    logger.debug(`Raw OpenAI parsed response: ${JSON.stringify(parsedResponse, null, 2)}`); 
+    // --- END ADDED LOGGING ---
+
     // Extract analyses array
     let analyses = [];
     if (parsedResponse.analyses && Array.isArray(parsedResponse.analyses)) {
@@ -172,10 +176,17 @@ const analyzeBatchPhotos = async (imageData) => {
       }
     });
 
+    // --- BEGIN ADDED LOGGING ---
+    logger.debug(`Analysis map created with keys: ${Object.keys(analysisMap).join(', ')}`);
+    // --- END ADDED LOGGING ---
+
     // Map results back to the original photo IDs using the analysisMap
     return imageData.map(imgData => {
       const analysis = analysisMap[imgData.id];
       if (analysis) {
+        // --- BEGIN ADDED LOGGING ---
+        logger.debug(`Successfully mapped analysis for photo ID ${imgData.id}`);
+        // --- END ADDED LOGGING ---
         return {
           id: imgData.id,
           success: true,
@@ -184,6 +195,9 @@ const analyzeBatchPhotos = async (imageData) => {
       } else {
         const errorMessage = "Analysis missing in AI batch response for this ID";
         logger.error(`Analysis missing for photo ID ${imgData.id}. Check AI response structure and photoId content.`);
+        // --- BEGIN ADDED LOGGING ---
+        logger.warn(`Failed mapping analysis for photo ID ${imgData.id}. Expected ID in analysisMap.`);
+        // --- END ADDED LOGGING ---
         return {
           id: imgData.id,
           success: false,

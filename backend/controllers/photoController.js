@@ -239,6 +239,10 @@ const analyzePhotos = async (req, res) => {
     // 4. Call the analysis service with the validated IDs
     const analysisResults = await photoAnalysisService.analyzePhotos(idsToAnalyze, reportId);
 
+    // --- BEGIN ADDED LOGGING ---
+    logger.debug(`Analysis service returned ${analysisResults ? analysisResults.length : 'null'} results: ${JSON.stringify(analysisResults, null, 2)}`);
+    // --- END ADDED LOGGING ---
+
     // Check if the service returned any results (it might return an empty array on failure)
     if (!analysisResults || analysisResults.length === 0) {
         logger.error(`Photo analysis service returned no results for report ${reportId}.`);
@@ -311,6 +315,15 @@ const analyzePhotos = async (req, res) => {
     // 8. Serialize and return the results
     const serializedPhotos = updatedAnalyzedPhotos.map(photo => PhotoSchema.serializeForApi(photo));
     logger.info(`Returning ${serializedPhotos.length} updated/analyzed photos for report ${reportId}.`);
+
+    // --- BEGIN ADDED LOGGING ---
+    serializedPhotos.forEach(p => logger.debug(`Serialized photo for response: ID=${p._id}, Status=${p.status}, HasAnalysis=${!!p.aiAnalysis?.description}`));
+    // --- END ADDED LOGGING ---
+
+    // --- BEGIN ADDED LOGGING ---
+    logger.debug(`Final serialized photos count: ${serializedPhotos.length}`);
+    logger.debug(`Final serialized photos for response: ${JSON.stringify(serializedPhotos, null, 2)}`);
+    // --- END ADDED LOGGING ---
 
     return apiResponse.send(res, apiResponse.success({
       photos: serializedPhotos,
