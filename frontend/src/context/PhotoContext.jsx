@@ -1,6 +1,5 @@
 import React, { createContext, useState, useContext, useCallback, useEffect, useRef } from 'react';
 import { uploadPhotos, analyzePhotos as analyzePhotosService } from '../services/photoService';
-import { safelyRevokeBlobUrl, cleanupAllBlobUrls } from '../utils/blobUrlManager';
 import { getPhotoUrl } from '../utils/photoUtils';
 import PhotoSchema from 'shared/schemas/photoSchema';
 
@@ -29,7 +28,9 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
 
   // Clean up blob URLs when component unmounts
   useEffect(() => {
-    return () => cleanupAllBlobUrls();
+    return () => {
+      // Cleanup on unmount
+    };
   }, []);
 
   // Combined photo operations
@@ -244,25 +245,21 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     remove: useCallback((photoToRemove) => {
       setPhotos(prev => {
         const id = photoToRemove._id || photoToRemove.clientId;
-        return prev.filter(p => {
-          const keep = (p._id || p.clientId) !== id;
-          if (!keep && p.preview?.startsWith('blob:')) {
-            safelyRevokeBlobUrl(p.preview);
-          }
-          return keep;
-        });
+        return prev.filter(p => (p._id || p.clientId) !== id);
+      });
+    }, []),
+
+    removePhotos: useCallback((photosToRemove) => {
+      setPhotos(prev => {
+        const idsToRemove = photosToRemove.map(p => p._id || p.clientId);
+        return prev.filter(p => !idsToRemove.includes(p._id || p.clientId));
       });
     }, []),
 
     clear: useCallback(() => {
-      photos.forEach(p => {
-        if (p.preview?.startsWith('blob:')) {
-          safelyRevokeBlobUrl(p.preview);
-        }
-      });
       setPhotos([]);
       setStatus({ type: null });
-    }, [photos])
+    }, [])
   };
 
   const value = {
