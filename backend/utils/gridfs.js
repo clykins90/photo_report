@@ -463,6 +463,58 @@ const downloadFile = async (fileId, bucketName = 'photos') => {
 };
 
 /**
+ * Download a file into a buffer and return its info
+ * @param {string|ObjectId} fileId - ID of the file
+ * @param {string} bucketName - Name of the bucket to use
+ * @returns {Promise<{ buffer: Buffer, contentType: string, filename: string }>} File data and info
+ */
+const downloadFileToBufferWithInfo = async (fileId, bucketName = 'photos') => {
+  return new Promise(async (resolve, reject) => {
+    let id;
+    try {
+      id = typeof fileId === 'string' ? new mongoose.Types.ObjectId(fileId) : fileId;
+    } catch (error) {
+      logger.error(`Invalid ObjectId format: ${fileId}`);
+      return reject(new Error(`Invalid ObjectId format: ${fileId}`));
+    }
+    
+    const bucket = await initGridFS(bucketName);
+    if (!bucket) {
+      return reject(new Error(`GridFS bucket '${bucketName}' not initialized`));
+    }
+
+    // Find the file to get metadata
+    const files = await bucket.find({ _id: id }).toArray();
+    if (!files || files.length === 0) {
+      return reject(new Error(`File not found with ID: ${fileId} in bucket '${bucketName}'`));
+    }
+    const fileInfo = files[0];
+
+    const chunks = [];
+    const downloadStream = bucket.openDownloadStream(id);
+
+    downloadStream.on('data', (chunk) => {
+      chunks.push(chunk);
+    });
+
+    downloadStream.on('error', (err) => {
+      logger.error(`Error downloading file '${fileId}' from GridFS: ${err.message}`);
+      reject(err);
+    });
+
+    downloadStream.on('end', () => {
+      const buffer = Buffer.concat(chunks);
+      logger.debug(`Successfully downloaded file ${fileId} (${buffer.length} bytes)`);
+      resolve({
+        buffer,
+        contentType: fileInfo.contentType || 'application/octet-stream', // Default if missing
+        filename: fileInfo.filename
+      });
+    });
+  });
+};
+
+/**
  * Create a new chunked upload session
  * @param {string} fileId - Unique ID for the file being uploaded
  * @param {Object} options - Upload options
@@ -703,6 +755,7 @@ module.exports = {
   uploadPdfReport,
   streamPdfReport,
   downloadFile,
+  downloadFileToBufferWithInfo,
   createChunkedUploadSession,
   writeChunk,
   completeChunkedUpload,

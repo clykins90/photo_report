@@ -80,7 +80,7 @@ const analyzeBatchPhotos = async (imageData) => {
   imageData.forEach((imgData, index) => {
     content.push({
       type: "image_url",
-      image_url: { url: `data:image/jpeg;base64,${imgData.base64}` }
+      image_url: { url: `data:${imgData.contentType};base64,${imgData.base64}` }
     });
     if (index < imageData.length - 1) {
       content.push({
@@ -251,13 +251,14 @@ const analyzePhotos = async (photoIds, reportId) => {
         }
 
         try {
-          // Use gridfs utility to stream file content to a buffer
-          const buffer = await gridfs.downloadFile(photoId);
+          // Use new gridfs utility to get buffer and info
+          const { buffer, contentType } = await gridfs.downloadFileToBufferWithInfo(photoId);
           const base64String = buffer.toString('base64');
-          logger.debug(`Successfully fetched buffer and converted to base64 for photo ${photoId}`);
+          logger.debug(`Successfully fetched buffer (${contentType}) and converted to base64 for photo ${photoId}`);
           return {
             photoId: photoId,
             success: true,
+            contentType: contentType,
             base64: base64String
           };
         } catch (fetchError) {
@@ -271,7 +272,7 @@ const analyzePhotos = async (photoIds, reportId) => {
       }));
 
       // Filter out successfully fetched photos
-      const successfulFetches = fetchResults.filter(result => result.success && result.base64);
+      const successfulFetches = fetchResults.filter(result => result.success && result.base64 && result.contentType);
       const failedFetches = fetchResults.filter(result => !result.success);
 
       // Add failures for this batch to the main results array immediately
@@ -289,10 +290,11 @@ const analyzePhotos = async (photoIds, reportId) => {
       }
 
       try {
-        // Prepare data for batch analysis { id, base64 }
+        // Prepare data for batch analysis { id, base64, contentType }
         const batchImageData = successfulFetches.map(result => ({
           id: result.photoId,
-          base64: result.base64
+          base64: result.base64,
+          contentType: result.contentType
         }));
 
         // Process entire batch in one request using the modified analyzeBatchPhotos
