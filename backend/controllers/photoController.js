@@ -183,238 +183,144 @@ const deletePhoto = async (req, res) => {
 };
 
 /**
- * Analyze photos in a report
+ * Analyze photos in a report (expects JSON body with IDs)
  * @route POST /api/photos/analyze
  * @access Private
+ * @body { reportId: string, photoIds: string[] }
  */
 const analyzePhotos = async (req, res) => {
   try {
-    // Handle both FormData and JSON requests
-    const reportId = req.body.reportId;
-    
+    // 1. Get reportId and photoIds from JSON body
+    const { reportId, photoIds } = req.body;
+
+    // Basic validation
     if (!reportId) {
+      logger.warn('Analysis request missing reportId');
       return apiResponse.send(res, apiResponse.error('Report ID is required', null, 400));
     }
-    
-    // Find the report
-    const report = await Report.findById(reportId);
-    
+    if (!photoIds || !Array.isArray(photoIds) || photoIds.length === 0) {
+      logger.warn(`Analysis request for report ${reportId} missing photoIds`);
+      return apiResponse.send(res, apiResponse.error('Photo IDs array is required', null, 400));
+    }
+    // Validate IDs format (optional but good practice)
+    const invalidIds = photoIds.filter(id => !mongoose.Types.ObjectId.isValid(id));
+    if (invalidIds.length > 0) {
+        logger.warn(`Analysis request for report ${reportId} contained invalid photo IDs: ${invalidIds.join(', ')}`);
+        return apiResponse.send(res, apiResponse.error(`Invalid photo ID format for IDs: ${invalidIds.join(', ')}`, null, 400));
+    }
+
+    logger.info(`Received analysis request for ${photoIds.length} photos in report ${reportId}.`);
+
+    // 2. Find the report
+    const report = await Report.findById(reportId).select('photos'); // Select only photos for efficiency
     if (!report) {
+      logger.warn(`Analysis request failed: Report ${reportId} not found.`);
       return apiResponse.send(res, apiResponse.error('Report not found', null, 404));
     }
-    
-    // Check if we have uploaded files
-    const hasUploadedFiles = req.files && req.files.length > 0;
-    logger.info(`Analyzing photos: hasUploadedFiles=${hasUploadedFiles}, files=${req.files?.length || 0}`);
-    
-    // Parse photoIds if they came as a string (from FormData)
-    let photoIds = req.body.photoIds;
-    if (typeof photoIds === 'string') {
-      try {
-        photoIds = JSON.parse(photoIds);
-        logger.info(`Parsed photoIds from string: ${photoIds.length} IDs`);
-      } catch (e) {
-        logger.error(`Error parsing photoIds: ${e.message}`);
-        photoIds = [];
-      }
+
+    // 3. Validate requested photo IDs against the report's actual photos
+    const reportPhotoIds = new Set(report.photos.map(p => p._id.toString()));
+    const idsToAnalyze = photoIds.filter(id => reportPhotoIds.has(id));
+    const missingIds = photoIds.filter(id => !reportPhotoIds.has(id));
+
+    // Check if any valid photos were requested for analysis
+    if (idsToAnalyze.length === 0) {
+        logger.warn(`No valid photos found for analysis in report ${reportId}. Requested IDs: ${photoIds.join(', ')}. Report contains IDs: ${Array.from(reportPhotoIds).join(', ')}`);
+        return apiResponse.send(res, apiResponse.error('None of the requested photo IDs were found or valid for this report', null, 404));
     }
     
-    // Determine which photos to analyze from the database
-    const photosToAnalyzeFromDb = photoIds && photoIds.length > 0
-      ? report.photos.filter(photo => photoIds.includes(photo._id.toString()))
-      : hasUploadedFiles ? [] : report.photos;
-    
-    logger.info(`Photos to analyze from DB: ${photosToAnalyzeFromDb.length}`);
-    
-    // Process uploaded files if any
-    let uploadedFileResults = [];
-    
-    if (hasUploadedFiles) {
-      logger.info(`Processing ${req.files.length} uploaded files for analysis`);
-      
-      // Create temp directory if it doesn't exist
-      const tempDir = process.env.TEMP_DIR || '/tmp';
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
-      }
-      
-      // Parse photo metadata if available
-      let photoMetadata = [];
-      if (req.body.photoMetadata) {
-        try {
-          if (Array.isArray(req.body.photoMetadata)) {
-            // Handle array of metadata
-            photoMetadata = req.body.photoMetadata.map(item => 
-              typeof item === 'string' ? JSON.parse(item) : item
-            );
-          } else if (typeof req.body.photoMetadata === 'string') {
-            // Handle single metadata string
-            photoMetadata = [JSON.parse(req.body.photoMetadata)];
-          } else {
-            // Handle single metadata object
-            photoMetadata = [req.body.photoMetadata];
-          }
-          logger.info(`Parsed metadata for ${photoMetadata.length} photos`);
-        } catch (e) {
-          logger.error(`Error parsing photo metadata: ${e.message}`);
-          photoMetadata = [];
-        }
-      }
-      
-      // Process each uploaded file
-      const filePromises = req.files.map(async (file, index) => {
-        try {
-          // Get metadata for this file if available
-          const metadata = photoMetadata[index] || {};
-          
-          // Determine photo ID - use metadata ID if available, otherwise generate one
-          const photoId = metadata.id || mongoose.Types.ObjectId().toString();
-          
-          // Save file to temp location
-          const tempPath = path.join(tempDir, `uploaded_${photoId}.jpg`);
-          await fs.promises.writeFile(tempPath, file.buffer);
-          
-          logger.info(`Saved uploaded file to ${tempPath} for analysis`);
-          
-          // Analyze the photo
-          const analysis = await photoAnalysisService.analyzePhoto(tempPath);
-          
-          // Extract the analysis data from the result
-          const analysisData = analysis.data || analysis;
-          
-          // Find if this photo already exists in the report
-          const existingPhotoIndex = report.photos.findIndex(p => 
-            p._id.toString() === photoId
-          );
-          
-          if (existingPhotoIndex >= 0) {
-            // Update existing photo with analysis data
-            report.photos[existingPhotoIndex].analysis = analysisData;
-            
-            // Consider ANY photo with a description field that's not empty as analyzed
-            const hasRealContent = analysisData && 
-              ((analysisData.description && analysisData.description.trim() !== '') || 
-               (Array.isArray(analysisData.tags) && analysisData.tags.length > 0));
-            
-            // Default to 'analyzed' if we have any content, even minimal
-            report.photos[existingPhotoIndex].status = hasRealContent ? 'analyzed' : 'uploaded';
-            logger.info(`Updated existing photo ${photoId} with analysis ${hasRealContent ? '(real content)' : '(empty content)'}`);
-          } else {
-            logger.info(`Photo ${photoId} not found in report, will be added to results`);
-          }
-          
-          return {
-            photoId,
-            success: true,
-            data: analysisData  // Use consistent field name
-          };
-        } catch (error) {
-          logger.error(`Error processing uploaded file: ${error.message}`);
-          return {
-            photoId: metadata?.id || 'unknown',
-            success: false,
-            error: error.message
-          };
-        }
-      });
-      
-      uploadedFileResults = await Promise.all(filePromises);
-      logger.info(`Completed analysis of ${uploadedFileResults.length} uploaded files`);
+    // Log if some requested IDs were not found (but proceed with valid ones)
+    if (missingIds.length > 0) {
+        logger.warn(`Could not find ${missingIds.length} photos requested for analysis in report ${reportId}. Missing/Invalid IDs: ${missingIds.join(', ')}. Proceeding with ${idsToAnalyze.length} valid photos found in report.`);
     }
-    
-    // Process database photos
-    let dbPhotoResults = [];
-    if (photosToAnalyzeFromDb.length > 0) {
-      logger.info(`Analyzing ${photosToAnalyzeFromDb.length} photos from database for report ${reportId}`);
-      dbPhotoResults = await photoAnalysisService.analyzePhotos(photosToAnalyzeFromDb, reportId);
-      logger.info(`Completed analysis of ${dbPhotoResults.length} database photos`);
+
+    logger.info(`Starting analysis for ${idsToAnalyze.length} photos from report ${reportId}.`);
+
+    // 4. Call the analysis service with the validated IDs
+    const analysisResults = await photoAnalysisService.analyzePhotos(idsToAnalyze, reportId);
+
+    // Check if the service returned any results (it might return an empty array on failure)
+    if (!analysisResults || analysisResults.length === 0) {
+        logger.error(`Photo analysis service returned no results for report ${reportId}.`);
+        // Consider returning the photos that were *supposed* to be analyzed but failed?
+        // For now, return a generic error.
+        return apiResponse.send(res, apiResponse.error('Photo analysis service failed or returned no results', null, 500));
     }
-    
-    // Combine results
-    const allResults = [...uploadedFileResults, ...dbPhotoResults];
-    logger.info(`Total analysis results: ${allResults.length} (${uploadedFileResults.length} uploaded + ${dbPhotoResults.length} from DB)`);
-    
-    if (allResults.length === 0) {
-      return apiResponse.send(res, apiResponse.error('No photos were successfully analyzed', null, 400));
-    }
-    
-    // Update photos in the report with analysis results
-    const bulkOps = allResults
-      .filter(result => result.success && result.photoId)
+
+    logger.info(`Analysis service completed for report ${reportId}, received ${analysisResults.length} results.`);
+
+    // 5. Prepare bulk update operation for the database
+    const bulkOps = analysisResults
+      .filter(result => result.success && result.photoId) // Process only successful results with an ID
       .map(result => {
-        // Check if result has analysis or data field
-        const analysisData = result.data || result.analysis || null;
-        
-        if (!analysisData) {
-          logger.warn(`No analysis data found for photo ${result.photoId}`);
-          return null;
-        }
-        
-        // Log the analysis data for debugging
-        logger.info(`Analysis data for photo ${result.photoId}:`, {
-          hasDescription: !!analysisData.description,
-          descriptionLength: analysisData.description ? analysisData.description.length : 0,
-          tags: analysisData.tags || [],
-          damageDetected: !!analysisData.damageDetected,
-          severity: analysisData.severity
-        });
-        
-        // Consider ANY photo with a description field that's not empty as analyzed
-        const hasRealContent = analysisData && 
-          ((analysisData.description && analysisData.description.trim() !== '') || 
-           (Array.isArray(analysisData.tags) && analysisData.tags.length > 0));
-        
-        // Default to 'analyzed' if we have any content, even minimal
-        const newStatus = hasRealContent ? 'analyzed' : 'uploaded';
-        logger.info(`Setting photo ${result.photoId} status to ${newStatus} based on content check`);
-        
-        return {
-          updateOne: {
-            filter: { _id: reportId, 'photos._id': result.photoId },
-            update: { 
-              $set: { 
-                'photos.$.analysis': analysisData,
-                'photos.$.status': newStatus,
-                lastUpdated: new Date()
+          const analysisData = result.data || result.analysis || {}; // Default to empty object if no data
+          
+          // Determine status based on whether analysis produced content
+          const hasRealContent = analysisData.description?.trim() || (analysisData.tags?.length > 0);
+          const newStatus = hasRealContent ? 'analyzed' : 'uploaded'; // Stay 'uploaded' if analysis is empty
+          
+          logger.debug(`Updating photo ${result.photoId} in report ${reportId}. Status: ${newStatus}. Analysis data keys: ${Object.keys(analysisData).join(', ')}`);
+          
+          return {
+              updateOne: {
+                  filter: { _id: reportId, 'photos._id': result.photoId },
+                  update: {
+                      $set: {
+                          'photos.$.analysis': analysisData,
+                          'photos.$.status': newStatus,
+                          'photos.$.lastUpdated': new Date() // Update photo lastUpdated
+                      }
+                  }
               }
-            }
-          }
-        };
+          };
       })
-      .filter(op => op !== null); // Filter out null operations
-    
-    // Execute bulk operation if there are results
+      .filter(op => op != null); // Ensure no null ops
+      
+    // 6. Execute bulk update if needed
     if (bulkOps.length > 0) {
-      await Report.bulkWrite(bulkOps);
-      logger.info(`Updated ${bulkOps.length} photos with analysis results`);
+      try {
+        logger.info(`Executing bulk update for ${bulkOps.length} photos in report ${reportId}.`);
+        const bulkResult = await Report.bulkWrite(bulkOps);
+        logger.info(`Bulk update completed for report ${reportId}. Matched: ${bulkResult.matchedCount}, Modified: ${bulkResult.modifiedCount}`);
+        // Update the report's main lastUpdated field as well
+        await Report.findByIdAndUpdate(reportId, { $set: { lastUpdated: new Date() } });
+      } catch (bulkError) {
+        logger.error(`Error during bulk update for report ${reportId}: ${bulkError.message}`, { stack: bulkError.stack });
+        // Don't block response, but log the error. The data might be partially updated.
+      }
+    } else {
+      logger.warn(`No valid analysis results to update in the database for report ${reportId}.`);
+    }
+
+    // 7. Fetch the updated report data to return the analyzed photos
+    // Fetch only the specific photos that were analyzed to be precise
+    const finalReport = await Report.findById(reportId).select('photos');
+    if (!finalReport) {
+        logger.error(`Failed to re-fetch report ${reportId} after update.`);
+        return apiResponse.send(res, apiResponse.error('Failed to retrieve updated report data', null, 500));
     }
     
-    // Get updated photos
-    const updatedReport = await Report.findById(reportId);
-    
-    // Get all analyzed photos
-    const analyzedPhotoIds = allResults
-      .filter(result => result.success)
-      .map(result => result.photoId);
-    
-    const analyzedPhotos = updatedReport.photos.filter(photo => 
-      analyzedPhotoIds.includes(photo._id.toString())
+    const analyzedPhotoIds = analysisResults
+        .filter(r => r.success && r.photoId)
+        .map(r => r.photoId.toString()); // Ensure string comparison
+        
+    const updatedAnalyzedPhotos = finalReport.photos.filter(p => 
+        analyzedPhotoIds.includes(p._id.toString())
     );
-    
-    logger.info(`Found ${analyzedPhotos.length} analyzed photos in updated report`);
-    
-    // Return serialized photos
-    const serializedPhotos = analyzedPhotos.map(photo => PhotoSchema.serializeForApi(photo));
-    
-    logger.info(`Returning ${serializedPhotos.length} serialized photos to client`);
-    
+
+    // 8. Serialize and return the results
+    const serializedPhotos = updatedAnalyzedPhotos.map(photo => PhotoSchema.serializeForApi(photo));
+    logger.info(`Returning ${serializedPhotos.length} updated/analyzed photos for report ${reportId}.`);
+
     return apiResponse.send(res, apiResponse.success({
       photos: serializedPhotos,
       count: serializedPhotos.length
     }));
+
   } catch (error) {
-    logger.error(`Error analyzing photos: ${error.message}`);
-    return apiResponse.send(res, apiResponse.error('Failed to analyze photos', error.message, 500));
+    // Catch any unexpected errors
+    logger.error(`Unexpected error in analyzePhotos for report ${req.body?.reportId}: ${error.message}`, { stack: error.stack });
+    return apiResponse.send(res, apiResponse.error('An unexpected error occurred during photo analysis', error.message, 500));
   }
 };
 

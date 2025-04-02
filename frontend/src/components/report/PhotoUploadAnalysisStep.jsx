@@ -14,7 +14,7 @@ const PhotoUploadAnalysisStep = () => {
     upload: uploadPhotos,
     analyze: analyzePhotos,
     remove: removePhoto,
-    forceUpdateStatus
+    canAnalyzePhoto
   } = usePhotoContext();
 
   const {
@@ -41,10 +41,32 @@ const PhotoUploadAnalysisStep = () => {
   }, [report._id, uploadPhotos, submitReport]);
 
   const handleAnalyze = useCallback(async () => {
-    if (report._id && await analyzePhotos(report._id)) {
-      await generateSummary();
+    // Ensure reportId exists
+    if (report?._id) { 
+      // Call the context analyze function with only the reportId
+      const result = await analyzePhotos(report._id);
+      
+      // Check the success flag in the returned object
+      if (result.success) {
+        // Optionally check if any photos were actually returned/updated
+        if (result.data?.photos?.length > 0) {
+           console.log(`Successfully analyzed ${result.data.photos.length} photos.`);
+        } else {
+           console.log("Analysis request sent, but no photos were returned (possibly none needed analysis or analysis failed server-side).");
+        }
+        // Proceed to generate summary if analysis call was successful
+        await generateSummary(); 
+      } else {
+         // Handle analysis failure (e.g., show error message)
+         // The service function already logs the error, but you might want UI feedback
+         console.error("Analysis failed:", result.error);
+         // Example: setStatus({ type: 'error', error: result.error }); 
+      }
+    } else {
+       console.log("Analysis skipped: No report ID available.");
     }
-  }, [report._id, analyzePhotos, generateSummary]);
+    // Removed 'photos' from dependency array as it's implicitly handled by context
+  }, [report?._id, analyzePhotos, generateSummary]);
 
   const handleRemove = useCallback((photo) => {
     removePhoto(photo);
@@ -52,17 +74,6 @@ const PhotoUploadAnalysisStep = () => {
       setSelectedPhoto(null);
     }
   }, [removePhoto, selectedPhoto]);
-
-  // Debug handler to force update pending photos
-  const handleForceStatus = useCallback(() => {
-    // For each uploaded photo with pending status, force it to "uploaded"
-    photos.forEach(photo => {
-      if (photo._id && photo.status === 'pending') {
-        console.log('Forcing status update for photo:', photo.clientId || photo._id);
-        forceUpdateStatus(photo._id || photo.clientId, 'uploaded');
-      }
-    });
-  }, [photos, forceUpdateStatus]);
 
   // Render helpers
   const renderStatus = () => {
@@ -101,11 +112,10 @@ const PhotoUploadAnalysisStep = () => {
     );
   };
 
+  // Use the context's helper function to determine eligibility
   const canUpload = photos.some(p => p.status === 'pending');
-  const canAnalyze = photos.some(p => p.status === 'uploaded');
+  const canAnalyze = photos.some(canAnalyzePhoto);
   const isComplete = photos.every(p => p.status === 'analyzed');
-  // Check if any photos are stuck in pending despite having server IDs
-  const hasStuckPhotos = photos.some(p => p._id && p.status === 'pending');
 
   return (
     <div className="space-y-6">
@@ -142,16 +152,6 @@ const PhotoUploadAnalysisStep = () => {
               >
                 {isComplete ? "Analysis Complete" : "Analyze Photos"}
               </Button>
-              
-              {hasStuckPhotos && (
-                <Button 
-                  variant="outline" 
-                  className="border-orange-400 text-orange-600 hover:bg-orange-50"
-                  onClick={handleForceStatus}
-                >
-                  Fix Status
-                </Button>
-              )}
             </div>
           </>
         )}

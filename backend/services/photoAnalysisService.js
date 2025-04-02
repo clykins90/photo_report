@@ -1,7 +1,12 @@
-const fs = require('fs');
-const fsPromises = fs.promises;
+// const fs = require('fs');
 const OpenAI = require('openai');
 const logger = require('../utils/logger');
+const gridfs = require('../utils/gridfs');
+// const path = require('path');
+
+// Constants for retry logic
+const MAX_RETRIES = 3;
+const INITIAL_DELAY_MS = 1000;
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -35,356 +40,288 @@ For confidence: Provide a number between 0.5 and 1.0 indicating your confidence
 
 ALWAYS provide a description and tags, even for normal features with no damage.
 
-When analyzing multiple photos, provide your response as a JSON object with an "analyses" array containing an analysis object for each photo:
+When analyzing multiple photos, provide your response as a JSON object with an "analyses" array containing an analysis object for each photo.
+
+**CRITICAL REQUIREMENT FOR BATCH ANALYSIS:** Each individual analysis object within the 'analyses' array **MUST** include a 'photoId' field. The value of this field **MUST** be the exact ID string provided in the input prompt for that specific photo (e.g., 'ID: 65f...'). **This 'photoId' is essential for us to correctly map your analysis back to the original photo.** Failure to include the correct 'photoId' for every analysis object will render the response unusable.
+
+The overall structure for a batch response **MUST** be:
 {
   "analyses": [
     {
+      "photoId": "The exact ID provided in the text prompt for this specific photo. MANDATORY field.", 
       "description": "A detailed paragraph describing what's in the photo and its condition",
       "tags": ["tag1", "tag2", "tag3"],
       "damageDetected": false,
       "severity": "unknown",
       "confidence": 0.8
     },
-    // More photo analyses...
+    // More photo analyses, EACH containing a 'photoId'...
   ]
-}`;
-
-/**
- * Analyze a photo using OpenAI Vision
- * @param {string} imagePath - Path to the image file
- * @returns {Promise<Object>} Analysis results
- */
-const analyzePhoto = async (imagePath) => {
-  try {
-    logger.info(`Starting photo analysis for ${imagePath}`);
-    
-    // Read image as base64
-    const imageBuffer = await fsPromises.readFile(imagePath);
-    const base64Image = imageBuffer.toString('base64');
-    
-    // Call OpenAI Vision API
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "Analyze this photo for a property inspection report." },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:image/jpeg;base64,${base64Image}`
-              }
-            }
-          ]
-        }
-      ],
-      max_tokens: 1000,
-      temperature: 0.7,
-      response_format: { type: "json_object" }
-    });
-
-    // Parse the response
-    const content = response.choices[0].message.content;
-    
-    try {
-      // Properly parse the JSON response
-      const parsedResponse = JSON.parse(content);
-      
-      // Extract the analysis - look for either direct object or first item in analyses array
-      const analysisResult = parsedResponse.analyses?.[0] || parsedResponse;
-      
-      logger.info(`Successfully analyzed photo ${imagePath}`);
-      
-      // Return the analysis result
-      return { 
-        success: true,
-        data: analysisResult 
-      };
-    } catch (parseError) {
-      logger.error(`Error parsing AI response: ${parseError.message}`);
-      throw new Error(`Failed to parse AI response: ${parseError.message}`);
-    }
-  } catch (error) {
-    logger.error(`Error analyzing photo: ${error.message}`);
-    throw error;
-  }
-};
+}
+`;
 
 /**
  * Analyze multiple photos in one batch request
- * @param {Array<string>} imagePaths - Array of paths to image files
- * @returns {Promise<Array<Object>>} - Array of analysis results
+ * @param {Array<Object>} imageData - Array of objects with { id: string, base64: string }
+ * @returns {Promise<Array<Object>>} - Array of analysis results, mapped by id
  */
-const analyzeBatchPhotos = async (imagePaths) => {
-  try {
-    logger.info(`Starting batch analysis for ${imagePaths.length} photos`);
-    
-    // Read all images as base64
-    const imagePromises = imagePaths.map(async (path) => {
-      const imageBuffer = await fsPromises.readFile(path);
-      return {
-        path,
-        base64: imageBuffer.toString('base64')
-      };
-    });
-    
-    const images = await Promise.all(imagePromises);
-    
-    // Create content array with all images
-    const content = [
-      { 
-        type: "text", 
-        text: `Analyze these ${images.length} photos for a property inspection report. Provide a separate analysis for each photo.` 
-      }
-    ];
-    
-    // Add each image to the content array
-    images.forEach((img, index) => {
-      content.push({
-        type: "image_url",
-        image_url: {
-          url: `data:image/jpeg;base64,${img.base64}`
-        }
-      });
-      
-      // Add a separator text between images
-      if (index < images.length - 1) {
-        content.push({
-          type: "text",
-          text: `This was photo #${index + 1}. Now analyzing photo #${index + 2}:`
-        });
-      }
-    });
-    
-    // Call OpenAI Vision API with all images
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT
-        },
-        {
-          role: "user",
-          content: content
-        }
-      ],
-      max_tokens: 2000,
-      temperature: 0.7,
-      response_format: { type: "json_object" }
-    });
-    
-    // Parse the response
-    const responseContent = response.choices[0].message.content;
-    
-    try {
-      // Parse the JSON response
-      const parsedResponse = JSON.parse(responseContent);
-      
-      // Extract analyses array or create array from single result
-      let analyses = [];
-      if (parsedResponse.analyses && Array.isArray(parsedResponse.analyses)) {
-        analyses = parsedResponse.analyses;
-      } else if (parsedResponse.results && Array.isArray(parsedResponse.results)) {
-        analyses = parsedResponse.results;
-      } else {
-        // If no array is found, use the whole response as a single result
-        analyses = [parsedResponse];
-      }
-      
-      logger.info(`Successfully parsed batch response with ${analyses.length} results`);
-      
-      // Return results mapped to image paths
-      return images.map((img, index) => {
-        return {
-          path: img.path,
-          success: true,
-          data: index < analyses.length ? analyses[index] : {
-            description: "No analysis available for this image",
-            tags: ["missing", "analysis", "error"],
-            damageDetected: false,
-            severity: "unknown",
-            confidence: 0.5
-          }
-        };
-      });
-    } catch (parseError) {
-      logger.error(`Error parsing batch response: ${parseError.message}`);
-      throw new Error(`Failed to parse batch response: ${parseError.message}`);
+const analyzeBatchPhotos = async (imageData) => {
+  logger.info(`Starting batch analysis for ${imageData.length} photos`);
+  let lastError = null;
+  let response = null;
+
+  // Create content array once before the retry loop
+  const content = [
+    {
+      type: "text",
+      text: `Analyze these ${imageData.length} photos for a property inspection report. Provide a separate analysis for each photo.`
     }
+  ];
+  imageData.forEach((imgData, index) => {
+    content.push({
+      type: "image_url",
+      image_url: { url: `data:image/jpeg;base64,${imgData.base64}` }
+    });
+    if (index < imageData.length - 1) {
+      content.push({
+        type: "text",
+        text: `This was photo #${index + 1} (ID: ${imgData.id}). Now analyzing photo #${index + 2} (ID: ${imageData[index + 1].id}):`
+      });
+    }
+  });
+
+  // Retry loop for OpenAI API call
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      logger.info(`Attempt ${attempt + 1} of ${MAX_RETRIES} for OpenAI batch analysis for IDs: ${imageData.map(d => d.id).join(', ')}`);
+      response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: content }
+        ],
+        max_tokens: 2000,
+        temperature: 0.7,
+        response_format: { type: "json_object" }
+      });
+      // If successful, break the loop
+      lastError = null;
+      logger.info(`OpenAI API call successful on attempt ${attempt + 1}`);
+      break;
+    } catch (error) {
+      lastError = error;
+      logger.warn(`OpenAI API call attempt ${attempt + 1} failed: ${error.message}`);
+
+      // Check if the error is retryable (rate limits, server errors)
+      const isRetryable = error.status === 429 || error.status >= 500;
+
+      if (isRetryable && attempt < MAX_RETRIES - 1) {
+        const delay = INITIAL_DELAY_MS * Math.pow(2, attempt);
+        logger.info(`Retryable error detected (status: ${error.status}). Waiting ${delay}ms before next attempt...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        // Non-retryable error or max retries reached
+        logger.error(`Non-retryable error or max retries reached for OpenAI call. Error status: ${error.status}`);
+        break; // Exit loop, response will remain null
+      }
+    }
+  }
+
+  // If all retries failed, return failure for the batch
+  if (!response) {
+    logger.error(`OpenAI API call failed after ${MAX_RETRIES} attempts: ${lastError?.message || 'Unknown API error'}`);
+    return imageData.map(imgData => ({
+      id: imgData.id,
+      success: false,
+      error: `OpenAI API call failed after retries: ${lastError?.message || 'Unknown API error'}`
+    }));
+  }
+
+  // --- Process the successful response --- //
+  try {
+    const responseContent = response.choices[0].message.content;
+    const parsedResponse = JSON.parse(responseContent);
+
+    // Extract analyses array
+    let analyses = [];
+    if (parsedResponse.analyses && Array.isArray(parsedResponse.analyses)) {
+      analyses = parsedResponse.analyses;
+    } else {
+       logger.warn(`AI response missing or invalid 'analyses' array. Raw content: ${responseContent}`);
+       // Attempt to handle potential single object response if applicable, otherwise fail
+       if (typeof parsedResponse === 'object' && !Array.isArray(parsedResponse) && parsedResponse.photoId) {
+         analyses = [parsedResponse]; // Treat as a single analysis if it has photoId
+       } else {
+         // If it's not a valid single response either, return error for all
+         throw new Error("AI response missing or invalid 'analyses' array");
+       }
+    }
+
+    logger.info(`Successfully parsed batch response. Expected: ${imageData.length}, Received: ${analyses.length} analysis objects in array`);
+
+    // Create a map for results based on photoId from the AI response
+    const analysisMap = {};
+    analyses.forEach(analysis => {
+      if (analysis && analysis.photoId) {
+        if (analysisMap[analysis.photoId]) {
+           logger.warn(`Duplicate photoId '${analysis.photoId}' received in AI response. Overwriting previous analysis.`);
+        }
+        analysisMap[analysis.photoId] = analysis;
+      } else {
+        logger.warn(`AI analysis result missing photoId or invalid format: ${JSON.stringify(analysis)}`);
+      }
+    });
+
+    // Map results back to the original photo IDs using the analysisMap
+    return imageData.map(imgData => {
+      const analysis = analysisMap[imgData.id];
+      if (analysis) {
+        return {
+          id: imgData.id,
+          success: true,
+          data: analysis // Includes photoId from AI
+        };
+      } else {
+        const errorMessage = "Analysis missing in AI batch response for this ID";
+        logger.error(`Analysis missing for photo ID ${imgData.id}. Check AI response structure and photoId content.`);
+        return {
+          id: imgData.id,
+          success: false,
+          error: errorMessage
+          // No need for default data structure here, caller handles undefined data on failure
+        };
+      }
+    });
+
   } catch (error) {
-    logger.error(`Error in batch analysis: ${error.message}`);
-    throw error;
+    // Catch errors during response parsing or mapping
+    logger.error(`Error processing OpenAI response: ${error.message}`);
+    logger.debug(`Raw response content (if available): ${response?.choices[0]?.message?.content || 'N/A'}`);
+    // Return failure for all photos in the batch due to processing error
+    return imageData.map(imgData => ({
+      id: imgData.id,
+      success: false,
+      error: `Failed to process OpenAI response: ${error.message}`
+    }));
   }
 };
 
 /**
- * Analyze multiple photos from a report
- * @param {Array<Object>} photos - Array of photo objects to analyze
+ * Analyze multiple photos from a report by streaming from GridFS
+ * @param {Array<String>} photoIds - Array of photo IDs (as strings)
  * @param {String} reportId - The report ID these photos belong to
- * @returns {Promise<Array<Object>>} - Array of analysis results with photoId and analysis data
+ * @returns {Promise<Array<Object>>} - Array of analysis results with photoId and analysis data/error
  */
-const analyzePhotos = async (photos, reportId) => {
+const analyzePhotos = async (photoIds, reportId) => {
   try {
-    logger.info(`Starting analysis for ${photos.length} photos in report ${reportId}`);
-    
+    logger.info(`Starting analysis for ${photoIds.length} photos in report ${reportId}`);
+
     const results = [];
-    const gridfs = require('../utils/gridfs');
-    const path = require('path');
-    
-    // Process photos in batches of 10
+
+    // Process photos in batches
     const BATCH_SIZE = 10;
-    
-    // Split photos into batches
-    for (let i = 0; i < photos.length; i += BATCH_SIZE) {
-      const currentBatch = photos.slice(i, i + BATCH_SIZE);
-      logger.info(`Processing batch ${Math.floor(i/BATCH_SIZE) + 1} with ${currentBatch.length} photos`);
-      
-      // Download all photos in the batch first
-      const downloadResults = await Promise.all(currentBatch.map(async (photo) => {
+
+    for (let i = 0; i < photoIds.length; i += BATCH_SIZE) {
+      const currentBatchIds = photoIds.slice(i, i + BATCH_SIZE);
+      logger.info(`Processing batch ${Math.floor(i/BATCH_SIZE) + 1} with ${currentBatchIds.length} photo IDs`);
+
+      // Fetch photo data directly into buffers for the batch
+      const fetchResults = await Promise.all(currentBatchIds.map(async (photoId) => {
+        if (!photoId) {
+          logger.warn('Null or empty photo ID found in batch analysis request');
+          return {
+            photoId: 'unknown',
+            success: false,
+            error: 'Null or empty photo ID'
+          };
+        }
+
         try {
-          const photoId = photo._id || photo.id;
-          
-          if (!photoId) {
-            return {
-              photoId: 'unknown',
-              success: false,
-              error: 'Photo missing ID',
-              tempPath: null
-            };
-          }
-          
-          // Create a temporary path for the photo file
-          const tempDir = process.env.TEMP_DIR || '/tmp';
-          if (!fs.existsSync(tempDir)) {
-            fs.mkdirSync(tempDir, { recursive: true });
-          }
-          
-          const tempPath = path.join(tempDir, `photo_${photoId}.jpg`);
-          
-          // Download the file directly from GridFS using the ID
-          try {
-            // Check if we need to download the file
-            if (!fs.existsSync(tempPath)) {
-              await gridfs.downloadFile(photoId, tempPath);
-            }
-          } catch (downloadError) {
-            logger.error(`Error downloading photo ${photoId}: ${downloadError.message}`);
-            return {
-              photoId: photoId,
-              success: false,
-              error: 'Failed to download photo file',
-              tempPath: null
-            };
-          }
-          
-          if (!fs.existsSync(tempPath)) {
-            return {
-              photoId: photoId,
-              success: false,
-              error: 'Photo file could not be downloaded',
-              tempPath: null
-            };
-          }
-          
+          // Use gridfs utility to stream file content to a buffer
+          const buffer = await gridfs.streamToBuffer(photoId);
+          const base64String = buffer.toString('base64');
+          logger.debug(`Successfully fetched buffer and converted to base64 for photo ${photoId}`);
           return {
             photoId: photoId,
             success: true,
-            tempPath: tempPath
+            base64: base64String
           };
-        } catch (error) {
-          const photoId = photo._id || photo.id || 'unknown';
-          logger.error(`Error preparing photo ${photoId}: ${error.message}`);
+        } catch (fetchError) {
+          logger.error(`Error fetching photo ${photoId} from GridFS: ${fetchError.message}`);
           return {
             photoId: photoId,
             success: false,
-            error: error.message,
-            tempPath: null
+            error: `Failed to fetch photo data: ${fetchError.message}`
           };
         }
       }));
-      
-      // Filter out successful downloads
-      const successfulDownloads = downloadResults.filter(result => result.success && result.tempPath);
-      
-      if (successfulDownloads.length === 0) {
-        logger.error(`No photos could be downloaded for batch ${Math.floor(i/BATCH_SIZE) + 1}`);
-        results.push(...downloadResults.map(result => ({
+
+      // Filter out successfully fetched photos
+      const successfulFetches = fetchResults.filter(result => result.success && result.base64);
+      const failedFetches = fetchResults.filter(result => !result.success);
+
+      // Add failures for this batch to the main results array immediately
+      if (failedFetches.length > 0) {
+        results.push(...failedFetches.map(result => ({
           photoId: result.photoId,
           success: false,
-          error: result.error || 'Failed to download photo'
+          error: result.error || 'Failed to fetch photo data'
         })));
+      }
+
+      if (successfulFetches.length === 0) {
+        logger.warn(`No photos could be fetched for batch ${Math.floor(i/BATCH_SIZE) + 1}. Skipping analysis for this batch.`);
         continue;
       }
-      
+
       try {
-        // Get array of image paths
-        const imagePaths = successfulDownloads.map(result => result.tempPath);
-        
-        // Process entire batch in one request
-        const batchAnalysisResults = await analyzeBatchPhotos(imagePaths);
-        
+        // Prepare data for batch analysis { id, base64 }
+        const batchImageData = successfulFetches.map(result => ({
+          id: result.photoId,
+          base64: result.base64
+        }));
+
+        // Process entire batch in one request using the modified analyzeBatchPhotos
+        const batchAnalysisResults = await analyzeBatchPhotos(batchImageData);
+
         // Map results back to photo IDs
-        const mappedResults = successfulDownloads.map((download, index) => {
-          const analysisResult = batchAnalysisResults.find(r => r.path === download.tempPath);
-          
-          if (analysisResult && analysisResult.success) {
-            return {
-              photoId: download.photoId,
-              success: true,
-              data: analysisResult.data
-            };
-          } else {
-            return {
-              photoId: download.photoId,
-              success: false,
-              error: 'Failed to analyze photo'
-            };
-          }
-        });
-        
-        results.push(...mappedResults);
-        
-        // Add failed downloads to results
-        const failedDownloads = downloadResults.filter(result => !result.success);
-        results.push(...failedDownloads.map(result => ({
-          photoId: result.photoId,
-          success: false,
-          error: result.error || 'Failed to download photo'
+        results.push(...batchAnalysisResults.map(analysisResult => ({
+          photoId: analysisResult.id,
+          success: analysisResult.success,
+          data: analysisResult.success ? analysisResult.data : undefined,
+          error: !analysisResult.success ? analysisResult.error : undefined
         })));
-        
+
       } catch (batchError) {
-        logger.error(`Error processing batch ${Math.floor(i/BATCH_SIZE) + 1}: ${batchError.message}`);
-        
-        // Mark all photos in this batch as failed
-        results.push(...downloadResults.map(result => ({
+        logger.error(`Error processing batch ${Math.floor(i/BATCH_SIZE) + 1} after fetching: ${batchError.message}`);
+
+        results.push(...successfulFetches.map(result => ({
           photoId: result.photoId,
           success: false,
-          error: batchError.message || 'Batch analysis failed'
+          error: batchError.message || 'Batch analysis failed unexpectedly'
         })));
       }
-      
-      // Add a small delay between batches
-      if (i + BATCH_SIZE < photos.length) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+
+      if (i + BATCH_SIZE < photoIds.length) {
+        logger.debug(`Waiting 1 second before next batch...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
-    
-    logger.info(`Completed analysis for ${results.length} photos`);
+
+    logger.info(`Completed analysis process for report ${reportId}. Total results: ${results.length}`);
     return results;
-    
+
   } catch (error) {
-    logger.error(`Error in analyzePhotos: ${error.message}`);
-    throw error;
+    logger.error(`Fatal error in analyzePhotos for report ${reportId}: ${error.message}`);
+    // Fallback: Map over the input IDs
+    return photoIds.map(photoId => ({
+      photoId: photoId || 'unknown', // Use the ID directly
+      success: false,
+      error: `Service level error: ${error.message}`
+    }));
   }
 };
 
 module.exports = {
-  analyzePhoto,
   analyzePhotos
 }; 

@@ -169,16 +169,15 @@ const PhotoSchema = {
     // Merge with client photo if provided
     if (clientPhoto) {
       return {
-        ...clientPhoto,         // Preserve client data
-        ...standardizedPhoto,   // Apply server data
+        ...clientPhoto,         // Preserve client data (base)
+        ...standardizedPhoto,   // Apply server data over it
         // Explicitly preserve important client-side properties
-        preview: clientPhoto.preview || standardizedPhoto.preview || null,
-        file: clientPhoto.file || standardizedPhoto.file || null,
+        preview: clientPhoto.preview || null, // Keep client preview
+        file: clientPhoto.file || null,       // Keep client file
         // Ensure critical properties from server always take precedence
         _id: standardizedPhoto._id,
         status: standardizedPhoto.status,
         path: standardizedPhoto.path,
-        // Ensure the analysis field is correctly set
         aiAnalysis: standardizedPhoto.aiAnalysis
       };
     }

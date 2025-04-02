@@ -52,32 +52,24 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
       return newPhotos;
     }, []),
 
-    // Function to force update photo status (for debugging/recovery)
-    forceUpdateStatus: useCallback((photoId, newStatus) => {
-      setPhotos(prev => prev.map(photo => {
-        // Match by _id or clientId
-        if ((photoId === photo._id) || (photoId === photo.clientId)) {
-          return { ...photo, status: newStatus };
-        }
-        return photo;
-      }));
-    }, []),
-
     upload: useCallback(async (reportId) => {
       if (!reportId) {
         setStatus({ type: 'error', error: 'No report ID provided' });
         return false;
       }
 
+      // Identify photos to upload *before* the async operation
+      const pendingPhotos = photosRef.current.filter(PhotoSchema.helpers.canUpload);
+      const clientIdsToUpload = pendingPhotos.map(p => p.clientId); // <-- STORE THE IDs
+
+      // If no photos to upload, exit early
+      if (!pendingPhotos.length) {
+        setStatus({ type: null });
+        return true;
+      }
+
       try {
         setStatus({ type: 'uploading', progress: 0 });
-        const pendingPhotos = photos.filter(PhotoSchema.helpers.canUpload);
-        
-        if (!pendingPhotos.length) {
-          setStatus({ type: null });
-          return true;
-        }
-        
         // Log the files we're sending to ensure they have clientIds
         console.log('Files to upload:', pendingPhotos.map(p => ({
           name: p.originalName,
@@ -87,98 +79,69 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         })));
 
         const result = await uploadPhotos(
-          pendingPhotos.map(p => p.file),
+          pendingPhotos.map(p => p.file), // Use the actual pendingPhotos objects here
           reportId,
           progress => setStatus(prev => ({ ...prev, progress }))
         );
 
         if (result.success) {
           // Debug the server response once
-          console.log('Server response photos:', result.data.photos);
+          console.log('Server response data:', result.data);
+          
+          // Ensure idMapping and photos array exist
+          const idMapping = result.data?.idMapping;
+          const serverPhotos = result.data?.photos || [];
+
+          if (!idMapping) {
+            console.error("Upload successful, but server response is missing the crucial 'idMapping'. State update cannot proceed reliably.");
+            // Optionally set an error state or just return without updating status
+            setStatus({ type: 'error', error: 'Server response missing idMapping.' });
+            return false; // Indicate failure due to missing mapping
+          }
+          
+          // Create a map of server photos keyed by their _id for efficient lookup
+          const serverPhotoMapById = serverPhotos.reduce((map, sp) => {
+            if (sp && sp._id) {
+              map[sp._id] = sp;
+            }
+            return map;
+          }, {});
           
           // Process the response in a single transaction to avoid multiple updates
           setPhotos(prev => {
-            // Create a mapping of client IDs to server photos for efficient lookup
-            const serverPhotoMap = {};
-            result.data.photos.forEach(serverPhoto => {
-              if (serverPhoto.clientId) {
-                serverPhotoMap[serverPhoto.clientId] = serverPhoto;
-              }
-            });
-            
-            // Add additional debug information - only once
-            console.log('Server photo map keys:', Object.keys(serverPhotoMap));
-            
-            // Update client photos with server data in a single pass
+            // Update client photos with server data in a single pass using idMapping
             const updated = prev.map(photo => {
-              // Skip photos that aren't pending uploads
-              if (photo.status !== 'pending') {
+              // Skip photos that weren't part of this upload batch
+              // Check against the originally identified client IDs
+              if (!clientIdsToUpload.includes(photo.clientId)) {
                 return photo;
               }
               
-              // Try to find the matching server photo by clientId
-              const serverPhoto = serverPhotoMap[photo.clientId];
+              // Find the server ID using the mapping
+              const mappedServerId = idMapping[photo.clientId];
               
-              if (serverPhoto) {
-                console.log(`Found match: Client ID ${photo.clientId} -> Server ID ${serverPhoto._id}`);
-                // Create a merged photo with explicit status enforcement
-                return {
-                  ...photo,                             // Base is client photo
-                  _id: serverPhoto._id,                 // Server ID
-                  path: serverPhoto.path,               // Server path
-                  status: 'uploaded',                   // FORCE status to uploaded
-                  uploadProgress: 100,                  // Complete progress
-                  uploadDate: serverPhoto.uploadDate,   // Server timestamp
-                  aiAnalysis: serverPhoto.aiAnalysis,   // Analysis if present
-                  file: photo.file,                     // Keep the local file
-                  preview: photo.preview,               // IMPORTANT: Preserve local preview URL
-                  url: `/api/photos/${serverPhoto._id}`, // Add direct URL for display
-                };
-              } else if (result.data.idMapping && result.data.idMapping[photo.clientId]) {
-                // Try matching by ID map from server response
-                const mappedId = result.data.idMapping[photo.clientId];
-                const mappedPhoto = result.data.photos.find(sp => sp._id === mappedId);
+              if (mappedServerId) {
+                // Find the corresponding full server photo data using the mapped ID
+                const serverPhoto = serverPhotoMapById[mappedServerId];
                 
-                if (mappedPhoto) {
-                  console.log(`Found match through ID mapping: Client ID ${photo.clientId} -> Server ID ${mappedPhoto._id}`);
-                  return {
-                    ...photo,
-                    _id: mappedPhoto._id,
-                    path: mappedPhoto.path,
-                    status: 'uploaded',
-                    uploadProgress: 100,
-                    uploadDate: mappedPhoto.uploadDate,
-                    aiAnalysis: mappedPhoto.aiAnalysis,
-                    file: photo.file,                   // Keep the local file
-                    preview: photo.preview,             // IMPORTANT: Preserve local preview URL
-                    url: `/api/photos/${mappedPhoto._id}`, // Add direct URL for display
-                  };
+                if (serverPhoto) {
+                  // Found a match via idMapping
+                  console.log(`Matched via idMapping: Client ID ${photo.clientId} -> Server ID ${serverPhoto._id}`);
+                  // Use the schema method to deserialize and merge, preserving client data
+                  return PhotoSchema.deserializeFromApi(serverPhoto, photo);
+                } else {
+                  // ID was in mapping, but corresponding photo data not found in response array
+                  console.warn(`Mapped Server ID ${mappedServerId} for Client ID ${photo.clientId} not found in server photos array.`);
+                  // Set status to error as the server claimed success but data is missing
+                  return { ...photo, status: 'error', error: 'Server mapping inconsistent' };
                 }
               } else {
-                // If still no match, try a fallback match by original filename
-                const fallbackMatch = result.data.photos.find(sp => 
-                  sp.originalName === photo.originalName
-                );
-                
-                if (fallbackMatch) {
-                  console.log(`Fallback match by filename: ${photo.originalName} -> ${fallbackMatch._id}`);
-                  return {
-                    ...photo,
-                    _id: fallbackMatch._id,
-                    path: fallbackMatch.path,
-                    status: 'uploaded',
-                    uploadProgress: 100,
-                    uploadDate: fallbackMatch.uploadDate,
-                    aiAnalysis: fallbackMatch.aiAnalysis,
-                    file: photo.file,                   // Keep the local file
-                    preview: photo.preview,             // IMPORTANT: Preserve local preview URL
-                    url: `/api/photos/${fallbackMatch._id}`, // Add direct URL for display
-                  };
-                }
+                // No mapping found for this client photo's ID
+                // This implies the photo wasn't successfully processed or mapped by the server
+                console.warn(`No ID mapping found for Client ID ${photo.clientId}. Marking as error.`);
+                 // Set status to error as it was expected to be uploaded but wasn't mapped
+                 return { ...photo, status: 'error', error: 'Upload failed on server (no mapping)' };
               }
-              
-              // No match found, keep the client photo unchanged
-              return photo;
             });
             
             return updated;
@@ -187,12 +150,24 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
           setStatus({ type: null });
           return true;
         }
-        throw new Error(result.error);
+        // If result.success is false, throw the error provided by the service
+        throw new Error(result.error || 'Unknown upload error');
       } catch (err) {
-        setStatus({ type: 'error', error: err.message });
+        console.error("Upload failed:", err); // Log the actual error
+        setStatus({ type: 'error', error: err.message || 'Upload failed' });
+
+        // Use the originally captured clientIdsToUpload list to mark failures
+        setPhotos(prev =>
+          prev.map(photo =>
+            clientIdsToUpload.includes(photo.clientId)
+              ? { ...photo, status: 'error', error: err.message || 'Upload failed', uploadProgress: 0 }
+              : photo
+          )
+        );
+
         return false;
       }
-    }, [photos]),
+    }, []), // Removed photos from dependency array, using photosRef.current instead
 
     analyze: useCallback(async (reportId) => {
       if (!reportId) {
@@ -200,40 +175,71 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
         return false;
       }
 
+      // Identify photos to analyze *before* the async operation
+      const photosToAnalyze = photosRef.current.filter(PhotoSchema.helpers.canAnalyze);
+      const photoIdsToAnalyze = photosToAnalyze.map(p => p._id); // <-- STORE THE IDs
+
+      // If no photos to analyze, exit early
+      if (!photosToAnalyze.length) {
+        setStatus({ type: null });
+        return true;
+      }
+
       try {
         setStatus({ type: 'analyzing' });
-        const uploadedPhotos = photos.filter(PhotoSchema.helpers.canAnalyze);
-        
-        if (!uploadedPhotos.length) {
-          setStatus({ type: null });
-          return true;
-        }
 
-        const result = await analyzePhotosService(reportId, uploadedPhotos);
+        // Pass only the photo IDs to the service
+        const result = await analyzePhotosService(reportId, photoIdsToAnalyze); // Pass the IDs
 
-        if (result.success) {
-          setPhotos(prev => prev.map(photo => {
-            const analyzed = result.data.photos.find(ap => ap._id === photo._id);
-            if (analyzed) {
-              // Deep copy the photo to be updated and ensure we preserve server's status
-              const updatedPhoto = PhotoSchema.deserializeFromApi(analyzed, photo);
-              
-              // Log for debugging
-              console.log('Updated photo with analysis:', updatedPhoto);
-              
-              return updatedPhoto;
+        if (result.success && result.data?.photos) {
+          // Create a map of analyzed photos keyed by their _id for efficient lookup
+          const analyzedPhotoMap = result.data.photos.reduce((map, ap) => {
+            if (ap && ap._id) {
+              map[ap._id] = ap;
             }
+            return map;
+          }, {});
+
+          setPhotos(prev => prev.map(photo => {
+            // Check if this photo was part of the analysis batch and has analysis data
+            const analyzedData = photoIdsToAnalyze.includes(photo._id) ? analyzedPhotoMap[photo._id] : null;
+
+            if (analyzedData) {
+              // Found analysis data for this photo
+              const updatedPhoto = PhotoSchema.deserializeFromApi(analyzedData, photo);
+              console.log('Updated photo with analysis:', updatedPhoto);
+              return updatedPhoto; // Includes status update from deserializeFromApi
+            } else if (photoIdsToAnalyze.includes(photo._id)) {
+              // Was part of the batch, but no analysis data returned (treat as error or just leave status?)
+              // Let's mark it as error for clarity
+              console.warn(`Analysis data missing for photo ID ${photo._id}`);
+              return { ...photo, status: 'error', error: 'Analysis data not returned' };
+            }
+            // If not part of the batch, return the photo unchanged
             return photo;
           }));
+
           setStatus({ type: null });
           return true;
         }
-        throw new Error(result.error);
+        // If result.success is false or data is missing, throw error
+        throw new Error(result.error || 'Unknown analysis error');
       } catch (err) {
-        setStatus({ type: 'error', error: err.message });
+        console.error("Analysis failed:", err); // Log the actual error
+        setStatus({ type: 'error', error: err.message || 'Analysis failed' });
+
+        // Use the originally captured photoIdsToAnalyze list to mark failures
+        setPhotos(prev =>
+          prev.map(photo =>
+            photoIdsToAnalyze.includes(photo._id)
+              ? { ...photo, status: 'error', error: err.message || 'Analysis failed' }
+              : photo
+          )
+        );
+
         return false;
       }
-    }, [photos]),
+    }, []), // Removed photos from dependency array, using photosRef.current instead
 
     remove: useCallback((photoToRemove) => {
       setPhotos(prev => {
@@ -271,6 +277,7 @@ export const PhotoProvider = ({ children, initialPhotos = [] }) => {
     canUploadPhoto: PhotoSchema.helpers.canUpload,
     canAnalyzePhoto: PhotoSchema.helpers.canAnalyze,
     validatePhoto: PhotoSchema.helpers.validatePhoto
+    // forceUpdateStatus: photoOperations.forceUpdateStatus // Remove export if function is removed
   };
   
   return (

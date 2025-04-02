@@ -102,129 +102,75 @@ export const uploadPhotos = async (files, reportId, progressCallback = null) => 
 };
 
 /**
- * Analyze photos in a report
+ * Analyze photos already uploaded to the server.
  * @param {String} reportId - ID of the report containing photos
- * @param {Array<String|Object>} photosOrIds - Array of photo objects or IDs to analyze
- * @returns {Promise<Object>} Analysis result
+ * @param {Array<String>} photoIds - Array of photo IDs (server _id) to analyze.
+ * @returns {Promise<Object>} Analysis result { success: boolean, data?: { photos: Array<Object> }, error?: string }
  */
-export const analyzePhotos = async (reportId, photosOrIds = []) => {
+export const analyzePhotos = async (reportId, photoIds = []) => {
   try {
     if (!reportId) {
+      photoLogger.warn('analyzePhotos called without reportId');
       return { success: false, error: 'Report ID is required' };
     }
     
-    if (!photosOrIds || photosOrIds.length === 0) {
-      return { success: false, error: 'No photos to analyze' };
+    if (!photoIds || photoIds.length === 0) {
+      photoLogger.warn(`analyzePhotos called for report ${reportId} with no photo IDs.`);
+      // Return success, as there's nothing to do
+      return { success: true, data: { photos: [] } }; 
     }
     
-    // Debug info
-    photoLogger.info('analyzePhotos called with reportId:', reportId);
-    photoLogger.info('analyzePhotos photosOrIds type:', Array.isArray(photosOrIds) 
-      ? 'array' 
-      : typeof photosOrIds);
-    photoLogger.info('analyzePhotos first item type:', photosOrIds.length > 0 
-      ? (typeof photosOrIds[0] === 'object' ? 'object' : typeof photosOrIds[0]) 
-      : 'none');
-    
-    // Filter out already analyzed photos
-    const photosToAnalyze = photosOrIds.filter(photo => 
-      !photo.analysis && // Skip if already analyzed
-      PhotoSchema.helpers.canAnalyze(photo) // Skip if not in a state that can be analyzed
-    );
-    
-    if (photosToAnalyze.length === 0) {
-      photoLogger.info('No photos need analysis');
-      return { success: true, data: { photos: [] } };
-    }
-    
-    // Create FormData for the request
-    const payload = new FormData();
-    payload.append('reportId', reportId);
-    
-    // Process photos in batches of 20 to respect multer's limit
-    const BATCH_SIZE = 20;
-    const results = [];
-    
-    for (let i = 0; i < photosToAnalyze.length; i += BATCH_SIZE) {
-      const batch = photosToAnalyze.slice(i, i + BATCH_SIZE);
-      const batchPayload = new FormData();
-      batchPayload.append('reportId', reportId);
-      
-      // Process each photo in the batch
-      batch.forEach((photo, index) => {
-        // Get the best source for uploading
-        const source = getBestDataSource(photo);
-        let file = null;
-        
-        if (source.type === 'file' && photo.file) {
-          // We have a file object
-          file = photo.file;
-        } else if (source.type === 'dataUrl' && source.data) {
-          // Convert data URL to file
-          const dataUrl = source.data;
-          const blob = dataURLtoBlob(dataUrl);
-          file = new File([blob], `photo_${photo._id || photo.id || index}.jpg`, { type: 'image/jpeg' });
-        }
-        
-        if (file) {
-          // Use the correct field name format for multer
-          batchPayload.append('photos', file);
-          batchPayload.append(`photoMetadata[${index}]`, JSON.stringify({
-            index: i + index, // Use global index
-            id: photo._id || photo.id,
-            clientId: photo.clientId || photo.id
-          }));
-        } else if (photo._id) {
-          // If we don't have a local file but have a server ID, add it to photoIds
-          const photoIds = JSON.parse(batchPayload.get('photoIds') || '[]');
-          photoIds.push(photo._id);
-          batchPayload.set('photoIds', JSON.stringify(photoIds));
-        }
-      });
-      
-      // Log what we're sending for this batch
-      photoLogger.info(`Sending analysis request batch ${Math.floor(i/BATCH_SIZE) + 1} with:`, {
-        reportId,
-        photoCount: batch.length,
-        hasFiles: batchPayload.has('photos'),
-        hasPhotoIds: batchPayload.has('photoIds')
-      });
-      
-      // Send analysis request for this batch
-      const response = await api.post('/photos/analyze', batchPayload);
-      
-      if (response.data.success) {
-        const responseData = response.data.data || response.data;
-        const serverAnalyzedPhotos = responseData.photos || [];
-        results.push(...serverAnalyzedPhotos);
-      } else {
-        photoLogger.error(`Photo analysis failed for batch ${Math.floor(i/BATCH_SIZE) + 1}:`, response.data.error);
-        throw new Error(response.data.error || 'Analysis failed');
-      }
-      
-      // Add a small delay between batches to avoid overwhelming the server
-      if (i + BATCH_SIZE < photosToAnalyze.length) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
-    
-    // Transform all results to client format using schema
-    const clientAnalyzedPhotos = results.map(photo => 
-      // No client photos to merge with here, just use server data
-      PhotoSchema.deserializeFromApi(photo)
-    );
-    
-    return {
-      success: true,
-      data: {
-        photos: clientAnalyzedPhotos
-      }
+    photoLogger.info(`analyzePhotos called for report ${reportId} with ${photoIds.length} photo IDs.`);
+
+    // Use the provided photoIds directly
+    photoLogger.info(`Sending ${photoIds.length} photo IDs for analysis. IDs:`, photoIds);
+
+    // 3. Prepare JSON payload
+    const payload = {
+      reportId,
+      photoIds
     };
+
+    // 4. Send *single* analysis request with JSON payload
+    photoLogger.info(`Sending analysis request for report ${reportId} with ${photoIds.length} photo IDs.`);
+    
+    // Assuming `api` is an axios instance configured for JSON
+    const response = await api.post('/photos/analyze', payload);
+    
+    // 5. Handle response
+    if (response.data.success) {
+      const responseData = response.data.data || response.data;
+      const serverAnalyzedPhotos = responseData.photos || [];
+      photoLogger.info(`Analysis request successful for report ${reportId}. Received ${serverAnalyzedPhotos.length} results.`);
+      
+      // 6. Transform results to client format using schema
+      const clientAnalyzedPhotos = serverAnalyzedPhotos.map(photo => 
+        PhotoSchema.deserializeFromApi(photo)
+      );
+      
+      return {
+        success: true,
+        data: {
+          photos: clientAnalyzedPhotos
+        }
+      };
+    } else {
+      photoLogger.error(`Photo analysis request failed for report ${reportId}:`, response.data.error);
+      // Return a structured error object
+      return {
+          success: false,
+          error: response.data.error || 'Analysis request failed on the server'
+      };
+    }
+
   } catch (error) {
-    photoLogger.error('Photo analysis error:', error);
+    // Handle network errors or errors thrown from the try block
+    photoLogger.error(`Photo analysis service error for report ${reportId}:`, error);
+    // Check if it's an axios error with a response
+    const errorMessage = error.response?.data?.error || error.message || 'Analysis failed due to an unexpected error';
     return {
       success: false,
-      error: error.message || 'Analysis failed'
+      error: errorMessage
     };
   }
 };

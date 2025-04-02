@@ -5,7 +5,6 @@
  */
 
 import PhotoSchema from 'shared/schemas/photoSchema';
-import { createAndTrackBlobUrl } from './blobUrlManager';
 
 /**
  * Standard photo object structure
@@ -99,7 +98,7 @@ export const updatePhotoWithAnalysis = (photo, analysisData) => {
 /**
  * Group photos by whether they have local data available for analysis
  * @param {Array} photos - Array of photo objects
- * @returns {Object} - Groups of photos { withLocalData: [], needsServerAnalysis: [] }
+ * @returns {Object} - Groups of photos { uploaded: [], local: [] }
  */
 export const groupPhotosByDataAvailability = (photos) => {
   if (!Array.isArray(photos)) return { uploaded: [], local: [] };
@@ -125,7 +124,10 @@ export const preservePhotoData = (photo) => {
   // Create a new object to avoid modifying the original
   const processedPhoto = { ...photo };
   
-  // Preserve existing data without setting defaults
+  // Explicitly preserve status - critical to ensure it's not lost
+  processedPhoto.status = photo.status || 'pending';
+  
+  // Ensure file object is preserved
   if (photo.file) {
     processedPhoto.file = photo.file;
     
@@ -138,11 +140,34 @@ export const preservePhotoData = (photo) => {
   // Ensure preview URLs are preserved
   if (photo.preview) {
     processedPhoto.preview = photo.preview;
+    
+    // Store data URLs as localDataUrl for analysis
+    if (photo.preview.startsWith('data:') && !processedPhoto.localDataUrl) {
+      processedPhoto.localDataUrl = photo.preview;
+    }
   }
   
   // Preserve existing localDataUrl
   if (photo.localDataUrl) {
     processedPhoto.localDataUrl = photo.localDataUrl;
+  }
+
+  // If we have a preview but no localDataUrl, and the preview is a blob URL,
+  // we'll handle this asynchronously later if needed
+  
+  // Ensure path/URL is set (Simplified - removed ensurePhotoUrl call)
+  if (!processedPhoto.url && !processedPhoto.path) {
+     // Basic fallback if needed, but ideally URL/path is set elsewhere
+     // if (processedPhoto._id) {
+     //   processedPhoto.path = `/api/photos/${processedPhoto._id}`;
+     // }
+  }
+  
+  // Verify analysis data was preserved
+  if (photo.analysis && !processedPhoto.analysis) {
+    console.error(`ERROR: Analysis data was lost during preservation for photo ${photo._id || photo.id}`);
+    // Explicitly preserve analysis data
+    processedPhoto.analysis = photo.analysis;
   }
   
   return processedPhoto;
@@ -359,7 +384,7 @@ export const createDataUrlFromFile = (file) => {
 /**
  * Get the best available data source for a photo
  * @param {Object} photo - The photo object
- * @returns {Object} - Source info { type: 'file|dataUrl|serverUrl', data: Object }
+ * @returns {Object} - Source info { type: 'file|dataUrl|serverUrl|none', data: Object }
  */
 export const getBestDataSource = (photo) => {
   if (!photo) return { type: 'none', data: null };
@@ -369,22 +394,31 @@ export const getBestDataSource = (photo) => {
     return { type: 'file', data: photo.file };
   }
   
-  // Next best is a data URL or blob URL stored locally
-  if (photo.preview && (photo.preview.startsWith('data:') || photo.preview.startsWith('blob:'))) {
-    return { type: 'dataUrl', data: photo.preview };
-  }
-  
+  // Next best is a data URL stored locally
   if (photo.localDataUrl) {
     return { type: 'dataUrl', data: photo.localDataUrl };
   }
+
+  // Use preview if it's a data URL
+  if (photo.preview && photo.preview.startsWith('data:')) {
+    return { type: 'dataUrl', data: photo.preview };
+  }
   
   // Fall back to server URL if we have an ID
-  if (photo._id) {
+  if (photo._id || photo.id) {
+    // Prefer the path property if it exists, otherwise construct from ID
+    const path = photo.path || `/api/photos/${photo._id || photo.id}`;
     return { 
       type: 'serverUrl', 
-      data: photo.path || `/api/photos/${photo._id}`,
-      id: photo._id
+      data: path,
+      id: photo._id || photo.id // Include the ID used
     };
+  }
+
+  // Use preview if it's a blob URL (least preferred local source before server)
+  // Note: Using blob URLs for analysis might require converting them first
+  if (photo.preview && photo.preview.startsWith('blob:')) {
+      return { type: 'blobUrl', data: photo.preview };
   }
   
   // No good data source

@@ -79,8 +79,14 @@ const PhotoItem = ({
     const displayStatus = photo.status;
     const status = statusMap[displayStatus] || { bg: 'bg-gray-100', text: 'text-gray-800', label: displayStatus };
     
+    // Add title attribute for error messages
+    const title = displayStatus === 'error' ? (photo.error || 'An error occurred') : undefined;
+    
     return (
-      <span className={`absolute top-2 left-2 text-xs ${status.bg} ${status.text} px-2 py-0.5 rounded-full`}>
+      <span 
+        className={`absolute top-2 left-2 text-xs ${status.bg} ${status.text} px-2 py-0.5 rounded-full`}
+        title={title}
+      >
         {status.label}
       </span>
     );
