@@ -238,7 +238,7 @@ const analyzePhotos = async (photoIds, reportId) => {
 
         try {
           // Use gridfs utility to stream file content to a buffer
-          const buffer = await gridfs.streamToBuffer(photoId);
+          const buffer = await gridfs.downloadFile(photoId);
           const base64String = buffer.toString('base64');
           logger.debug(`Successfully fetched buffer and converted to base64 for photo ${photoId}`);
           return {
